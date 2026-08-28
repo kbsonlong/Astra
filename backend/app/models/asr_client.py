@@ -17,12 +17,20 @@ class MlxAudioAsrClient:
     def __init__(
         self,
         model: str,
-        language: str = "zh",
+        language: str = "Chinese",
+        max_tokens: int = 512,
+        repetition_penalty: float = 1.08,
+        repetition_context_size: int = 100,
+        chunk_duration: float = 30.0,
         load_model: Callable[[str], Any] | None = None,
         generate_transcription: Callable[..., Any] | None = None,
     ) -> None:
         self.model = model
         self.language = language
+        self.max_tokens = max_tokens
+        self.repetition_penalty = repetition_penalty
+        self.repetition_context_size = repetition_context_size
+        self.chunk_duration = chunk_duration
         self._load_model = load_model
         self._generate_transcription = generate_transcription
         self._model_instance: Any | None = None
@@ -58,6 +66,11 @@ class MlxAudioAsrClient:
                     output_path=output_path,
                     format="txt",
                     language=self.language,
+                    max_tokens=self.max_tokens,
+                    temperature=0.0,
+                    repetition_penalty=self.repetition_penalty,
+                    repetition_context_size=self.repetition_context_size,
+                    chunk_duration=self.chunk_duration,
                 )
         except Exception as exc:
             if isinstance(exc, ASRClientError):

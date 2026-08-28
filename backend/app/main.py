@@ -22,7 +22,14 @@ def create_app(
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
         app.state.pipeline = VoicePipeline(
-            MlxAudioAsrClient(current.asr_model, current.asr_language),
+            MlxAudioAsrClient(
+                current.asr_model,
+                current.asr_language,
+                max_tokens=current.asr_max_tokens,
+                repetition_penalty=current.asr_repetition_penalty,
+                repetition_context_size=current.asr_repetition_context_size,
+                chunk_duration=current.asr_chunk_duration_seconds,
+            ),
             OpenAICompatLLMClient(
                 current.llm_base_url,
                 current.llm_model,
@@ -49,6 +56,10 @@ def create_app(
             "llm_api_key": current.llm_api_key_masked,
             "asr_model": current.asr_model,
             "asr_language": current.asr_language,
+            "asr_max_tokens": current.asr_max_tokens,
+            "asr_repetition_penalty": current.asr_repetition_penalty,
+            "asr_repetition_context_size": current.asr_repetition_context_size,
+            "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
             "tts_model_path": current.tts_model_path,
             "version": current.version,
         }

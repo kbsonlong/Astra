@@ -30,7 +30,8 @@ def test_config_masks_api_key(settings: Settings) -> None:
 def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text(
-        "ASR_MODEL=/models/whisper\nASR_LANGUAGE=en\nTTS_MODEL_PATH=/models/piper.onnx\n",
+        "ASR_MODEL=/models/whisper\nASR_LANGUAGE=en\nASR_MAX_TOKENS=256\n"
+        "ASR_REPETITION_PENALTY=1.12\nTTS_MODEL_PATH=/models/piper.onnx\n",
         encoding="utf-8",
     )
 
@@ -40,6 +41,8 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
 
     assert loaded.asr_model == "/models/whisper"
     assert loaded.asr_language == "en"
+    assert loaded.asr_max_tokens == 256
+    assert loaded.asr_repetition_penalty == 1.12
     assert loaded.tts_model_path == "/models/piper.onnx"
 
 

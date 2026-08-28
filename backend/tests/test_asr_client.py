@@ -30,7 +30,12 @@ async def test_transcribe_uses_mlx_audio_sdk_with_temp_wav() -> None:
     assert observed["audio_bytes"] == b"wav"
     assert observed["model_id"] == "test-model"
     assert str(observed["audio"]).endswith("/test.wav")
-    assert observed["language"] == "zh"
+    assert observed["language"] == "Chinese"
+    assert observed["max_tokens"] == 512
+    assert observed["temperature"] == 0.0
+    assert observed["repetition_penalty"] == 1.08
+    assert observed["repetition_context_size"] == 100
+    assert observed["chunk_duration"] == 30.0
     assert observed["format"] == "txt"
 
 
