@@ -170,8 +170,21 @@ class MlxAudioAsrClient:
 
     @staticmethod
     def _load_sdk() -> tuple[Callable[[str], Any], None, Callable[[str], Any]]:
+        # Keep imports inside the MLX worker. MLX streams are thread-local.
+        return MlxAudioAsrClient._load_model_from_sdk, None, MlxAudioAsrClient._load_audio_from_sdk
+
+    @staticmethod
+    def _load_model_from_sdk(model: str) -> Any:
         try:
-            from mlx_audio.stt.utils import load_audio, load_model
+            from mlx_audio.stt.utils import load_model
         except ImportError as exc:
             raise ASRClientError("mlx-audio is not installed") from exc
-        return load_model, None, load_audio
+        return load_model(model)
+
+    @staticmethod
+    def _load_audio_from_sdk(path: str) -> Any:
+        try:
+            from mlx_audio.stt.utils import load_audio
+        except ImportError as exc:
+            raise ASRClientError("mlx-audio is not installed") from exc
+        return load_audio(path)
