@@ -52,6 +52,8 @@ class OpenAICompatLLMClient:
         *,
         temperature: float = 0.7,
         top_p: float = 1.0,
+        max_tokens: int | None = None,
+        chat_template_kwargs: Mapping[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         payload = {
             "model": self.model,
@@ -60,6 +62,10 @@ class OpenAICompatLLMClient:
             "top_p": top_p,
             "stream": True,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if chat_template_kwargs is not None:
+            payload["chat_template_kwargs"] = dict(chat_template_kwargs)
         async with self._client.stream(
             "POST",
             f"{self.base_url}/chat/completions",

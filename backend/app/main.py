@@ -57,6 +57,8 @@ def create_app(
             "llm_base_url": current.llm_base_url,
             "llm_model": current.llm_model,
             "llm_api_key": current.llm_api_key_masked,
+            "llm_correction_enabled": current.llm_correction_enabled,
+            "llm_correction_max_tokens": current.llm_correction_max_tokens,
             "asr_model": current.asr_model,
             "asr_language": current.asr_language,
             "asr_max_tokens": current.asr_max_tokens,

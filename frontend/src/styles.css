@@ -24,6 +24,7 @@ small { color: #91a0a6; }
 .file-picker input { width: 100%; border: 1px dashed #52636a; border-radius: 6px; padding: 24px 16px; color: #b7c3c8; background: #171d20; }
 .upload-status, .result-meta { color: #91a0a6; margin: 0; }
 .upload-form button:disabled { cursor: not-allowed; opacity: 0.45; }
+.upload-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .result { border-top: 1px solid #2b353b; padding-top: 24px; }
 .result-text { margin: 16px 0 0; font-size: 20px; line-height: 1.7; white-space: pre-wrap; }
 @media (max-width: 520px) { .shell { padding-top: 32px; } .conversation { padding: 32px 0; } }

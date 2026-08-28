@@ -22,6 +22,11 @@ def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _bool_env(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    return default if value is None else value.lower() in {"1", "true", "yes", "on"}
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_base_url: str = "http://192.168.3.18:8000/v1"
@@ -32,6 +37,14 @@ class Settings:
     llm_request_timeout_seconds: float = 120.0
     llm_connect_timeout_seconds: float = 3.0
     llm_stream_idle_timeout_seconds: float = 15.0
+    llm_correction_enabled: bool = True
+    llm_correction_max_tokens: int = 256
+    llm_correction_system_prompt: str = (
+        "你是中文语音识别纠错器。只修正明显的同音词、技术术语、人名和专有名词错误。"
+        "不新增、不删减、不总结，只输出修正后的文本。"
+        "术语映射：后视网络模式->host 网络模式；后视->host；单科->单机；多科->多机；集群机->集群。"
+        "保留技术术语中英文之间的空格。"
+    )
     asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
     asr_language: str = "Chinese"
     asr_max_tokens: int = 512
@@ -61,6 +74,15 @@ class Settings:
             ),
             llm_stream_idle_timeout_seconds=_float_env(
                 "LLM_STREAM_IDLE_TIMEOUT_SECONDS", cls.llm_stream_idle_timeout_seconds
+            ),
+            llm_correction_enabled=_bool_env(
+                "LLM_CORRECTION_ENABLED", cls.llm_correction_enabled
+            ),
+            llm_correction_max_tokens=_int_env(
+                "LLM_CORRECTION_MAX_TOKENS", cls.llm_correction_max_tokens
+            ),
+            llm_correction_system_prompt=os.getenv(
+                "LLM_CORRECTION_SYSTEM_PROMPT", cls.llm_correction_system_prompt
             ),
             asr_model=os.getenv("ASR_MODEL", cls.asr_model),
             asr_language=os.getenv("ASR_LANGUAGE", cls.asr_language),
