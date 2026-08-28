@@ -4,7 +4,6 @@ import logging
 import os
 import tempfile
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 
@@ -44,10 +43,6 @@ class MlxAudioAsrClient:
         self._load_model = load_model
         self._generate_transcription = generate_transcription
         self._model_instance: Any | None = None
-        self._executor = ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="astra-mlx-asr"
-        )
-        self._stream = None
 
     def is_ready(self) -> bool:
         return bool(self.model)
@@ -146,27 +141,15 @@ class MlxAudioAsrClient:
         return await self._run_mlx(model_generate, audio, **model_kwargs)
 
     async def _run_mlx(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
-        loop = asyncio.get_running_loop()
         if (
             self._load_model is not None
             and self._generate_transcription is not None
             and self._load_audio is not None
         ):
             return await asyncio.to_thread(func, *args, **kwargs)
-        return await loop.run_in_executor(
-            self._executor, self._run_mlx_on_worker, func, args, kwargs
-        )
-
-    def _run_mlx_on_worker(
-        self, func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
-    ) -> Any:
-        import mlx.core as mx
-
-        if self._stream is None:
-            self._stream = mx.new_stream(mx.gpu)
-            mx.set_default_stream(self._stream)
-        with mx.stream(self._stream):
-            return func(*args, **kwargs)
+        # MLX GPU streams are thread-local. Keep all production MLX work on
+        # Uvicorn's main thread instead of moving it through an executor.
+        return func(*args, **kwargs)
 
     @staticmethod
     def _load_sdk() -> tuple[Callable[[str], Any], None, Callable[[str], Any]]:
