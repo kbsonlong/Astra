@@ -19,11 +19,13 @@ export default function App() {
   const [transcript, setTranscript] = useState("");
   const [answer, setAnswer] = useState("");
   const [connected, setConnected] = useState(false);
+  const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => () => socket.current?.close(), []);
 
   function connect() {
     if (socket.current?.readyState === WebSocket.OPEN) return;
+    setConnectionError("");
     const connection = new WebSocket(socketUrl);
     connection.onopen = () => {
       setConnected(true);
@@ -33,6 +35,7 @@ export default function App() {
       setConnected(false);
       setState("IDLE");
     };
+    connection.onerror = () => setConnectionError("无法连接到后端，请确认服务已启动");
     connection.onmessage = (message) => handleEvent(JSON.parse(message.data) as ServerEvent);
     socket.current = connection;
   }
@@ -77,7 +80,7 @@ export default function App() {
       </section>
       <footer>
         {!connected ? <button onClick={connect}>开始通话</button> : <button className="stop" onClick={stop}>停止</button>}
-        <small>{connected ? "连接已建立" : "尚未连接"}</small>
+        <small>{connectionError || (connected ? "连接已建立" : "尚未连接")}</small>
       </footer>
     </main>
   );
