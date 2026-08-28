@@ -3,11 +3,35 @@ from fastapi import FastAPI
 from .api.ws_session import router as ws_router
 from .config import Settings
 from .health import collect_health
+from .core.pipeline import VoicePipeline
+from .models.asr_client import WhisperCppAsrClient
+from .models.llm_client import OpenAICompatLLMClient
+from .models.tts_client import PiperHttpTtsClient
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    pipeline: VoicePipeline | None = None,
+    *,
+    enable_pipeline: bool = True,
+) -> FastAPI:
     app = FastAPI(title="Astra API", version="0.1.0")
-    app.state.settings = settings or Settings.from_env()
+    current = settings or Settings.from_env()
+    app.state.settings = current
+    app.state.pipeline = pipeline
+    if enable_pipeline and pipeline is None:
+        app.state.pipeline = VoicePipeline(
+            WhisperCppAsrClient(current.asr_endpoint),
+            OpenAICompatLLMClient(
+                current.llm_base_url,
+                current.llm_model,
+                current.llm_api_key,
+                current.llm_request_timeout_seconds,
+                current.llm_connect_timeout_seconds,
+                current.llm_stream_idle_timeout_seconds,
+            ),
+            PiperHttpTtsClient(current.tts_endpoint),
+        )
     app.include_router(ws_router)
 
     @app.get("/api/health")

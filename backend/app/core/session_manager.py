@@ -20,9 +20,13 @@ class Session:
         if self.state == "LISTENING":
             self.audio_buffer.extend(chunk)
 
+    def take_audio(self) -> bytes:
+        audio = bytes(self.audio_buffer)
+        self.audio_buffer.clear()
+        return audio
+
     def speech_end(self) -> int:
         self.generation_id += 1
-        self.audio_buffer.clear()
         self.state = "REASONING"
         return self.generation_id
 
