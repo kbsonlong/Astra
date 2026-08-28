@@ -1,5 +1,7 @@
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 
+from ..models.asr_client import ASRClientError
+
 router = APIRouter(prefix="/api")
 
 
@@ -14,5 +16,8 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> di
     if asr is None:
         raise HTTPException(status_code=503, detail="ASR SDK is not configured")
 
-    text = await asr.transcribe(audio, filename=file.filename or "speech.wav")
+    try:
+        text = await asr.transcribe(audio, filename=file.filename or "speech.wav")
+    except ASRClientError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"filename": file.filename or "speech.wav", "bytes": len(audio), "text": text}

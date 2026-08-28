@@ -3,6 +3,7 @@ from collections.abc import Mapping, Sequence
 from fastapi.testclient import TestClient
 
 from app.main import create_app
+from app.models.asr_client import ASRClientError
 
 
 class FakeASR:
@@ -17,6 +18,18 @@ class FakeASR:
 
 class FakePipeline:
     asr = FakeASR()
+
+
+class FailingASR:
+    async def transcribe(self, audio: bytes, filename: str) -> str:
+        raise ASRClientError("mlx-whisper model is not available locally")
+
+    def is_ready(self) -> bool:
+        return False
+
+
+class FailingPipeline:
+    asr = FailingASR()
 
 
 def test_transcribe_route_returns_sdk_result() -> None:
@@ -41,3 +54,15 @@ def test_transcribe_route_rejects_empty_file() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "audio file is empty"
+
+
+def test_transcribe_route_returns_service_unavailable_for_sdk_error() -> None:
+    client = TestClient(create_app(pipeline=FailingPipeline()))
+
+    response = client.post(
+        "/api/transcribe",
+        files={"file": ("test.wav", b"wav-data", "audio/wav")},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "mlx-whisper model is not available locally"
