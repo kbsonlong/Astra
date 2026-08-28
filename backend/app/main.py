@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 
+from .api.ws_session import router as ws_router
 from .config import Settings
 from .health import collect_health
 
@@ -7,6 +8,7 @@ from .health import collect_health
 def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Astra API", version="0.1.0")
     app.state.settings = settings or Settings.from_env()
+    app.include_router(ws_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
