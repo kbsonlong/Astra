@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import UploadPage from "./UploadPage";
 
 type ServerEvent = {
   type: string;
@@ -13,6 +14,8 @@ type ServerEvent = {
 const socketUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
 export default function App() {
+  if (location.pathname === "/upload") return <UploadPage />;
+
   const socket = useRef<WebSocket | null>(null);
   const activeGeneration = useRef(0);
   const [state, setState] = useState("IDLE");
@@ -73,6 +76,7 @@ export default function App() {
         <span className="eyebrow">ASTRA / LOCAL VOICE</span>
         <h1>语音助手</h1>
         <span className={`status ${connected ? "online" : "offline"}`}>{state}</span>
+        <a className="upload-link" href="/upload">音频上传测试</a>
       </header>
       <section className="conversation" aria-live="polite">
         <div className="message user"><span>你</span><p>{transcript || "等待语音输入"}</p></div>
