@@ -4,9 +4,9 @@ from .api.ws_session import router as ws_router
 from .config import Settings
 from .health import collect_health
 from .core.pipeline import VoicePipeline
-from .models.asr_client import WhisperCppAsrClient
+from .models.asr_client import MlxWhisperAsrClient
 from .models.llm_client import OpenAICompatLLMClient
-from .models.tts_client import PiperHttpTtsClient
+from .models.tts_client import PiperSdkTtsClient
 
 
 def create_app(
@@ -21,7 +21,7 @@ def create_app(
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
         app.state.pipeline = VoicePipeline(
-            WhisperCppAsrClient(current.asr_endpoint),
+            MlxWhisperAsrClient(current.asr_model, current.asr_language),
             OpenAICompatLLMClient(
                 current.llm_base_url,
                 current.llm_model,
@@ -30,13 +30,13 @@ def create_app(
                 current.llm_connect_timeout_seconds,
                 current.llm_stream_idle_timeout_seconds,
             ),
-            PiperHttpTtsClient(current.tts_endpoint),
+            PiperSdkTtsClient(current.tts_model_path),
         )
     app.include_router(ws_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
-        return await collect_health(app.state.settings)
+        return await collect_health(app.state.settings, app.state.pipeline)
 
     @app.get("/api/config")
     async def config() -> dict[str, object]:
@@ -45,8 +45,9 @@ def create_app(
             "llm_base_url": current.llm_base_url,
             "llm_model": current.llm_model,
             "llm_api_key": current.llm_api_key_masked,
-            "asr_endpoint": current.asr_endpoint,
-            "tts_endpoint": current.tts_endpoint,
+            "asr_model": current.asr_model,
+            "asr_language": current.asr_language,
+            "tts_model_path": current.tts_model_path,
             "version": current.version,
         }
 

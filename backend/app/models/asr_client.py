@@ -1,34 +1,55 @@
+import asyncio
+import os
+import tempfile
+from collections.abc import Callable
 from typing import Any
-
-import httpx
 
 
 class ASRClientError(RuntimeError):
-    """Raised when whisper.cpp cannot return a transcription."""
+    """Raised when the Whisper SDK cannot return a transcription."""
 
 
-class WhisperCppAsrClient:
-    def __init__(self, endpoint: str, http_client: httpx.AsyncClient | None = None) -> None:
-        self.endpoint = endpoint.rstrip("/")
-        self._client = http_client or httpx.AsyncClient(timeout=60.0)
-        self._owns_client = http_client is None
+class MlxWhisperAsrClient:
+    def __init__(
+        self,
+        model: str,
+        language: str = "zh",
+        transcribe: Callable[..., dict[str, Any]] | None = None,
+    ) -> None:
+        self.model = model
+        self.language = language
+        self._transcribe = transcribe
 
-    async def aclose(self) -> None:
-        if self._owns_client:
-            await self._client.aclose()
+    def is_ready(self) -> bool:
+        return bool(self.model)
 
     async def transcribe(self, audio: bytes, filename: str = "speech.wav") -> str:
+        if not audio:
+            raise ASRClientError("audio must not be empty")
         try:
-            response = await self._client.post(
-                f"{self.endpoint}/inference",
-                files={"file": (filename, audio, "audio/wav")},
-                data={"response_format": "json"},
-            )
-            response.raise_for_status()
-            payload: Any = response.json()
-            text = payload.get("text") if isinstance(payload, dict) else None
-        except (httpx.HTTPError, ValueError) as exc:
-            raise ASRClientError("whisper transcription failed") from exc
+            with tempfile.NamedTemporaryFile(suffix=os.path.splitext(filename)[1] or ".wav") as handle:
+                handle.write(audio)
+                handle.flush()
+                transcribe = self._transcribe or self._load_sdk()
+                result = await asyncio.to_thread(
+                    transcribe,
+                    handle.name,
+                    path_or_hf_repo=self.model,
+                    language=self.language,
+                )
+        except Exception as exc:
+            if isinstance(exc, ASRClientError):
+                raise
+            raise ASRClientError("mlx-whisper transcription failed") from exc
+        text = result.get("text") if isinstance(result, dict) else None
         if not isinstance(text, str):
-            raise ASRClientError("whisper response does not contain text")
+            raise ASRClientError("mlx-whisper response does not contain text")
         return text.strip()
+
+    @staticmethod
+    def _load_sdk() -> Callable[..., dict[str, Any]]:
+        try:
+            import mlx_whisper
+        except ImportError as exc:
+            raise ASRClientError("mlx-whisper is not installed") from exc
+        return mlx_whisper.transcribe

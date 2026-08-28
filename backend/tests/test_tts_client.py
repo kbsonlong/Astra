@@ -1,29 +1,25 @@
-import httpx
 import pytest
 
-from app.models.tts_client import PiperHttpTtsClient, TTSClientError
+from app.models.tts_client import PiperSdkTtsClient, TTSClientError
 
 
 @pytest.mark.anyio
-async def test_synthesize_returns_piper_wav_bytes() -> None:
-    async def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/synthesize"
-        assert (await request.aread()) == b'{"text":"hello"}'
-        return httpx.Response(200, content=b"RIFFfake-wav")
+async def test_synthesize_uses_piper_sdk() -> None:
+    class FakeVoice:
+        def synthesize_wav(self, text: str, output) -> None:
+            assert text == "hello"
+            output.write(b"RIFFfake-wav")
 
-    http_client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    client = PiperHttpTtsClient("http://tts.test", http_client)
-    try:
-        assert await client.synthesize("hello") == b"RIFFfake-wav"
-    finally:
-        await http_client.aclose()
+    client = PiperSdkTtsClient("test.onnx", voice=FakeVoice())
+
+    assert await client.synthesize("hello") == b"RIFFfake-wav"
 
 
 @pytest.mark.anyio
 async def test_synthesize_rejects_empty_text() -> None:
-    client = PiperHttpTtsClient("http://tts.test", httpx.AsyncClient())
+    client = PiperSdkTtsClient("test.onnx", voice=object())
     try:
         with pytest.raises(TTSClientError, match="empty"):
             await client.synthesize("  ")
     finally:
-        await client._client.aclose()
+        pass

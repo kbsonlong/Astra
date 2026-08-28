@@ -2,9 +2,9 @@ import base64
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
-from ..models.asr_client import WhisperCppAsrClient
+from ..models.asr_client import MlxWhisperAsrClient
 from ..models.llm_client import OpenAICompatLLMClient
-from ..models.tts_client import PiperHttpTtsClient
+from ..models.tts_client import PiperSdkTtsClient
 
 
 Emit = Callable[[dict[str, object]], Awaitable[None]]
@@ -14,9 +14,9 @@ _SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 class VoicePipeline:
     def __init__(
         self,
-        asr: WhisperCppAsrClient,
+        asr: MlxWhisperAsrClient,
         llm: OpenAICompatLLMClient,
-        tts: PiperHttpTtsClient,
+        tts: PiperSdkTtsClient,
     ) -> None:
         self.asr = asr
         self.llm = llm

@@ -1,31 +1,56 @@
-import httpx
+import asyncio
+import io
+from collections.abc import Callable
+from typing import Any
 
 
 class TTSClientError(RuntimeError):
-    """Raised when Piper cannot synthesize audio."""
+    """Raised when the Piper SDK cannot synthesize audio."""
 
 
-class PiperHttpTtsClient:
-    def __init__(self, endpoint: str, http_client: httpx.AsyncClient | None = None) -> None:
-        self.endpoint = endpoint.rstrip("/")
-        self._client = http_client or httpx.AsyncClient(timeout=60.0)
-        self._owns_client = http_client is None
+class PiperSdkTtsClient:
+    def __init__(
+        self,
+        model_path: str,
+        voice: Any | None = None,
+        voice_loader: Callable[[str], Any] | None = None,
+    ) -> None:
+        self.model_path = model_path
+        self._voice = voice
+        self._voice_loader = voice_loader
 
-    async def aclose(self) -> None:
-        if self._owns_client:
-            await self._client.aclose()
+    def is_ready(self) -> bool:
+        return self._voice is not None or bool(self.model_path)
 
     async def synthesize(self, text: str) -> bytes:
         if not text.strip():
             raise TTSClientError("text must not be empty")
         try:
-            response = await self._client.post(
-                f"{self.endpoint}/synthesize",
-                json={"text": text},
-            )
-            response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise TTSClientError("piper synthesis failed") from exc
-        if not response.content:
-            raise TTSClientError("piper returned empty audio")
-        return response.content
+            voice = self._voice or self._load_voice()
+            audio = await asyncio.to_thread(self._synthesize_sync, voice, text)
+        except Exception as exc:
+            if isinstance(exc, TTSClientError):
+                raise
+            raise TTSClientError("Piper synthesis failed") from exc
+        if not audio:
+            raise TTSClientError("Piper returned empty audio")
+        return audio
+
+    def _load_voice(self) -> Any:
+        if not self.model_path:
+            raise TTSClientError("Piper model path is not configured")
+        if self._voice_loader is not None:
+            self._voice = self._voice_loader(self.model_path)
+            return self._voice
+        try:
+            from piper import PiperVoice
+        except ImportError as exc:
+            raise TTSClientError("piper-tts is not installed") from exc
+        self._voice = PiperVoice.load(self.model_path)
+        return self._voice
+
+    @staticmethod
+    def _synthesize_sync(voice: Any, text: str) -> bytes:
+        output = io.BytesIO()
+        voice.synthesize_wav(text, output)
+        return output.getvalue()

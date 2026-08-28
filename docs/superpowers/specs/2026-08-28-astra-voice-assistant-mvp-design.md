@@ -26,21 +26,21 @@
 | 约束项 | 说明 |
 |---|---|
 | 硬件底座 | Mac mini 16G，Apple Silicon M 系列 |
-| Mac mini 部署 | Docker Compose 启动 4 个容器：`whisper-asr`、`piper-tts`、`fastapi`、`frontend-nginx` |
+| Mac mini 部署 | 宿主机原生启动 `fastapi`，Docker Compose 只启动 `frontend-nginx` |
 | LLM 部署 | `192.168.3.18` host 原生运行 `omlx` 或 `llama-server`，不放入 Mac mini Docker Compose |
 | MVP 平台 | Web 页面，优先 Chrome / Safari |
 | 后端迁移路径 | MVP 使用 Python FastAPI，长期可替换为 Go 网关 |
-| 模型服务约束 | Docker Desktop on Mac 不假设 GPU/MPS/ANE 透传；容器内 ASR/TTS 默认走 CPU 可验证路径 |
+| 模型服务约束 | FastAPI、MLX Whisper 和 Piper SDK 在 Mac mini host 原生运行，直接使用 Apple Silicon；Docker 只承担前端静态服务 |
 | 第三方组件 | Redis/MySQL 等如后续需要，统一使用 Docker，不直接安装在 Mac mini 宿主机 |
 
 ### 1.4 评审约束落实
 
 | 评审点 | 落实方式 |
 |---|---|
-| Docker Desktop on Mac 不适合作为 Metal 推理容器 | ASR 默认使用 whisper.cpp Docker CPU；如需 Metal，改为 host 原生 whisper.cpp，通过 `ASR_ENDPOINT` 切换 |
-| Qwen3-ASR Apple Silicon Docker 流式路径不可验证 | ASR 切换为 whisper.cpp `ggml-medium`，MVP 只要求整段转写 `asr_final` |
+| Docker Desktop on Mac 不适合作为 Metal 推理容器 | FastAPI、MLX Whisper 和 Piper SDK 统一在 Mac mini host 原生运行，直接使用 Apple Silicon 能力 |
+| ASR SDK 契约 | 使用 `mlx-whisper` Python API 整段转写，MVP 只要求输出 `asr_final` |
 | LLM 端点混乱 / 取消语义不清 | 上层只调用 OpenAI 兼容 `POST /v1/chat/completions`，stream=true；`/api/generate`、自定义 `/cancel` 不进入 MVP 协议 |
-| Piper TTS 契约不清晰 | 固定为 HTTP `POST /synthesize`，返回 WAV 22050Hz mono 16-bit；MVP 做句子级合成 |
+| Piper TTS 契约不清晰 | 使用 `piper-tts` Python API `PiperVoice.synthesize_wav`，返回 WAV 22050Hz mono 16-bit；MVP 做句子级合成 |
 
 ---
 
@@ -53,12 +53,12 @@ Browser
   |
   | WebSocket + HTTP
   v
-Mac mini Docker Compose
+Mac mini
   |
-  |-- frontend-nginx   React 静态资源 + /api /ws 反代
-  |-- fastapi          会话状态机、ASR/LLM/TTS 编排、打断控制
-  |-- whisper-asr      whisper.cpp server，默认 Docker CPU
-  |-- piper-tts        Piper HTTP server，句子级 WAV 合成
+  |-- frontend-nginx   Docker 中运行，React 静态资源 + /api /ws 反代
+  |-- fastapi          host 原生运行，会话状态机、SDK 编排、打断控制
+  |-- mlx-whisper      FastAPI 进程内 SDK，Apple Silicon 推理
+  |-- piper-tts        FastAPI 进程内 SDK，句子级 WAV 合成
   |
   | HTTP: POST /v1/chat/completions
   v
@@ -74,9 +74,8 @@ Mac mini Docker Compose
 |---|---|---|
 | frontend-nginx | Mac mini Docker | React 静态页面，反代 `/api` 和 `/ws` |
 | fastapi | Mac mini Docker | 语音会话网关，不承载 LLM 模型 |
-| whisper-asr | Mac mini Docker，默认 | whisper.cpp `ggml-medium`，CPU 路径可验收 |
-| whisper-asr | Mac mini host，备选 | 需要 Metal 时启用，FastAPI 改 `ASR_ENDPOINT` |
-| piper-tts | Mac mini Docker | Piper HTTP server |
+| mlx-whisper | Mac mini host，与 FastAPI 同一 Python 环境 | `mlx-community/whisper-large-v3-turbo`，直接调用 SDK |
+| piper-tts | Mac mini host，与 FastAPI 同一 Python 环境 | `PiperVoice.load` 加载本地 `.onnx` voice |
 | LLM | `192.168.3.18` host | `omlx` 或 `llama-server`，必须暴露 OpenAI 兼容接口 |
 
 ### 2.3 LLM 运行时 Profile
@@ -110,7 +109,7 @@ LLM_STREAM_IDLE_TIMEOUT_SECONDS=15
 
 ### 2.4 网络策略
 
-FastAPI 容器访问 `192.168.3.18` 使用 Docker Compose 默认 bridge 网络直接访问局域网 IP，不使用 `network_mode: host`，也不使用 `host-gateway`。
+FastAPI 在 Mac mini 宿主机原生运行，直接访问 `192.168.3.18` 的局域网 IP。前端 Nginx 容器通过 `host.docker.internal:8000` 反代到宿主机 FastAPI。
 
 约束：
 
@@ -193,7 +192,7 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 
 | 层次 | 验收要求 |
 |---|---|
-| Mac mini 本地真停 | interrupt 后 300ms 内前端静音；500ms 内 FastAPI 不再向前端发送旧 `generation_id` 消息；2s 内 `whisper-asr` / `piper-tts` CPU 回落到 idle + 5% 以内 |
+| Mac mini 本地真停 | interrupt 后 300ms 内前端静音；500ms 内 FastAPI 不再向前端发送旧 `generation_id` 消息；2s 内 SDK 任务被取消并释放等待队列 |
 | 远端 LLM 停止 | interrupt 后 2s 内 FastAPI 无旧 token 流入；`192.168.3.18` 服务日志记录 client disconnected 或 request aborted；如远端运行时暴露指标，则 CPU/GPU 活跃度在 2s 内回落 |
 
 若 `omlx` 或 `llama-server` 版本不能提供远端 request abort 可观测性，验收结论必须写为“远端 LLM best-effort cancel 已触发，缺少运行时级停止证明”，不能宣称远端推理已被严格终止。
@@ -242,7 +241,7 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 | TTS | Piper HTTP 句子级合成与播放，可随时打断 |
 | 上下文 | 最近 10 轮对话送入 LLM |
 | 配置 | LLM base URL、model、temperature、top_p、system prompt、ASR/TTS endpoint、VAD 阈值 |
-| 部署 | Docker Compose 启动 Mac mini 4 容器，LLM 在 `192.168.3.18` 外部运行 |
+| 部署 | Mac mini host 启动 FastAPI + MLX/Piper SDK，Docker Compose 只启动前端 Nginx，LLM 在 `192.168.3.18` 外部运行 |
 
 ### 6.2 不包含功能
 
@@ -280,17 +279,17 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 | 会话管理 | 内存 dict + asyncio.Lock | MVP 单机内存态 |
 | 流水线 | asyncio.TaskGroup + cancellation token | ASR -> LLM -> sentence splitter -> TTS |
 | LLM 客户端 | `OpenAICompatLLMClient` | 只调用 `/v1/chat/completions` 和 `/v1/models` |
-| ASR 客户端 | `WhisperCppAsrClient` | 调 whisper.cpp HTTP `/inference` |
-| TTS 客户端 | `PiperHttpTtsClient` | 调 Piper HTTP `/synthesize` |
+| ASR 客户端 | `MlxWhisperAsrClient` | 调 `mlx_whisper.transcribe`，阻塞推理放入线程池 |
+| TTS 客户端 | `PiperSdkTtsClient` | 调 `PiperVoice.load` 和 `synthesize_wav`，阻塞推理放入线程池 |
 
 ### 7.3 模型服务
 
 | 服务 | 选型 | 模型 | 资源口径 |
 |---|---|---|---|
 | LLM | `192.168.3.18` 上的 `omlx` 或 `llama-server` | 由远端机器决定 | 不计入 Mac mini Docker RSS |
-| ASR | whisper.cpp server | `ggml-medium.bin` | 容器 RSS 目标 0.75-1.2GB |
-| TTS | Piper HTTP server | `zh_CN` + `en_US` 音色 | 容器 RSS 目标 0.3-0.6GB |
-| FastAPI | Python 3.11 slim | 无 | 容器 RSS 目标 0.2-0.8GB |
+| ASR | `mlx-whisper` SDK | `mlx-community/whisper-large-v3-turbo` | FastAPI 进程内，单独记录模型加载后 RSS |
+| TTS | `piper-tts` SDK | 本地 `.onnx` voice | FastAPI 进程内，单独记录模型加载后 RSS |
+| FastAPI | Python 3.11 host | 无 | 与 SDK 模型合并记录宿主机 RSS |
 | Nginx | nginx alpine | 无 | 容器 RSS 可忽略 |
 
 ---
@@ -299,12 +298,7 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 
 ### 8.1 Docker Compose 服务
 
-Compose 只包含 Mac mini 本地组件：
-
-- `frontend-nginx`
-- `fastapi`
-- `whisper-asr`
-- `piper-tts`
+Compose 只包含 `frontend-nginx`。FastAPI、MLX Whisper 和 Piper SDK 必须在 Mac mini host 原生运行。
 
 不包含：
 
@@ -319,19 +313,16 @@ Compose 只包含 Mac mini 本地组件：
 
 | 项 | 要求 |
 |---|---|
-| whisper.cpp 镜像 | 固定 tag 或 digest |
-| Piper HTTP server 镜像 | 固定 tag 或 digest，并在 README 写明具体仓库 |
-| `ggml-medium.bin` | 写明下载 URL、文件名、SHA256 |
-| Piper voice | 写明音色文件、下载 URL、SHA256 |
-| Python 依赖 | `requirements.txt` 固定主版本，关键库固定精确版本 |
+| MLX Whisper SDK | `mlx-whisper==0.4.3`，模型标识或本地目录固定 |
+| Piper SDK | `piper-tts==1.7.0`，voice 文件路径和 SHA256 固定 |
+| Python 依赖 | `requirements.txt` 固定精确版本，运行在 Mac mini host |
 | 前端依赖 | lockfile 纳入仓库 |
 
 ### 8.3 健康检查
 
 | 服务 | 健康检查 |
 |---|---|
-| `whisper-asr` | HTTP health 或最小 WAV 转写探针；必须证明模型已加载 |
-| `piper-tts` | HTTP health 或最小文本合成探针；必须证明音色已加载 |
+| FastAPI SDK | `GET /api/health` 报告 SDK 已安装、模型路径已配置；最小 WAV 转写和文本合成探针必须通过 |
 | `fastapi` | `GET /api/health`，聚合 LLM/ASR/TTS 状态 |
 | `frontend-nginx` | `GET /` 返回 200 |
 | `192.168.3.18` LLM | `GET /v1/models` 返回 2xx，流式 chat smoke test 通过 |
@@ -348,8 +339,8 @@ Compose 只包含 Mac mini 本地组件：
     "models_ok": true,
     "stream_ok": true
   },
-  "asr": { "ok": true, "mode": "docker-cpu" },
-  "tts": { "ok": true },
+  "asr": { "ok": true, "mode": "mlx-sdk" },
+  "tts": { "ok": true, "mode": "piper-sdk" },
   "version": "mvp"
 }
 ```
@@ -361,9 +352,9 @@ README 需要提供以下预检：
 ```bash
 curl -fsS http://192.168.3.18:8000/v1/models
 curl -fsS http://<mac-mini-ip>:<frontend-port>/
-curl -fsS http://<mac-mini-ip>:<api-port>/api/health
+curl -fsS http://<mac-mini-ip>:8000/api/health
 docker compose ps
-docker stats --no-stream
+ps -o pid,rss,command -p $(pgrep -f 'uvicorn app.main:app' | head -1)
 ```
 
 ---
@@ -374,16 +365,14 @@ docker stats --no-stream
 
 | 项 | 预算 | 验收口径 |
 |---|---|---|
-| Docker Desktop VM | <= 4GB limit | Docker Desktop 设置页或 CLI 配置 |
-| 4 容器 RSS 合计 | <= 4GB 峰值 | `docker stats --no-stream` 采样 |
-| whisper-asr | 0.75-1.2GB | 加载 `ggml-medium` 后稳定值 |
-| piper-tts | 0.3-0.6GB | 加载目标音色后稳定值 |
-| fastapi | 0.2-0.8GB | 完整对话后峰值 |
+| Docker Desktop VM | 仅前端容器使用 | Docker Desktop 设置页或 CLI 配置 |
+| FastAPI + SDK | 需要实测并记录峰值 | 模型加载后使用 `ps` / Activity Monitor 采样 |
+| frontend-nginx | < 0.1GB | `docker stats --no-stream` 采样 |
 | frontend-nginx | < 0.1GB | 稳定值 |
 | macOS memory pressure | 5 分钟无 critical | Activity Monitor 或 `memory_pressure` |
 | swap 增量 | <= 512MB | 完整验收流程前后对比 |
 
-不把 Docker Desktop VM 预算和容器 RSS 简单相加作为同一指标；NFR-2 的硬指标是“4 容器 RSS 合计峰值 <= 4GB，同时 macOS memory pressure 无 critical”。
+不把 Docker Desktop VM 预算和宿主机 FastAPI RSS 简单相加作为同一指标；验收分别记录前端容器和宿主机 SDK 进程资源。
 
 ---
 
@@ -420,13 +409,10 @@ Astra/
         ws.py
         config.py
     requirements.txt
-    Dockerfile
     .dockerignore
 
   deploy/
     docker/
-      whisper-asr.Dockerfile
-      tts.Dockerfile
       frontend.Dockerfile
     models/
       download_whisper_model.sh
@@ -451,10 +437,10 @@ Astra/
 |---|---|---|
 | `192.168.3.18` 的 `omlx` 或 `llama-server` OpenAI 兼容程度不一致 | 高 | FastAPI 只认统一 smoke test；不兼容则在远端加适配层，Mac mini 不接私有协议 |
 | 远端 LLM 无法证明 request abort 后立即停止推理 | 高 | 文档拆分本地真停和远端 best-effort cancel；要求远端日志或指标作为增强验收 |
-| Docker Desktop on Mac 无 GPU 透传 | 高 | 容器内 ASR/TTS 默认 CPU；Metal 只走 host 原生备选路径 |
+| MLX/Piper SDK 与 Python/模型文件不兼容 | 高 | 固定 Python 3.11、SDK 版本和模型校验和，启动时执行预热探针 |
 | ASR 整段转写延迟偏高 | 中 | MVP 先接受句末转写；后续再引入 partial 或更小模型 |
-| Piper HTTP server 契约随社区镜像变化 | 中 | 固定镜像 tag/digest；实现阶段写合约测试 |
-| 16G 内存触发 swap | 中 | 4 容器 RSS <= 4GB，Docker VM limit <= 4GB，验收 memory pressure |
+| Piper SDK 或 voice 文件不兼容 | 中 | 固定 `piper-tts` 版本和 voice 文件校验和；实现阶段写 SDK 合约测试 |
+| 16G 内存触发 swap | 中 | FastAPI + 两个 SDK 模型加载后实测 RSS，验收 memory pressure |
 | VAD 误触发 | 中 | RMS 阈值 + 持续时间；TTS 刚开始 500ms 内可屏蔽自激；后续换 Silero VAD |
 
 ---
@@ -465,8 +451,8 @@ Astra/
 |---|---|---|---|
 | 后端网关 | Python FastAPI | Go 网关 | 保持 WebSocket 和 HTTP API 协议不变 |
 | LLM | `192.168.3.18` OpenAI 兼容服务 | 同协议替换模型或运行时 | 只改 `LLM_BASE_URL`、`LLM_MODEL` 或远端启动方式 |
-| ASR | whisper.cpp Docker CPU | whisper.cpp host Metal | 只改 `ASR_ENDPOINT` |
-| TTS | Piper HTTP | 更高质量 TTS | 新增 `BaseTTSClient` 子类 |
+| ASR | `mlx-whisper` host SDK | 其他 Whisper SDK | 保持 `MlxWhisperAsrClient` 接口不变 |
+| TTS | `piper-tts` host SDK | 更高质量 TTS | 保持 `PiperSdkTtsClient` 接口不变 |
 | 前端 | React Web | Tauri / Capacitor | 复用业务 UI 和 WebSocket 协议 |
 | 翻译助手 | 无 | 新增独立 pipeline | 复用 ASR/TTS，增加翻译模型服务 |
 
@@ -476,7 +462,7 @@ Astra/
 
 ### AC-1 部署可用
 
-- Mac mini 上 `docker compose up -d` 后，4 个容器进入 healthy。
+- Mac mini 上 FastAPI host 进程启动，前端容器进入 healthy，`/api/health` 报告两个 SDK 已就绪。
 - `GET /api/health` 返回 `ok=true`，且 `llm.ok=true`、`asr.ok=true`、`tts.ok=true`。
 - `192.168.3.18` 的 `/v1/models` 和流式 chat smoke test 通过。
 
@@ -496,7 +482,7 @@ Astra/
 - 后端 500ms 内取消旧 `generation_id` 的 LLM/TTS 任务。
 - 前端状态切回 `LISTENING`。
 - 旧 `generation_id` 的 token、`tts_chunk`、`tts_end` 不再影响 UI。
-- 2s 内 `whisper-asr` / `piper-tts` CPU 回落到 idle + 5% 以内。
+- 2s 内 ASR/TTS SDK 任务被取消，旧 `generation_id` 不再发送事件。
 - 远端 LLM 记录 client disconnected / request aborted；若无日志或指标，记录为 best-effort cancel。
 
 ### AC-4 手动停止
@@ -543,7 +529,7 @@ rg 'Qwen3-ASR|ASR_BITS|Ollama.*Docker|/api/generate|/cancel' backend frontend de
 ### AC-9 资源占用
 
 - 完成 3 次完整对话，其中至少 1 次包含 VAD 打断。
-- `docker stats --no-stream` 采样显示 4 容器 RSS 合计峰值 <= 4GB。
+- 记录 FastAPI + 两个 SDK 模型加载后的宿主机 RSS，以及前端 Nginx 容器 RSS。
 - macOS memory pressure 5 分钟无 critical。
 - swap 增量 <= 512MB。
 
@@ -555,6 +541,6 @@ rg 'Qwen3-ASR|ASR_BITS|Ollama.*Docker|/api/generate|/cancel' backend frontend de
 
 - `llama-server` OpenAI 兼容接口说明。
 - 当前选定 `omlx` OpenAI 兼容 server 启动说明。
-- whisper.cpp server `/inference` HTTP 契约。
-- Piper HTTP server `/synthesize` 契约。
+- `mlx-whisper` Python `transcribe` API。
+- `piper-tts` Python `PiperVoice.synthesize_wav` API。
 - Docker Desktop on Mac 资源限制说明。

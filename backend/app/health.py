@@ -28,7 +28,7 @@ async def probe_url(client: httpx.AsyncClient, url: str) -> DependencyStatus:
         return DependencyStatus(ok=False, detail=exc.__class__.__name__)
 
 
-async def collect_health(settings: Settings) -> dict[str, object]:
+async def collect_health(settings: Settings, pipeline: object | None = None) -> dict[str, object]:
     timeout = httpx.Timeout(
         settings.llm_request_timeout_seconds,
         connect=settings.llm_connect_timeout_seconds,
@@ -36,11 +36,13 @@ async def collect_health(settings: Settings) -> dict[str, object]:
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
         llm = await probe_url(client, f"{settings.llm_base_url}{settings.llm_models_path}")
-        asr = await probe_url(client, f"{settings.asr_endpoint}/health")
-        tts = await probe_url(client, f"{settings.tts_endpoint}/health")
+    asr_client = getattr(pipeline, "asr", None)
+    tts_client = getattr(pipeline, "tts", None)
+    asr_ok = bool(asr_client and asr_client.is_ready())
+    tts_ok = bool(tts_client and tts_client.is_ready())
 
     return {
-        "ok": llm.ok and asr.ok and tts.ok,
+        "ok": llm.ok and asr_ok and tts_ok,
         "llm": {
             **llm.as_dict(),
             "base_url": settings.llm_base_url,
@@ -48,7 +50,7 @@ async def collect_health(settings: Settings) -> dict[str, object]:
             "models_ok": llm.ok,
             "stream_ok": False,
         },
-        "asr": {**asr.as_dict(), "mode": "docker-cpu"},
-        "tts": tts.as_dict(),
+        "asr": {"ok": asr_ok, "mode": "mlx-sdk"},
+        "tts": {"ok": tts_ok, "mode": "piper-sdk"},
         "version": settings.version,
     }

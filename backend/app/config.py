@@ -17,8 +17,9 @@ class Settings:
     llm_request_timeout_seconds: float = 120.0
     llm_connect_timeout_seconds: float = 3.0
     llm_stream_idle_timeout_seconds: float = 15.0
-    asr_endpoint: str = "http://whisper-asr:8080"
-    tts_endpoint: str = "http://piper-tts:8080"
+    asr_model: str = "mlx-community/whisper-large-v3-turbo"
+    asr_language: str = "zh"
+    tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     version: str = "mvp"
 
     @classmethod
@@ -38,8 +39,9 @@ class Settings:
             llm_stream_idle_timeout_seconds=_float_env(
                 "LLM_STREAM_IDLE_TIMEOUT_SECONDS", cls.llm_stream_idle_timeout_seconds
             ),
-            asr_endpoint=os.getenv("ASR_ENDPOINT", cls.asr_endpoint).rstrip("/"),
-            tts_endpoint=os.getenv("TTS_ENDPOINT", cls.tts_endpoint).rstrip("/"),
+            asr_model=os.getenv("ASR_MODEL", cls.asr_model),
+            asr_language=os.getenv("ASR_LANGUAGE", cls.asr_language),
+            tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )
 

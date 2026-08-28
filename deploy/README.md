@@ -1,10 +1,10 @@
 # Astra 部署预检
 
-Mac mini 的 Compose 只运行前端、FastAPI、whisper.cpp 和 Piper。LLM 必须在 `192.168.3.18` host 上运行，并向局域网暴露 OpenAI 兼容接口。
+Mac mini 宿主机原生运行 FastAPI、MLX Whisper 和 Piper SDK，Compose 只运行前端 Nginx。LLM 必须在 `192.168.3.18` host 上运行，并向局域网暴露 OpenAI 兼容接口。
 
 ## 环境变量
 
-复制一份环境文件并填写已经验证过的固定镜像和远端模型名：
+复制一份环境文件并填写远端模型名、本地 ASR 模型和 Piper voice 路径：
 
 ```bash
 cp .env.example .env
@@ -12,7 +12,7 @@ docker compose config
 docker compose up -d
 ```
 
-`WHISPER_IMAGE`、`PIPER_IMAGE` 必须是已经核验的固定 tag 或 digest，不能使用 `latest`。镜像的 `/health` 和接口契约必须与设计文档一致。
+后端依赖 `mlx-whisper==0.4.3` 和 `piper-tts==1.7.0`，启动前必须完成 Python 依赖安装，并确保 `TTS_MODEL_PATH` 指向本地 Piper `.onnx` voice 文件。
 
 ## 远端 LLM 验收
 
@@ -33,5 +33,5 @@ curl -fsS http://192.168.3.18:8000/v1/chat/completions \
 docker compose ps
 curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/api/health
-docker stats --no-stream
+curl -fsS http://127.0.0.1:8000/api/health
 ```
