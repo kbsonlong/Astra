@@ -38,6 +38,7 @@ class Settings:
     asr_repetition_penalty: float = 1.08
     asr_repetition_context_size: int = 100
     asr_chunk_duration_seconds: float = 30.0
+    asr_long_audio_threshold_seconds: float = 60.0
     asr_hotwords: tuple[str, ...] = ()
     asr_system_prompt: str = ""
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
@@ -72,6 +73,10 @@ class Settings:
             ),
             asr_chunk_duration_seconds=_float_env(
                 "ASR_CHUNK_DURATION_SECONDS", cls.asr_chunk_duration_seconds
+            ),
+            asr_long_audio_threshold_seconds=_float_env(
+                "ASR_LONG_AUDIO_THRESHOLD_SECONDS",
+                cls.asr_long_audio_threshold_seconds,
             ),
             asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
             asr_system_prompt=os.getenv("ASR_SYSTEM_PROMPT", cls.asr_system_prompt),
