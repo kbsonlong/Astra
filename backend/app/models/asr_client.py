@@ -35,9 +35,10 @@ class MlxAudioAsrClient:
             raise ASRClientError("audio must not be empty")
         try:
             with tempfile.TemporaryDirectory() as directory:
-                audio_path = os.path.join(
-                    directory, os.path.splitext(filename)[1] or ".wav"
-                )
+                audio_name = os.path.basename(filename) or "speech.wav"
+                if not os.path.splitext(audio_name)[1]:
+                    audio_name += ".wav"
+                audio_path = os.path.join(directory, audio_name)
                 with open(audio_path, "wb") as handle:
                     handle.write(audio)
                 output_path = os.path.join(directory, "transcript")

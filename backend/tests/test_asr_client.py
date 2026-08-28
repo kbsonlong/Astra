@@ -26,9 +26,10 @@ async def test_transcribe_uses_mlx_audio_sdk_with_temp_wav() -> None:
         generate_transcription=fake_generate_transcription,
     )
 
-    assert await client.transcribe(b"wav") == "hello world"
+    assert await client.transcribe(b"wav", filename="test.wav") == "hello world"
     assert observed["audio_bytes"] == b"wav"
     assert observed["model_id"] == "test-model"
+    assert str(observed["audio"]).endswith("/test.wav")
     assert observed["language"] == "zh"
     assert observed["format"] == "txt"
 
