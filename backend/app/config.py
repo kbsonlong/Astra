@@ -39,6 +39,7 @@ class Settings:
     asr_repetition_context_size: int = 100
     asr_chunk_duration_seconds: float = 30.0
     asr_hotwords: tuple[str, ...] = ()
+    asr_system_prompt: str = ""
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     version: str = "mvp"
 
@@ -73,6 +74,7 @@ class Settings:
                 "ASR_CHUNK_DURATION_SECONDS", cls.asr_chunk_duration_seconds
             ),
             asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
+            asr_system_prompt=os.getenv("ASR_SYSTEM_PROMPT", cls.asr_system_prompt),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )

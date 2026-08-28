@@ -30,6 +30,7 @@ def create_app(
                 repetition_context_size=current.asr_repetition_context_size,
                 chunk_duration=current.asr_chunk_duration_seconds,
                 hotwords=current.asr_hotwords,
+                system_prompt=current.asr_system_prompt,
             ),
             OpenAICompatLLMClient(
                 current.llm_base_url,
@@ -62,6 +63,7 @@ def create_app(
             "asr_repetition_context_size": current.asr_repetition_context_size,
             "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
             "asr_hotwords": list(current.asr_hotwords),
+            "asr_system_prompt_configured": bool(current.asr_system_prompt),
             "tts_model_path": current.tts_model_path,
             "version": current.version,
         }
