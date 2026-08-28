@@ -27,6 +27,22 @@ def test_config_masks_api_key(settings: Settings) -> None:
     assert "secret" not in response.text
 
 
+def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "ASR_MODEL=/models/whisper\nASR_LANGUAGE=en\nTTS_MODEL_PATH=/models/piper.onnx\n",
+        encoding="utf-8",
+    )
+
+    from app.config import Settings
+
+    loaded = Settings.from_env()
+
+    assert loaded.asr_model == "/models/whisper"
+    assert loaded.asr_language == "en"
+    assert loaded.tts_model_path == "/models/piper.onnx"
+
+
 @pytest.mark.anyio
 async def test_collects_dependency_health(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:

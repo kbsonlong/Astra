@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 
 def _float_env(name: str, default: float) -> float:
@@ -24,6 +27,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        load_dotenv(dotenv_path=Path.cwd() / ".env")
         return cls(
             llm_base_url=os.getenv("LLM_BASE_URL", cls.llm_base_url).rstrip("/"),
             llm_chat_path=os.getenv("LLM_CHAT_PATH", cls.llm_chat_path),
