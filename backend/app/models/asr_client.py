@@ -1,8 +1,10 @@
 import asyncio
+import inspect
 import logging
 import os
 import tempfile
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 
@@ -42,6 +44,10 @@ class MlxAudioAsrClient:
         self._load_model = load_model
         self._generate_transcription = generate_transcription
         self._model_instance: Any | None = None
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="astra-mlx-asr"
+        )
+        self._stream = None
 
     def is_ready(self) -> bool:
         return bool(self.model)
@@ -70,27 +76,14 @@ class MlxAudioAsrClient:
                 generate_transcription = self._generate_transcription or sdk_generate
                 load_audio = self._load_audio or sdk_load_audio
                 assert load_model is not None
-                assert generate_transcription is not None
-                model = await self._get_model(load_model)
+                model = await self._run_mlx(load_model, self.model)
                 if load_audio is None:
                     raise ASRClientError("mlx-audio audio loader is unavailable")
-                audio_signal = await asyncio.to_thread(load_audio, audio_path)
+                audio_signal = await self._run_mlx(load_audio, audio_path)
                 duration = len(audio_signal) / 16000
                 if duration <= self.long_audio_threshold:
-                    result = await asyncio.to_thread(
-                        generate_transcription,
-                        model=model,
-                        audio=audio_path,
-                        output_path=output_path,
-                        format="txt",
-                        language=self.language,
-                        max_tokens=self.max_tokens,
-                        temperature=0.0,
-                        repetition_penalty=self.repetition_penalty,
-                        repetition_context_size=self.repetition_context_size,
-                        chunk_duration=self.chunk_duration,
-                        hotwords=list(self.hotwords),
-                        system_prompt=self.system_prompt or None,
+                    result = await self._generate(
+                        model, generate_transcription, audio_path, output_path
                     )
                     text = getattr(result, "text", None)
                 else:
@@ -98,22 +91,11 @@ class MlxAudioAsrClient:
                     samples_per_chunk = max(1, int(self.chunk_duration * 16000))
                     for offset in range(0, len(audio_signal), samples_per_chunk):
                         chunk = audio_signal[offset : offset + samples_per_chunk]
-                        result = await asyncio.to_thread(
+                        result = await self._generate(
+                            model,
                             generate_transcription,
-                            model=model,
-                            audio=chunk,
-                            output_path=os.path.join(
-                                directory, f"transcript-{offset}"
-                            ),
-                            format="txt",
-                            language=self.language,
-                            max_tokens=self.max_tokens,
-                            temperature=0.0,
-                            repetition_penalty=self.repetition_penalty,
-                            repetition_context_size=self.repetition_context_size,
-                            chunk_duration=self.chunk_duration,
-                            hotwords=list(self.hotwords),
-                            system_prompt=self.system_prompt or None,
+                            chunk,
+                            os.path.join(directory, f"transcript-{offset}"),
                         )
                         chunk_text = getattr(result, "text", None)
                         if isinstance(chunk_text, str) and chunk_text.strip():
@@ -130,18 +112,66 @@ class MlxAudioAsrClient:
             raise ASRClientError("mlx-audio response does not contain text")
         return text.strip()
 
-    async def _get_model(self, load_model: Callable[[str], Any]) -> Any:
-        if self._model_instance is None:
-            self._model_instance = await asyncio.to_thread(load_model, self.model)
-        return self._model_instance
+    async def _generate(
+        self,
+        model: Any,
+        generate_transcription: Callable[..., Any] | None,
+        audio: Any,
+        output_path: str,
+    ) -> Any:
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "audio": audio,
+            "output_path": output_path,
+            "format": "txt",
+            "language": self.language,
+            "max_tokens": self.max_tokens,
+            "temperature": 0.0,
+            "repetition_penalty": self.repetition_penalty,
+            "repetition_context_size": self.repetition_context_size,
+            "chunk_duration": self.chunk_duration,
+            "hotwords": list(self.hotwords),
+            "system_prompt": self.system_prompt or None,
+        }
+        if generate_transcription is not None:
+            return await self._run_mlx(generate_transcription, **kwargs)
+
+        model_generate = model.generate
+        parameters = inspect.signature(model_generate).parameters
+        model_kwargs = {
+            key: value
+            for key, value in kwargs.items()
+            if key not in {"model", "audio"} and key in parameters
+        }
+        return await self._run_mlx(model_generate, audio, **model_kwargs)
+
+    async def _run_mlx(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+        loop = asyncio.get_running_loop()
+        if (
+            self._load_model is not None
+            and self._generate_transcription is not None
+            and self._load_audio is not None
+        ):
+            return await asyncio.to_thread(func, *args, **kwargs)
+        return await loop.run_in_executor(
+            self._executor, self._run_mlx_on_worker, func, args, kwargs
+        )
+
+    def _run_mlx_on_worker(
+        self, func: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any]
+    ) -> Any:
+        import mlx.core as mx
+
+        if self._stream is None:
+            self._stream = mx.new_stream(mx.gpu)
+            mx.set_default_stream(self._stream)
+        with mx.stream(self._stream):
+            return func(*args, **kwargs)
 
     @staticmethod
-    def _load_sdk() -> tuple[
-        Callable[[str], Any], Callable[..., Any], Callable[[str], Any]
-    ]:
+    def _load_sdk() -> tuple[Callable[[str], Any], None, Callable[[str], Any]]:
         try:
-            from mlx_audio.stt.generate import generate_transcription
             from mlx_audio.stt.utils import load_audio, load_model
         except ImportError as exc:
             raise ASRClientError("mlx-audio is not installed") from exc
-        return load_model, generate_transcription, load_audio
+        return load_model, None, load_audio
