@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.ws_session import router as ws_router
+from .api.http_routes import router as http_router
 from .config import Settings
 from .health import collect_health
 from .core.pipeline import VoicePipeline
@@ -33,6 +34,7 @@ def create_app(
             PiperSdkTtsClient(current.tts_model_path),
         )
     app.include_router(ws_router)
+    app.include_router(http_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:

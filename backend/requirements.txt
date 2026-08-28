@@ -3,3 +3,4 @@ httpx==0.28.1
 uvicorn[standard]==0.35.0
 mlx-whisper==0.4.3
 piper-tts==1.7.0
+python-multipart==0.0.20
