@@ -15,6 +15,13 @@ def _int_env(name: str, default: int) -> int:
     return default if value is None else int(value)
 
 
+def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_base_url: str = "http://192.168.3.18:8000/v1"
@@ -31,6 +38,7 @@ class Settings:
     asr_repetition_penalty: float = 1.08
     asr_repetition_context_size: int = 100
     asr_chunk_duration_seconds: float = 30.0
+    asr_hotwords: tuple[str, ...] = ()
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     version: str = "mvp"
 
@@ -64,6 +72,7 @@ class Settings:
             asr_chunk_duration_seconds=_float_env(
                 "ASR_CHUNK_DURATION_SECONDS", cls.asr_chunk_duration_seconds
             ),
+            asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )

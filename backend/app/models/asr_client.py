@@ -22,6 +22,7 @@ class MlxAudioAsrClient:
         repetition_penalty: float = 1.08,
         repetition_context_size: int = 100,
         chunk_duration: float = 30.0,
+        hotwords: tuple[str, ...] = (),
         load_model: Callable[[str], Any] | None = None,
         generate_transcription: Callable[..., Any] | None = None,
     ) -> None:
@@ -31,6 +32,7 @@ class MlxAudioAsrClient:
         self.repetition_penalty = repetition_penalty
         self.repetition_context_size = repetition_context_size
         self.chunk_duration = chunk_duration
+        self.hotwords = hotwords
         self._load_model = load_model
         self._generate_transcription = generate_transcription
         self._model_instance: Any | None = None
@@ -71,6 +73,7 @@ class MlxAudioAsrClient:
                     repetition_penalty=self.repetition_penalty,
                     repetition_context_size=self.repetition_context_size,
                     chunk_duration=self.chunk_duration,
+                    hotwords=list(self.hotwords),
                 )
         except Exception as exc:
             if isinstance(exc, ASRClientError):

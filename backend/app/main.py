@@ -29,6 +29,7 @@ def create_app(
                 repetition_penalty=current.asr_repetition_penalty,
                 repetition_context_size=current.asr_repetition_context_size,
                 chunk_duration=current.asr_chunk_duration_seconds,
+                hotwords=current.asr_hotwords,
             ),
             OpenAICompatLLMClient(
                 current.llm_base_url,
@@ -60,6 +61,7 @@ def create_app(
             "asr_repetition_penalty": current.asr_repetition_penalty,
             "asr_repetition_context_size": current.asr_repetition_context_size,
             "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
+            "asr_hotwords": list(current.asr_hotwords),
             "tts_model_path": current.tts_model_path,
             "version": current.version,
         }

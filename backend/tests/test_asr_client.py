@@ -22,6 +22,7 @@ async def test_transcribe_uses_mlx_audio_sdk_with_temp_wav() -> None:
 
     client = MlxAudioAsrClient(
         "test-model",
+        hotwords=("host", "host 网络模式"),
         load_model=fake_load_model,
         generate_transcription=fake_generate_transcription,
     )
@@ -36,6 +37,7 @@ async def test_transcribe_uses_mlx_audio_sdk_with_temp_wav() -> None:
     assert observed["repetition_penalty"] == 1.08
     assert observed["repetition_context_size"] == 100
     assert observed["chunk_duration"] == 30.0
+    assert observed["hotwords"] == ["host", "host 网络模式"]
     assert observed["format"] == "txt"
 
 
