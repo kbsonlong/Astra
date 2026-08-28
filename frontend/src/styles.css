@@ -1,0 +1,19 @@
+:root { font-family: Inter, system-ui, sans-serif; color: #e8edf2; background: #101417; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button { border: 0; border-radius: 6px; padding: 12px 22px; color: #101417; background: #9be2c2; font: inherit; font-weight: 700; cursor: pointer; }
+button.stop { color: #fff; background: #b95b5b; }
+.shell { width: min(760px, calc(100% - 32px)); min-height: 100vh; margin: auto; display: flex; flex-direction: column; padding: 56px 0 32px; }
+header { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 12px; border-bottom: 1px solid #2b353b; padding-bottom: 24px; }
+.eyebrow { grid-column: 1 / -1; color: #86a89c; font-size: 12px; letter-spacing: 0.12em; }
+h1 { margin: 0; font-size: clamp(32px, 8vw, 56px); font-weight: 600; letter-spacing: 0; }
+.status { border: 1px solid #45545a; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+.status.online { color: #9be2c2; border-color: #4d9276; }
+.conversation { flex: 1; padding: 48px 0; }
+.message { border-left: 2px solid #47545b; margin: 0 0 28px; padding: 0 0 0 18px; }
+.message.user { border-color: #9be2c2; }
+.message span { color: #91a0a6; font-size: 12px; }
+.message p { min-height: 24px; margin: 8px 0 0; line-height: 1.7; white-space: pre-wrap; }
+footer { display: flex; align-items: center; gap: 16px; border-top: 1px solid #2b353b; padding-top: 24px; }
+small { color: #91a0a6; }
+@media (max-width: 520px) { .shell { padding-top: 32px; } .conversation { padding: 32px 0; } }
