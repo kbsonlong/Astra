@@ -30,15 +30,15 @@
 | LLM 部署 | `192.168.3.18` host 原生运行 `omlx` 或 `llama-server`，不放入 Mac mini Docker Compose |
 | MVP 平台 | Web 页面，优先 Chrome / Safari |
 | 后端迁移路径 | MVP 使用 Python FastAPI，长期可替换为 Go 网关 |
-| 模型服务约束 | FastAPI、MLX Whisper 和 Piper SDK 在 Mac mini host 原生运行，直接使用 Apple Silicon；Docker 只承担前端静态服务 |
+| 模型服务约束 | FastAPI、MLX Audio 和 Piper SDK 在 Mac mini host 原生运行，直接使用 Apple Silicon；Docker 只承担前端静态服务 |
 | 第三方组件 | Redis/MySQL 等如后续需要，统一使用 Docker，不直接安装在 Mac mini 宿主机 |
 
 ### 1.4 评审约束落实
 
 | 评审点 | 落实方式 |
 |---|---|
-| Docker Desktop on Mac 不适合作为 Metal 推理容器 | FastAPI、MLX Whisper 和 Piper SDK 统一在 Mac mini host 原生运行，直接使用 Apple Silicon 能力 |
-| ASR SDK 契约 | 使用 `mlx-whisper` Python API 整段转写，MVP 只要求输出 `asr_final` |
+| Docker Desktop on Mac 不适合作为 Metal 推理容器 | FastAPI、MLX Audio 和 Piper SDK 统一在 Mac mini host 原生运行，直接使用 Apple Silicon 能力 |
+| ASR SDK 契约 | 使用 `mlx-audio` Python API 调用 Qwen3-ASR 整段转写，MVP 只要求输出 `asr_final` |
 | LLM 端点混乱 / 取消语义不清 | 上层只调用 OpenAI 兼容 `POST /v1/chat/completions`，stream=true；`/api/generate`、自定义 `/cancel` 不进入 MVP 协议 |
 | Piper TTS 契约不清晰 | 使用 `piper-tts` Python API `PiperVoice.synthesize_wav`，返回 WAV 22050Hz mono 16-bit；MVP 做句子级合成 |
 
@@ -57,7 +57,7 @@ Mac mini
   |
   |-- frontend-nginx   Docker 中运行，React 静态资源 + /api /ws 反代
   |-- fastapi          host 原生运行，会话状态机、SDK 编排、打断控制
-  |-- mlx-whisper      FastAPI 进程内 SDK，Apple Silicon 推理
+  |-- mlx-audio        FastAPI 进程内 SDK，Apple Silicon 推理
   |-- piper-tts        FastAPI 进程内 SDK，句子级 WAV 合成
   |
   | HTTP: POST /v1/chat/completions
@@ -74,7 +74,7 @@ Mac mini
 |---|---|---|
 | frontend-nginx | Mac mini Docker | React 静态页面，反代 `/api` 和 `/ws` |
 | fastapi | Mac mini Docker | 语音会话网关，不承载 LLM 模型 |
-| mlx-whisper | Mac mini host，与 FastAPI 同一 Python 环境 | `mlx-community/whisper-large-v3-turbo`，直接调用 SDK |
+| mlx-audio | Mac mini host，与 FastAPI 同一 Python 环境 | `mlx-community/Qwen3-ASR-0.6B-4bit`，直接调用 SDK |
 | piper-tts | Mac mini host，与 FastAPI 同一 Python 环境 | `PiperVoice.load` 加载本地 `.onnx` voice |
 | LLM | `192.168.3.18` host | `omlx` 或 `llama-server`，必须暴露 OpenAI 兼容接口 |
 
@@ -279,7 +279,7 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 | 会话管理 | 内存 dict + asyncio.Lock | MVP 单机内存态 |
 | 流水线 | asyncio.TaskGroup + cancellation token | ASR -> LLM -> sentence splitter -> TTS |
 | LLM 客户端 | `OpenAICompatLLMClient` | 只调用 `/v1/chat/completions` 和 `/v1/models` |
-| ASR 客户端 | `MlxWhisperAsrClient` | 调 `mlx_whisper.transcribe`，阻塞推理放入线程池 |
+| ASR 客户端 | `MlxAudioAsrClient` | 调 `mlx_audio.stt.generate.generate_transcription`，阻塞推理放入线程池 |
 | TTS 客户端 | `PiperSdkTtsClient` | 调 `PiperVoice.load` 和 `synthesize_wav`，阻塞推理放入线程池 |
 
 ### 7.3 模型服务
@@ -287,7 +287,7 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 | 服务 | 选型 | 模型 | 资源口径 |
 |---|---|---|---|
 | LLM | `192.168.3.18` 上的 `omlx` 或 `llama-server` | 由远端机器决定 | 不计入 Mac mini Docker RSS |
-| ASR | `mlx-whisper` SDK | `mlx-community/whisper-large-v3-turbo` | FastAPI 进程内，单独记录模型加载后 RSS |
+| ASR | `mlx-audio` SDK | `mlx-community/Qwen3-ASR-0.6B-4bit` | FastAPI 进程内，单独记录模型加载后 RSS |
 | TTS | `piper-tts` SDK | 本地 `.onnx` voice | FastAPI 进程内，单独记录模型加载后 RSS |
 | FastAPI | Python 3.11 host | 无 | 与 SDK 模型合并记录宿主机 RSS |
 | Nginx | nginx alpine | 无 | 容器 RSS 可忽略 |
@@ -313,7 +313,7 @@ Compose 只包含 `frontend-nginx`。FastAPI、MLX Whisper 和 Piper SDK 必须�
 
 | 项 | 要求 |
 |---|---|
-| MLX Whisper SDK | `mlx-whisper==0.4.3`，模型标识或本地目录固定 |
+| MLX Audio SDK | `mlx-audio==0.5.0`，Qwen3-ASR 模型标识或本地目录固定 |
 | Piper SDK | `piper-tts==1.7.0`，voice 文件路径和 SHA256 固定 |
 | Python 依赖 | `requirements.txt` 固定精确版本，运行在 Mac mini host |
 | 前端依赖 | lockfile 纳入仓库 |
@@ -427,7 +427,7 @@ Astra/
 
 - `llm_client.py` 只实现 OpenAI 兼容客户端，不实现 `omlx` 私有协议或 `llama-server` 私有协议。
 - `deploy/README.md` 写明 `192.168.3.18` 的 `omlx` / `llama-server` 启动示例和 OpenAI 兼容验收命令。
-- 实现代码、部署文件和 README 中不得出现旧方案残留：`Qwen3-ASR`、`Ollama in Docker`、`ASR_BITS`、`/api/generate`、自定义 `/cancel`。
+- 实现代码、部署文件和 README 中不得出现旧方案残留：`Ollama in Docker`、`ASR_BITS`、`/api/generate`、自定义 `/cancel`。
 
 ---
 
@@ -451,7 +451,7 @@ Astra/
 |---|---|---|---|
 | 后端网关 | Python FastAPI | Go 网关 | 保持 WebSocket 和 HTTP API 协议不变 |
 | LLM | `192.168.3.18` OpenAI 兼容服务 | 同协议替换模型或运行时 | 只改 `LLM_BASE_URL`、`LLM_MODEL` 或远端启动方式 |
-| ASR | `mlx-whisper` host SDK | 其他 Whisper SDK | 保持 `MlxWhisperAsrClient` 接口不变 |
+| ASR | `mlx-audio` host SDK | 其他 ASR SDK | 保持 `MlxAudioAsrClient` 接口不变 |
 | TTS | `piper-tts` host SDK | 更高质量 TTS | 保持 `PiperSdkTtsClient` 接口不变 |
 | 前端 | React Web | Tauri / Capacitor | 复用业务 UI 和 WebSocket 协议 |
 | 翻译助手 | 无 | 新增独立 pipeline | 复用 ASR/TTS，增加翻译模型服务 |
@@ -541,6 +541,6 @@ rg 'Qwen3-ASR|ASR_BITS|Ollama.*Docker|/api/generate|/cancel' backend frontend de
 
 - `llama-server` OpenAI 兼容接口说明。
 - 当前选定 `omlx` OpenAI 兼容 server 启动说明。
-- `mlx-whisper` Python `transcribe` API。
+- `mlx-audio` Python `generate_transcription` API 与 Qwen3-ASR 模型卡。
 - `piper-tts` Python `PiperVoice.synthesize_wav` API。
 - Docker Desktop on Mac 资源限制说明。

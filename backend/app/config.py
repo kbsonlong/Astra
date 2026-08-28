@@ -20,7 +20,7 @@ class Settings:
     llm_request_timeout_seconds: float = 120.0
     llm_connect_timeout_seconds: float = 3.0
     llm_stream_idle_timeout_seconds: float = 15.0
-    asr_model: str = "mlx-community/whisper-large-v3-turbo"
+    asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
     asr_language: str = "zh"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     version: str = "mvp"

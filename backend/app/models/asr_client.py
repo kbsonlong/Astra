@@ -6,19 +6,22 @@ from typing import Any
 
 
 class ASRClientError(RuntimeError):
-    """Raised when the Whisper SDK cannot return a transcription."""
+    """Raised when the ASR SDK cannot return a transcription."""
 
 
-class MlxWhisperAsrClient:
+class MlxAudioAsrClient:
     def __init__(
         self,
         model: str,
         language: str = "zh",
-        transcribe: Callable[..., dict[str, Any]] | None = None,
+        load_model: Callable[[str], Any] | None = None,
+        generate_transcription: Callable[..., Any] | None = None,
     ) -> None:
         self.model = model
         self.language = language
-        self._transcribe = transcribe
+        self._load_model = load_model
+        self._generate_transcription = generate_transcription
+        self._model_instance: Any | None = None
 
     def is_ready(self) -> bool:
         return bool(self.model)
@@ -27,29 +30,49 @@ class MlxWhisperAsrClient:
         if not audio:
             raise ASRClientError("audio must not be empty")
         try:
-            with tempfile.NamedTemporaryFile(suffix=os.path.splitext(filename)[1] or ".wav") as handle:
-                handle.write(audio)
-                handle.flush()
-                transcribe = self._transcribe or self._load_sdk()
+            with tempfile.TemporaryDirectory() as directory:
+                audio_path = os.path.join(
+                    directory, os.path.splitext(filename)[1] or ".wav"
+                )
+                with open(audio_path, "wb") as handle:
+                    handle.write(audio)
+                output_path = os.path.join(directory, "transcript")
+                if self._load_model is None or self._generate_transcription is None:
+                    sdk_load_model, sdk_generate = self._load_sdk()
+                else:
+                    sdk_load_model, sdk_generate = None, None
+                load_model = self._load_model or sdk_load_model
+                generate_transcription = self._generate_transcription or sdk_generate
+                assert load_model is not None
+                assert generate_transcription is not None
+                model = await self._get_model(load_model)
                 result = await asyncio.to_thread(
-                    transcribe,
-                    handle.name,
-                    path_or_hf_repo=self.model,
+                    generate_transcription,
+                    model=model,
+                    audio=audio_path,
+                    output_path=output_path,
+                    format="txt",
                     language=self.language,
                 )
         except Exception as exc:
             if isinstance(exc, ASRClientError):
                 raise
-            raise ASRClientError("mlx-whisper transcription failed") from exc
-        text = result.get("text") if isinstance(result, dict) else None
+            raise ASRClientError("mlx-audio transcription failed") from exc
+        text = getattr(result, "text", None)
         if not isinstance(text, str):
-            raise ASRClientError("mlx-whisper response does not contain text")
+            raise ASRClientError("mlx-audio response does not contain text")
         return text.strip()
 
+    async def _get_model(self, load_model: Callable[[str], Any]) -> Any:
+        if self._model_instance is None:
+            self._model_instance = await asyncio.to_thread(load_model, self.model)
+        return self._model_instance
+
     @staticmethod
-    def _load_sdk() -> Callable[..., dict[str, Any]]:
+    def _load_sdk() -> tuple[Callable[[str], Any], Callable[..., Any]]:
         try:
-            import mlx_whisper
+            from mlx_audio.stt.generate import generate_transcription
+            from mlx_audio.stt.utils import load_model
         except ImportError as exc:
-            raise ASRClientError("mlx-whisper is not installed") from exc
-        return mlx_whisper.transcribe
+            raise ASRClientError("mlx-audio is not installed") from exc
+        return load_model, generate_transcription

@@ -22,7 +22,7 @@ class FakePipeline:
 
 class FailingASR:
     async def transcribe(self, audio: bytes, filename: str) -> str:
-        raise ASRClientError("mlx-whisper model is not available locally")
+        raise ASRClientError("mlx-audio model is not available locally")
 
     def is_ready(self) -> bool:
         return False
@@ -65,4 +65,4 @@ def test_transcribe_route_returns_service_unavailable_for_sdk_error() -> None:
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "mlx-whisper model is not available locally"
+    assert response.json()["detail"] == "mlx-audio model is not available locally"

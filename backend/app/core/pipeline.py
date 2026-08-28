@@ -2,7 +2,7 @@ import base64
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
-from ..models.asr_client import MlxWhisperAsrClient
+from ..models.asr_client import MlxAudioAsrClient
 from ..models.llm_client import OpenAICompatLLMClient
 from ..models.tts_client import PiperSdkTtsClient
 
@@ -14,7 +14,7 @@ _SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 class VoicePipeline:
     def __init__(
         self,
-        asr: MlxWhisperAsrClient,
+        asr: MlxAudioAsrClient,
         llm: OpenAICompatLLMClient,
         tts: PiperSdkTtsClient,
     ) -> None:

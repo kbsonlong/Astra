@@ -5,7 +5,7 @@ from .api.http_routes import router as http_router
 from .config import Settings
 from .health import collect_health
 from .core.pipeline import VoicePipeline
-from .models.asr_client import MlxWhisperAsrClient
+from .models.asr_client import MlxAudioAsrClient
 from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
 
@@ -22,7 +22,7 @@ def create_app(
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
         app.state.pipeline = VoicePipeline(
-            MlxWhisperAsrClient(current.asr_model, current.asr_language),
+            MlxAudioAsrClient(current.asr_model, current.asr_language),
             OpenAICompatLLMClient(
                 current.llm_base_url,
                 current.llm_model,
