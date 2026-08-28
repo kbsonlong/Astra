@@ -1,6 +1,6 @@
 import pytest
 
-from app.models.asr_client import MlxAudioAsrClient
+from app.models.asr_client import ASRClientError, MlxAudioAsrClient
 
 
 @pytest.mark.anyio
@@ -31,3 +31,18 @@ async def test_transcribe_uses_mlx_audio_sdk_with_temp_wav() -> None:
     assert observed["model_id"] == "test-model"
     assert observed["language"] == "zh"
     assert observed["format"] == "txt"
+
+
+@pytest.mark.anyio
+async def test_transcribe_includes_sdk_error_detail() -> None:
+    def fake_load_model(model: str) -> object:
+        raise FileNotFoundError(model)
+
+    client = MlxAudioAsrClient(
+        "missing-model",
+        load_model=fake_load_model,
+        generate_transcription=lambda **kwargs: None,
+    )
+
+    with pytest.raises(ASRClientError, match="FileNotFoundError: missing-model"):
+        await client.transcribe(b"wav")

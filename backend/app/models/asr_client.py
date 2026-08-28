@@ -1,8 +1,12 @@
 import asyncio
+import logging
 import os
 import tempfile
 from collections.abc import Callable
 from typing import Any
+
+
+logger = logging.getLogger(__name__)
 
 
 class ASRClientError(RuntimeError):
@@ -57,7 +61,10 @@ class MlxAudioAsrClient:
         except Exception as exc:
             if isinstance(exc, ASRClientError):
                 raise
-            raise ASRClientError("mlx-audio transcription failed") from exc
+            logger.exception("mlx-audio transcription failed for model %s", self.model)
+            raise ASRClientError(
+                f"mlx-audio transcription failed: {exc.__class__.__name__}: {exc}"
+            ) from exc
         text = getattr(result, "text", None)
         if not isinstance(text, str):
             raise ASRClientError("mlx-audio response does not contain text")
