@@ -6,6 +6,6 @@ __pycache__/
 .env
 test.wav
 *.m4a
-models/
+/models/
 *.txt
 _asr*
