@@ -3,3 +3,9 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .DS_Store
+.env
+test.wav
+*.m4a
+models/
+*.txt
+_asr*

@@ -40,6 +40,15 @@ async def collect_health(settings: Settings, pipeline: object | None = None) -> 
     tts_client = getattr(pipeline, "tts", None)
     asr_ok = bool(asr_client and asr_client.is_ready())
     tts_ok = bool(tts_client and tts_client.is_ready())
+    asr_mode = (
+        "sherpa-sensevoice-onnx"
+        if asr_client and type(asr_client).__name__ == "SherpaSenseVoiceAsrClient"
+        else (
+            "sherpa-zipformer-bilingual-onnx"
+            if asr_client and type(asr_client).__name__ == "SherpaZipformerBilingualAsrClient"
+            else "mlx-sdk"
+        )
+    )
 
     return {
         "ok": llm.ok and asr_ok and tts_ok,
@@ -50,7 +59,7 @@ async def collect_health(settings: Settings, pipeline: object | None = None) -> 
             "models_ok": llm.ok,
             "stream_ok": False,
         },
-        "asr": {"ok": asr_ok, "mode": "mlx-sdk"},
+        "asr": {"ok": asr_ok, "mode": asr_mode, "engine": settings.asr_engine},
         "tts": {"ok": tts_ok, "mode": "piper-sdk"},
         "version": settings.version,
     }
