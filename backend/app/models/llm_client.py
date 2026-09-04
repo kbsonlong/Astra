@@ -85,8 +85,19 @@ class OpenAICompatLLMClient:
                     return
                 try:
                     chunk = json.loads(data)
-                    token = chunk["choices"][0]["delta"].get("content", "")
-                except (KeyError, IndexError, TypeError, ValueError) as exc:
+                except ValueError as exc:
                     raise LLMClientError("invalid chat stream chunk") from exc
+                # 容错: 部分服务在流中插入 usage/keepalive 等无 choices 的
+                # chunk(如 omlx chunked SSE), 以及 delta 无 content 的
+                # reasoning/空片——均跳过, 不当作错误。
+                try:
+                    choices = chunk.get("choices") or []
+                    delta = (choices[0] or {}).get("delta") or {}
+                except (KeyError, IndexError, TypeError, AttributeError):
+                    # 无 choices / 非标准结构(usage/keepalive 等)——跳过
+                    continue
+                token = delta.get("content", "")
+                if not isinstance(token, str):
+                    continue
                 if token:
                     yield str(token)

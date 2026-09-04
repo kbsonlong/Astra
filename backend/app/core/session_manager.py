@@ -12,6 +12,7 @@ class Session:
     generation_id: int = 0
     cancelled_generations: set[int] = field(default_factory=set)
     audio_buffer: bytearray = field(default_factory=bytearray)
+    history: list[dict[str, str]] = field(default_factory=list)
 
     def start(self) -> None:
         self.state = "LISTENING"

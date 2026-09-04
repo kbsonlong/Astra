@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 
+from .api.meeting_routes import router as meeting_router
 from .api.ws_session import router as ws_router
 from .api.http_routes import router as http_router
 from .config import Settings
+from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
 from .models.asr_client import (
@@ -55,8 +57,10 @@ def _build_asr_client(current: Settings) -> object:
 def create_app(
     settings: Settings | None = None,
     pipeline: VoicePipeline | None = None,
+    meeting_pipeline: MeetingPipeline | None = None,
     *,
     enable_pipeline: bool = True,
+    enable_meeting: bool = True,
 ) -> FastAPI:
     app = FastAPI(title="Astra API", version="0.1.0")
     current = settings or Settings.from_env()
@@ -75,12 +79,30 @@ def create_app(
             ),
             PiperSdkTtsClient(current.tts_model_path),
         )
+    app.state.meeting_pipeline = meeting_pipeline
+    if enable_meeting and meeting_pipeline is None:
+        from .core.meeting import MeetingPipeline
+
+        app.state.meeting_pipeline = MeetingPipeline(
+            llm=OpenAICompatLLMClient(
+                current.llm_base_url,
+                current.llm_model,
+                current.llm_api_key,
+                request_timeout_seconds=600.0,
+                connect_timeout_seconds=5.0,
+                stream_idle_timeout_seconds=120.0,
+            ),
+            asr=_build_asr_client(current),
+        )
     app.include_router(ws_router)
     app.include_router(http_router)
+    app.include_router(meeting_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
-        return await collect_health(app.state.settings, app.state.pipeline)
+        return await collect_health(
+            app.state.settings, app.state.pipeline, app.state.meeting_pipeline
+        )
 
     @app.get("/api/config")
     async def config() -> dict[str, object]:

@@ -48,6 +48,10 @@ class Settings:
     asr_engine: str = "mlx"
     asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
     asr_language: str = "Chinese"
+    # 会议管线: whisper-large-v3-turbo 本地目录(默认 ModelScope 缓存)
+    whisper_model_path: str = (
+        "/Users/kbsonlong/.cache/modelscope/hub/models/mlx-community/whisper-large-v3-turbo"
+    )
     asr_max_tokens: int = 512
     asr_repetition_penalty: float = 1.08
     asr_repetition_context_size: int = 100
@@ -65,6 +69,7 @@ class Settings:
     zipformer_provider: str = "cpu"
     zipformer_decoding_method: str = "greedy_search"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
+    meeting_output_dir: str = "~/Astra/meetings"
     version: str = "mvp"
 
     @classmethod
@@ -97,6 +102,9 @@ class Settings:
             asr_engine=os.getenv("ASR_ENGINE", cls.asr_engine),
             asr_model=os.getenv("ASR_MODEL", cls.asr_model),
             asr_language=os.getenv("ASR_LANGUAGE", cls.asr_language),
+            whisper_model_path=os.getenv(
+                "WHISPER_MODEL_PATH", cls.whisper_model_path
+            ),
             asr_max_tokens=_int_env("ASR_MAX_TOKENS", cls.asr_max_tokens),
             asr_repetition_penalty=_float_env(
                 "ASR_REPETITION_PENALTY", cls.asr_repetition_penalty
@@ -125,6 +133,7 @@ class Settings:
                 "ZIPFORMER_DECODING_METHOD", cls.zipformer_decoding_method
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
+            meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )
 

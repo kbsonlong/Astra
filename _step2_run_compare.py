@@ -182,8 +182,19 @@ async def _load_and_run(
 def _build_mlx():
     from app.models.asr_client import MlxAudioAsrClient
 
+    # 从 .env 读取 ASR_MODEL（本地绝对路径/ModelScope 缓存），与后端服务一致；
+    # 兜底用仓库默认名，避免硬编码 HF hub 名在国内网络失败。
+    import os
+    from dotenv import load_dotenv
+
+    load_dotenv(dotenv_path=PROJECT_ROOT / ".env")
+    model = os.getenv(
+        "ASR_MODEL",
+        "mlx-community/Qwen3-ASR-0.6B-4bit",
+    )
+
     return MlxAudioAsrClient(
-        model="mlx-community/Qwen3-ASR-0.6B-4bit",
+        model=model,
         language="Chinese",
         max_tokens=512,
         repetition_penalty=1.08,

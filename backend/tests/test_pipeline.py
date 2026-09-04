@@ -13,7 +13,12 @@ class FakeASR:
 
 
 class FakeLLM:
-    async def stream_chat(self, messages: Sequence[Mapping[str, str]]) -> AsyncIterator[str]:
+    async def stream_chat(
+        self,
+        messages: Sequence[Mapping[str, str]],
+        *,
+        chat_template_kwargs: Mapping[str, object] | None = None,
+    ) -> AsyncIterator[str]:
         assert messages[0]["role"] == "user"
         for token in ("First sentence. ", "Second sentence"):
             yield token

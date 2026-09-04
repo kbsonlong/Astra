@@ -35,8 +35,14 @@ async def run_generation(
         await websocket.send_json(event)
 
     try:
-        await pipeline.run(audio, [], generation_id, emit)
+        # 历史上下文最多保留最近 20 条消息(10 轮), 本轮 user/assistant
+        # 成功后追加; 失败/打断不写入, 避免半截回复污染上下文。
+        context = session.history[-20:]
+        user_text, reply_text = await pipeline.run(audio, context, generation_id, emit)
         if session.accepts(generation_id):
+            session.history.append({"role": "user", "content": user_text})
+            if reply_text:
+                session.history.append({"role": "assistant", "content": reply_text})
             session.state = "LISTENING"
             await send_state(websocket, session)
     except asyncio.CancelledError:

@@ -49,3 +49,37 @@ async def test_stream_chat_extracts_content_and_done_marker() -> None:
         await client._client.aclose()
 
     assert tokens == ["Hel", "lo"]
+
+
+@pytest.mark.anyio
+async def test_stream_chat_tolerates_non_choices_chunks() -> None:
+    """omlx chunked SSE 会在流中插入 usage/keepalive 等无 choices 的
+    chunk, 以及 delta 无 content 的 reasoning/空片——必须跳过不报错。"""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        events = [
+            'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+            'data: {"choices":[{"delta":{"content":""}}]}\n\n',  # 空 content
+            'data: {"usage":{"total_tokens":5}}\n\n',           # 无 choices
+            'data: {"choices":[]}\n\n',                         # 空 choices
+            'data: {"choices":[{"delta":{"reasoning_content":"thinking"}}]}\n\n',  # 仅 reasoning
+            'data: {"choices":[{"delta":{"content":"好"}}]}\n\n',
+            "data: [DONE]\n\n",
+        ]
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content="".join(events).encode("utf-8"),
+        )
+
+    client = OpenAICompatLLMClient(
+        "http://llm.test/v1",
+        "test-model",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        tokens = [token async for token in client.stream_chat([{"role": "user", "content": "Hi"}])]
+    finally:
+        await client._client.aclose()
+
+    assert tokens == ["你", "好"]

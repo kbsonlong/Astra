@@ -13,10 +13,11 @@ class FakePipeline:
         messages: Sequence[Mapping[str, str]],
         generation_id: int,
         emit,
-    ) -> None:
+    ) -> tuple[str, str]:
         assert audio == b"pcm"
         await emit({"type": "tts_start", "generation_id": generation_id, "seq": 0})
         await emit({"type": "tts_end", "generation_id": generation_id})
+        return "用户说的", "好的"
 
 
 def app_without_pipeline():
@@ -85,8 +86,9 @@ class BlockingPipeline:
         messages: Sequence[Mapping[str, str]],
         generation_id: int,
         emit,
-    ) -> None:
+    ) -> tuple[str, str]:
         await asyncio.sleep(60)
+        return "", ""
 
 
 def test_interrupt_cancels_running_pipeline_without_stale_events() -> None:

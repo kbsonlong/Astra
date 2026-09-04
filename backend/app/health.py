@@ -28,7 +28,11 @@ async def probe_url(client: httpx.AsyncClient, url: str) -> DependencyStatus:
         return DependencyStatus(ok=False, detail=exc.__class__.__name__)
 
 
-async def collect_health(settings: Settings, pipeline: object | None = None) -> dict[str, object]:
+async def collect_health(
+    settings: Settings,
+    pipeline: object | None = None,
+    meeting_pipeline: object | None = None,
+) -> dict[str, object]:
     timeout = httpx.Timeout(
         settings.llm_request_timeout_seconds,
         connect=settings.llm_connect_timeout_seconds,
@@ -40,6 +44,11 @@ async def collect_health(settings: Settings, pipeline: object | None = None) -> 
     tts_client = getattr(pipeline, "tts", None)
     asr_ok = bool(asr_client and asr_client.is_ready())
     tts_ok = bool(tts_client and tts_client.is_ready())
+    meeting_ok = bool(
+        meeting_pipeline
+        and meeting_pipeline.llm is not None
+        and getattr(meeting_pipeline.llm, "model", "")
+    )
     asr_mode = (
         "sherpa-sensevoice-onnx"
         if asr_client and type(asr_client).__name__ == "SherpaSenseVoiceAsrClient"
@@ -61,5 +70,14 @@ async def collect_health(settings: Settings, pipeline: object | None = None) -> 
         },
         "asr": {"ok": asr_ok, "mode": asr_mode, "engine": settings.asr_engine},
         "tts": {"ok": tts_ok, "mode": "piper-sdk"},
+        "meeting": {
+            "ok": meeting_ok,
+            "whisper_model": getattr(
+                getattr(meeting_pipeline, "whisper_model", None), "", ""
+            )
+            if meeting_pipeline
+            else "",
+            "output_dir": settings.meeting_output_dir,
+        },
         "version": settings.version,
     }
