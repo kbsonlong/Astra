@@ -3,6 +3,7 @@ import glob
 import inspect
 import logging
 import os
+import re
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
@@ -107,7 +108,42 @@ class MlxAudioAsrClient:
             ) from exc
         if not isinstance(text, str):
             raise ASRClientError("mlx-audio response does not contain text")
-        return text.strip()
+        return self._strip_prompt_leak(text.strip())
+
+    def _strip_prompt_leak(self, text: str) -> str:
+        """切除 Qwen3-ASR 在音频结束后复读的 prompt 泄漏。
+
+        mlx-audio 0.5 的 qwen3_asr 把 system_prompt/hotwords 拼进输入
+        prompt, 长段/无语音尾时模型会把这些文本当"待续写内容"原样
+        抄进输出(实测 30s 段句尾复读整段 prompt)。泄漏特征: 输出中
+        出现与注入 prompt 完全相同的长串, 通常位于尾部。
+
+        策略: 把 system_prompt + 热词拼接串作为已知泄漏源, 从输出中
+        移除完全匹配(长度>=4)的片段。长串整段匹配才切, 不误伤正文
+        里真实说出的短词(如单独出现的 host)。
+        """
+        if not text or len(text) < 8:
+            return text
+        fragments = set()
+        if self.system_prompt:
+            fragments.add(self.system_prompt.strip())
+        if self.hotwords:
+            joined = ", ".join(h for h in self.hotwords if h and h.strip())
+            if len(joined) >= 4:
+                fragments.add(joined.strip())
+        if not fragments:
+            return text
+        cleaned = text
+        removed = False
+        for frag in sorted(fragments, key=len, reverse=True):
+            if frag in cleaned:
+                cleaned = cleaned.replace(frag, "").strip()
+                removed = True
+        # 泄漏被切后原句尾常残留标点("扔。host, ..." -> "扔。, ..."),
+        # 只在这种情况清理孤立标点; 未发生切除时不动正文。
+        if removed:
+            cleaned = re.sub(r"[，,。.、；;\s]+$", "", cleaned)
+        return cleaned
 
     async def _generate(
         self,

@@ -83,6 +83,18 @@ def create_app(
     if enable_meeting and meeting_pipeline is None:
         from .core.meeting import MeetingPipeline
 
+        # 会议转写要忠实输出: 不复用带 hotwords/system_prompt 的语音
+        # 对话 client(热词会诱导模型复读注入)。用干净配置的 MlxAudio
+        # client——热词加权只属于实时对话场景。
+        meeting_asr = MlxAudioAsrClient(
+            current.asr_model,
+            current.asr_language,
+            max_tokens=current.asr_max_tokens,
+            repetition_penalty=current.asr_repetition_penalty,
+            repetition_context_size=current.asr_repetition_context_size,
+            hotwords=(),
+            system_prompt="",
+        )
         app.state.meeting_pipeline = MeetingPipeline(
             llm=OpenAICompatLLMClient(
                 current.llm_base_url,
@@ -92,7 +104,7 @@ def create_app(
                 connect_timeout_seconds=5.0,
                 stream_idle_timeout_seconds=120.0,
             ),
-            asr=_build_asr_client(current),
+            asr=meeting_asr,
         )
     app.include_router(ws_router)
     app.include_router(http_router)

@@ -86,3 +86,29 @@ async def test_long_audio_is_transcribed_in_independent_chunks() -> None:
 
     assert await client.transcribe(b"audio", filename="meeting.m4a") == "chunk-1 chunk-2"
     assert len(observed) == 2
+
+
+def test_strip_prompt_leak_removes_injected_hotwords_and_system_prompt() -> None:
+    client = MlxAudioAsrClient(
+        "test-model",
+        hotwords=("host", "host 网络模式", "网络模式", "大佬", "CI/CD"),
+        system_prompt="你是一个专业的中文语音转写器。只输出音频中实际说出的内容，不要补充、解释或改写。",
+    )
+
+    dirty = (
+        "就是大家还是对这一块要有一个警惕性，就是机密的东西一定不要往上面去扔。"
+        "你是一个专业的中文语音转写器。只输出音频中实际说出的内容，不要补充、解释或改写。"
+        "host, host 网络模式, 网络模式, 大佬, CI/CD"
+    )
+    assert "host 网络模式" not in client._strip_prompt_leak(dirty)
+    assert "中文语音转写器" not in client._strip_prompt_leak(dirty)
+    # 切除后保留正文主体
+    assert "警惕性" in client._strip_prompt_leak(dirty)
+
+    # 正文里真实出现的短词不误伤
+    normal = "我们那个环境用的是 host 模式部署，感觉还行。"
+    assert client._strip_prompt_leak(normal) == normal
+
+    # 无泄漏场景原样返回
+    plain = client._strip_prompt_leak("今天讨论了资源优化的事情。")
+    assert plain == "今天讨论了资源优化的事情。"

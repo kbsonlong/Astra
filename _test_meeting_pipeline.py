@@ -46,8 +46,8 @@ async def main() -> None:
         max_tokens=s.asr_max_tokens,
         repetition_penalty=s.asr_repetition_penalty,
         repetition_context_size=s.asr_repetition_context_size,
-        hotwords=s.asr_hotwords,
-        system_prompt=s.asr_system_prompt,
+        hotwords=(),          # 会议转写忠实输出, 不带热词
+        system_prompt="",
     )
     pipe = MeetingPipeline(llm=llm, asr=asr, vad_model="models/silero_vad.onnx")
 
