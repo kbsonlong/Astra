@@ -5,12 +5,20 @@ import logging
 import os
 import re
 import tempfile
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 
 logger = logging.getLogger(__name__)
+
+# model_path -> (创建线程 id, 模型实例)
+# MLX GPU stream 是 thread-local 的, 模型实例只能在创建线程内复用;
+# 跨线程调用(测试 to_thread / 未来的独立 worker)会命中不同线程键, 自动重载。
+# 键不含 client 配置——hotwords/system_prompt 每次 generate 时单独传入,
+# 因此 voice 与 meeting 两个 client 可安全共享同一份权重, 不重复占内存。
+_MLX_MODEL_CACHE: dict[str, tuple[int, Any]] = {}
 
 
 class ASRClientError(RuntimeError):
@@ -67,14 +75,17 @@ class MlxAudioAsrClient:
                     or self._generate_transcription is None
                     or self._load_audio is None
                 ):
-                    sdk_load_model, sdk_generate, sdk_load_audio = self._load_sdk()
+                    # SDK 生产路径: 模型跨调用缓存(同线程复用), 避免每次
+                    # transcribe 从磁盘重载权重(会议 131 段 x ~0.6-2s)。
+                    model = await self._load_model_cached(self.model)
+                    load_audio = MlxAudioAsrClient._load_audio_from_sdk
+                    generate_transcription = None
                 else:
-                    sdk_load_model, sdk_generate, sdk_load_audio = None, None, None
-                load_model = self._load_model or sdk_load_model
-                generate_transcription = self._generate_transcription or sdk_generate
-                load_audio = self._load_audio or sdk_load_audio
-                assert load_model is not None
-                model = await self._run_mlx(load_model, self.model)
+                    # 注入路径(测试): 保持原行为, 不走缓存。
+                    model = await self._run_mlx(self._load_model, self.model)
+                    load_audio = self._load_audio
+                    generate_transcription = self._generate_transcription
+                assert model is not None
                 if load_audio is None:
                     raise ASRClientError("mlx-audio audio loader is unavailable")
                 audio_signal = await self._run_mlx(load_audio, audio_path)
@@ -145,6 +156,27 @@ class MlxAudioAsrClient:
             cleaned = re.sub(r"[，,。.、；;\s]+$", "", cleaned)
         return cleaned
 
+    @classmethod
+    def clear_model_cache(cls) -> None:
+        """测试隔离用: 清空模块级 MLX 模型缓存。"""
+        _MLX_MODEL_CACHE.clear()
+
+    async def _load_model_cached(self, model: str) -> Any:
+        """SDK 路径的模型加载(带缓存)。
+
+        MLX GPU stream 是 thread-local 的: 缓存键包含创建线程 id,
+        同线程内跨调用复用实例; 若在另一个线程调用(测试 to_thread、
+        未来会议 worker 进程化), 键不命中会自动重载一份独立实例,
+        不会把属于别的线程 stream 的模型拿来用。
+        """
+        tid = threading.get_ident()
+        hit = _MLX_MODEL_CACHE.get(model)
+        if hit is not None and hit[0] == tid:
+            return hit[1]
+        instance = await self._run_mlx(type(self)._load_model_from_sdk, model)
+        _MLX_MODEL_CACHE[model] = (tid, instance)
+        return instance
+
     async def _generate(
         self,
         model: Any,
@@ -188,11 +220,6 @@ class MlxAudioAsrClient:
         # MLX GPU streams are thread-local. Keep all production MLX work on
         # Uvicorn's main thread instead of moving it through an executor.
         return func(*args, **kwargs)
-
-    @staticmethod
-    def _load_sdk() -> tuple[Callable[[str], Any], None, Callable[[str], Any]]:
-        # Keep imports inside the MLX worker. MLX streams are thread-local.
-        return MlxAudioAsrClient._load_model_from_sdk, None, MlxAudioAsrClient._load_audio_from_sdk
 
     @staticmethod
     def _load_model_from_sdk(model: str) -> Any:

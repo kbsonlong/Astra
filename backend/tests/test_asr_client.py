@@ -112,3 +112,63 @@ def test_strip_prompt_leak_removes_injected_hotwords_and_system_prompt() -> None
     # 无泄漏场景原样返回
     plain = client._strip_prompt_leak("今天讨论了资源优化的事情。")
     assert plain == "今天讨论了资源优化的事情。"
+
+
+@pytest.mark.anyio
+async def test_sdk_model_loaded_once_across_transcribes(monkeypatch) -> None:
+    """生产 SDK 路径: 同线程多次 transcribe 只加载一次模型。
+
+    会议管线每 VAD 段一次 transcribe, 若不缓存则 131 段 x 0.6-2s 纯重载开销。
+    """
+    loads: list[str] = []
+
+    class Result:
+        text = "ok"
+
+    class FakeModel:
+        def generate(self, audio: object, **kwargs: object) -> Result:
+            return Result()
+
+    def fake_load_model(model: str) -> object:
+        loads.append(model)
+        return FakeModel()
+
+    monkeypatch.setattr(
+        MlxAudioAsrClient, "_load_model_from_sdk", staticmethod(fake_load_model)
+    )
+    monkeypatch.setattr(
+        MlxAudioAsrClient,
+        "_load_audio_from_sdk",
+        staticmethod(lambda path: [0.0] * 16000),
+    )
+    client = MlxAudioAsrClient("cached-model")
+    try:
+        assert await client.transcribe(b"wav1", filename="a.wav") == "ok"
+        assert await client.transcribe(b"wav2", filename="b.wav") == "ok"
+    finally:
+        MlxAudioAsrClient.clear_model_cache()
+    assert loads == ["cached-model"]  # 第二次命中缓存, 不再加载
+
+
+@pytest.mark.anyio
+async def test_injected_loaders_are_not_cached() -> None:
+    """注入路径(测试): 每次 transcribe 都走注入的 loader, 不经过模块缓存。"""
+
+    loads: list[str] = []
+
+    class Result:
+        text = "hi"
+
+    def fake_load_model(model: str) -> object:
+        loads.append(model)
+        return object()
+
+    client = MlxAudioAsrClient(
+        "uncached-model",
+        load_model=fake_load_model,
+        load_audio=lambda path: [0.0],
+        generate_transcription=lambda **kwargs: Result(),
+    )
+    assert await client.transcribe(b"wav") == "hi"
+    assert await client.transcribe(b"wav") == "hi"
+    assert loads == ["uncached-model", "uncached-model"]

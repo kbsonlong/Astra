@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,10 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 router = APIRouter(prefix="/api/meeting", tags=["meeting"])
 
 ALLOWED_SUFFIX = {".m4a", ".wav", ".mp3", ".flac", ".aac", ".mov", ".mp4"}
+
+# 实际引擎链(meeting.py 方案A): Silero VAD 出时间戳 -> Qwen3-ASR 逐段转写
+# -> resemblyzer 声纹 embed + scipy ward 聚类打标。勿写回已弃用的 whisper。
+ENGINE_LABEL = "Silero VAD + Qwen3-ASR + resemblyzer (ward 聚类)"
 
 
 def _render_markdown(result: Any, meta: dict[str, object]) -> str:
@@ -30,7 +35,10 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
     )
     if meta.get("topic"):
         out.append(f"- **主题**: {meta['topic']}")
-    out.append(f"- **生成**: {time.strftime('%Y-%m-%d %H:%M')}  · 引擎: whisper-large-v3-turbo + resemblyzer + {meta.get('llm_model', '-')}")
+    out.append(
+        f"- **生成**: {time.strftime('%Y-%m-%d %H:%M')}  · "
+        f"引擎: {meta.get('engine', '-')}  · 纪要模型: {meta.get('llm_model', '-')}"
+    )
     out.append("")
 
     if result.summary:
@@ -89,14 +97,16 @@ async def process_meeting(
     # 落盘: report.md + transcript.txt + meta.json
     settings = request.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()
-    task_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{abs(hash(filename)) % 10000:04d}"
+    # uuid 后缀: 避免同秒同文件名时 hash()%10000 撞车覆盖上一次报告
+    # (hash() 对 str 跨进程随机, %10000 只有万分之一空间, 双碰撞风险)。
+    task_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     out_dir = base / task_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
     meta: dict[str, object] = {
         "topic": topic,
         "llm_model": settings.llm_model,
-        "engine": "mlx-whisper-large-v3-turbo + resemblyzer + spectralcluster",
+        "engine": ENGINE_LABEL,
     }
     markdown = _render_markdown(result, meta)
     (out_dir / "report.md").write_text(markdown, encoding="utf-8")

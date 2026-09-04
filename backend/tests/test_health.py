@@ -29,6 +29,15 @@ def test_config_masks_api_key(settings: Settings) -> None:
 
 def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
+    # load_dotenv 默认不覆盖已存在的环境变量: 若同进程内先前测试在项目根
+    # cwd 下跑过 Settings.from_env(), 真实 .env 的值会残留进 os.environ,
+    # 导致本测试读到串扰值(顺序相关 flake)。先清掉相关键再加载。
+    for key in (
+        "ASR_MODEL", "ASR_LANGUAGE", "ASR_MAX_TOKENS", "ASR_REPETITION_PENALTY",
+        "ASR_REPETITION_CONTEXT_SIZE", "ASR_HOTWORDS", "ASR_SYSTEM_PROMPT",
+        "TTS_MODEL_PATH", "LLM_MODELS_PATH",
+    ):
+        monkeypatch.delenv(key, raising=False)
     (tmp_path / ".env").write_text(
         "ASR_MODEL=/models/whisper\nASR_LANGUAGE=en\nASR_MAX_TOKENS=256\n"
         "ASR_REPETITION_PENALTY=1.12\nASR_HOTWORDS=host,大佬\n"
