@@ -20,3 +20,16 @@ docker compose up -d
 ```
 
 具体的远端 LLM 协议和 Mac mini 预检命令见 [`deploy/README.md`](deploy/README.md)。
+
+## 会议 Workflow 工具
+
+会议 Workflow 的模型下载、三段录音回归和本地 LLM 纪要工具统一放在
+`scripts/meeting/`：
+
+```bash
+PYTHONPATH=backend .venv/bin/python scripts/meeting/download_and_test_workflow.py
+PYTHONPATH=backend .venv/bin/python scripts/meeting/generate_llm_minutes.py
+```
+
+纪要脚本默认读取 `/tmp/astra-workflow-test/report.json`，使用本机缓存的
+`mlx-community/Qwen2.5-7B-Instruct-4bit`，不重复执行 ASR。
