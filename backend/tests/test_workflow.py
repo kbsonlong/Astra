@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from app.core.speaker_registry import SpeakerMatch
@@ -85,6 +86,18 @@ async def test_diarization_propagates_registered_speaker_identity(monkeypatch) -
     assert segments[0].speaker_name == "忠思"
     assert segments[0].speaker_similarity == 0.91
     assert segments[0].speaker_confidence == "high"
+
+
+def test_diarization_auto_clusters_more_than_two_speakers() -> None:
+    stage = ResemblyzerDiarizationStage(cluster_distance_threshold=0.35)
+    vectors = np.zeros((6, 256), dtype=np.float32)
+    vectors[0:2, 0] = 1.0
+    vectors[2:4, 1] = 1.0
+    vectors[4:6, 2] = 1.0
+
+    raw = stage._cluster_embeddings(vectors)
+
+    assert len(set(raw)) == 3
 
 
 @pytest.mark.parametrize(

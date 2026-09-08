@@ -155,10 +155,18 @@ class SileroVADStage:
 
 
 class ResemblyzerDiarizationStage:
-    """VAD 段级声纹 embedding + Ward 聚类的本地 SD 实现。"""
+    """VAD 段级声纹 embedding + 自动簇数聚类的本地 SD 实现。"""
 
-    def __init__(self, profile_store: SpeakerProfileStore | None = None) -> None:
+    def __init__(
+        self,
+        profile_store: SpeakerProfileStore | None = None,
+        *,
+        cluster_distance_threshold: float = 0.30,
+        max_speakers: int = 8,
+    ) -> None:
         self.profile_store = profile_store
+        self.cluster_distance_threshold = cluster_distance_threshold
+        self.max_speakers = max(2, max_speakers)
 
     async def assign(self, wav: str | Path, segments: list[Segment]) -> None:
         if not segments:
@@ -183,7 +191,6 @@ class ResemblyzerDiarizationStage:
     ) -> list[tuple[str, SpeakerMatch | None]]:
         import numpy as np
         from resemblyzer import VoiceEncoder
-        from scipy.cluster.hierarchy import fcluster, linkage
         from scipy.io import wavfile
 
         sr, data = wavfile.read(wav)
@@ -216,7 +223,7 @@ class ResemblyzerDiarizationStage:
             return [("S1", match) for _ in segments]
         matrix = np.stack([embeddings[i] for i in valid])
         matrix = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
-        raw = fcluster(linkage(matrix, method="ward"), 2, criterion="maxclust")
+        raw = self._cluster_embeddings(matrix)
 
         mapped: dict[int, str] = {}
         for position, segment_index in enumerate(valid):
@@ -245,6 +252,25 @@ class ResemblyzerDiarizationStage:
                 last_match = cluster_matches.get(cluster_id)
             assignments.append((last, last_match))
         return assignments
+
+    def _cluster_embeddings(self, matrix):
+        """按余弦距离切树，避免把多人强行压成两个簇。"""
+        from scipy.cluster.hierarchy import fcluster, linkage
+
+        tree = linkage(matrix, method="average", metric="cosine")
+        raw = fcluster(
+            tree,
+            self.cluster_distance_threshold,
+            criterion="distance",
+        )
+        if len(set(raw)) > self.max_speakers:
+            raw = fcluster(tree, self.max_speakers, criterion="maxclust")
+        logger.info(
+            "diarization auto clusters=%d valid_segments=%d",
+            len(set(raw)),
+            len(matrix),
+        )
+        return raw
 
     def is_ready(self) -> bool:
         try:

@@ -128,7 +128,7 @@ class MeetingPipeline:
         return result.language, result.segments
 
     # ------------------------------------------------------------------ #
-    # 3. 说话人分离 (VAD 段级 resemblyzer embed + ward 聚 2 簇)
+    # 3. 说话人分离 (VAD 段级 resemblyzer embed + 自动簇数余弦聚类)
     # ------------------------------------------------------------------ #
     async def diarize(self, wav: str, segments: list[Segment]) -> None:
         """兼容旧调用方；新的 transcribe() 已在 Workflow 内完成 SD。"""

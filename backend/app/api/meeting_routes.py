@@ -30,7 +30,7 @@ ALLOWED_SUFFIX = {".m4a", ".wav", ".mp3", ".flac", ".aac", ".mov", ".mp4"}
 
 # 实际引擎链(meeting.py 方案A): Silero VAD 出时间戳 -> Qwen3-ASR 逐段转写
 # -> resemblyzer 声纹 embed + scipy ward 聚类打标。勿写回已弃用的 whisper。
-ENGINE_LABEL = "Silero VAD + Qwen3-ASR + punctuation + resemblyzer (ward 聚类)"
+ENGINE_LABEL = "Silero VAD + Qwen3-ASR + punctuation + resemblyzer (自动簇数余弦聚类)"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # backend/app/api -> repo 根
 
