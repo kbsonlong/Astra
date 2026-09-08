@@ -7,7 +7,7 @@ import pytest
 from app.core.speaker_registry import SpeakerMatch
 from app.core.workflow import (
     AudioWorkflow,
-    LlmTextCleanupStage,
+    CorrectionStage,
     ResemblyzerDiarizationStage,
     Segment,
     SpeechChunk,
@@ -43,7 +43,7 @@ class FakeSD:
 
 
 class FakeCleanup:
-    name = "llm_cleanup"
+    name = "correction"
 
     async def run(self, context: WorkflowContext) -> None:
         events.append("cleanup")
@@ -133,10 +133,10 @@ async def test_audio_workflow_keeps_asr_text_when_punctuation_fails() -> None:
 
 
 @pytest.mark.anyio
-async def test_audio_workflow_places_cleanup_between_asr_and_punctuation() -> None:
+async def test_audio_workflow_places_correction_after_punctuation_and_sd() -> None:
     events.clear()
     workflow = AudioWorkflow(
-        FakeVAD(), FakeASR(), FakePunctuation(), FakeSD(), text_cleanup=FakeCleanup()
+        FakeVAD(), FakeASR(), FakePunctuation(), FakeSD(), correction=FakeCleanup()
     )
 
     result = await workflow.run("meeting.wav", filename="meeting.m4a")
@@ -145,21 +145,30 @@ async def test_audio_workflow_places_cleanup_between_asr_and_punctuation() -> No
         "vad",
         "asr:one",
         "asr:two",
-        "cleanup",
-        "punct:清洗:one",
-        "punct:清洗:two",
+        "punct:one",
+        "punct:two",
         "sd",
+        "cleanup",
     ]
     assert [segment.text for segment in result.segments] == ["清洗:one。", "清洗:two。"]
 
 
 @pytest.mark.anyio
-async def test_llm_cleanup_stage_rewrites_text_and_falls_back_on_error() -> None:
+async def test_correction_stage_applies_rules_and_restricts_llm_candidates() -> None:
+    rules_context = WorkflowContext(
+        wav="meeting.wav",
+        filename="meeting.wav",
+        language="zh",
+        segments=[Segment(0.0, 1.0, "宗师使用后视网络模式")],
+    )
+    await CorrectionStage().run(rules_context)
+    assert rules_context.segments[0].text == "忠思使用host 网络模式"
+
     class FakeLLM:
         model = "local-test"
 
         async def stream_chat(self, messages, **kwargs):
-            assert messages[0]["content"] == "只清洗"
+            assert "宗师->忠思" in messages[0]["content"]
             assert messages[1]["content"] == "宗师"
             assert kwargs["max_tokens"] == 32
             yield "忠思"
@@ -170,11 +179,36 @@ async def test_llm_cleanup_stage_rewrites_text_and_falls_back_on_error() -> None
         language="zh",
         segments=[Segment(0.0, 1.0, "宗师")],
     )
-    stage = LlmTextCleanupStage(
-        FakeLLM(), system_prompt="只清洗", max_tokens=32
+    stage = CorrectionStage(
+        FakeLLM(),
+        rules_enabled=False,
+        llm_enabled=True,
+        candidate_rules={"宗师": "忠思"},
+        system_prompt="只清洗",
+        max_tokens=32,
     )
     await stage.run(context)
     assert context.segments[0].text == "忠思"
+
+    class UnsafeLLM(FakeLLM):
+        async def stream_chat(self, messages, **kwargs):
+            yield "忠思并新增内容"
+
+    unsafe_context = WorkflowContext(
+        wav="meeting.wav",
+        filename="meeting.wav",
+        language="zh",
+        segments=[Segment(0.0, 1.0, "宗师")],
+    )
+    await CorrectionStage(
+        UnsafeLLM(),
+        rules_enabled=False,
+        llm_enabled=True,
+        candidate_rules={"宗师": "忠思"},
+        system_prompt="只清洗",
+        max_tokens=32,
+    ).run(unsafe_context)
+    assert unsafe_context.segments[0].text == "宗师"
 
     class BrokenLLM(FakeLLM):
         async def stream_chat(self, messages, **kwargs):
@@ -187,8 +221,13 @@ async def test_llm_cleanup_stage_rewrites_text_and_falls_back_on_error() -> None
         language="zh",
         segments=[Segment(0.0, 1.0, "原始")],
     )
-    await LlmTextCleanupStage(
-        BrokenLLM(), system_prompt="只清洗", max_tokens=32
+    await CorrectionStage(
+        BrokenLLM(),
+        rules_enabled=False,
+        llm_enabled=True,
+        candidate_rules={"宗师": "忠思"},
+        system_prompt="只清洗",
+        max_tokens=32,
     ).run(fallback_context)
     assert fallback_context.segments[0].text == "原始"
 

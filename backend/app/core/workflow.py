@@ -1,7 +1,7 @@
 """可组合的音频处理 Workflow。
 
-数据流固定为 VAD -> ASR -> 标点恢复 -> 说话人分离。模型实现通过小型
-协议注入，编排层不依赖具体的 FunASR、sherpa 或声纹库，因而既能在
+默认数据流为 VAD -> ASR -> 标点恢复 -> 说话人分离；纠错阶段按配置追加。
+模型实现通过小型协议注入，编排层不依赖具体的 FunASR、sherpa 或声纹库，因而既能在
 Mac mini 上运行真实模型，也能用轻量 fake 做契约测试。
 """
 from __future__ import annotations
@@ -14,6 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+from .correction import (
+    DEFAULT_CORRECTION_RULES,
+    apply_text_rules,
+    candidate_outputs,
+)
 from .speaker_registry import SpeakerMatch, SpeakerProfileStore
 
 logger = logging.getLogger(__name__)
@@ -90,10 +95,6 @@ class ASRStage(Protocol):
 
 class PunctuationStage(Protocol):
     async def restore(self, text: str, *, language: str = "zh") -> str: ...
-
-
-class TextCleanupStage(Protocol):
-    async def clean(self, text: str, *, language: str = "zh") -> str: ...
 
 
 class SpeakerDiarizationStage(Protocol):
@@ -177,53 +178,81 @@ class PunctuationWorkflowStage:
         return bool(ready()) if callable(ready) else True
 
 
-class LlmTextCleanupStage:
-    """ASR 后的可选 LLM 清洗；失败时保留原始识别文本。"""
+class CorrectionStage:
+    """唯一文本纠错阶段：规则优先，LLM 仅确认显式候选词。"""
 
-    name = "llm_cleanup"
+    name = "correction"
 
     def __init__(
         self,
-        llm: Any,
+        llm: Any = None,
         *,
-        system_prompt: str,
+        rules_enabled: bool = True,
+        rules: dict[str, str] | None = None,
+        llm_enabled: bool = False,
+        candidate_rules: dict[str, str] | None = None,
+        system_prompt: str = "",
         max_tokens: int = 256,
     ) -> None:
         self.llm = llm
+        self.rules_enabled = rules_enabled
+        self.rules = dict(rules or DEFAULT_CORRECTION_RULES)
+        self.llm_enabled = llm_enabled
+        self.candidate_rules = dict(candidate_rules or {})
         self.system_prompt = system_prompt
         self.max_tokens = max_tokens
-        self.engine_name = llm.__class__.__name__
+        self.engine_name = "rules+llm" if llm_enabled else "rules"
 
     async def run(self, context: WorkflowContext) -> None:
-        if self.llm is None or not getattr(self.llm, "model", ""):
-            return
         for segment in context.segments:
-            original = segment.text
-            try:
-                cleaned = await self.clean(original, language=context.language)
-            except Exception as exc:
-                logger.warning("LLM text cleanup failed, keep ASR text: %s", exc)
-                continue
-            if cleaned.strip():
-                segment.text = cleaned.strip()
-            else:
-                segment.text = original
+            text = (
+                apply_text_rules(segment.text, self.rules)
+                if self.rules_enabled
+                else segment.text
+            )
+            if self.llm_enabled and self.llm is not None:
+                text = await self._llm_candidate_clean(text, context.language)
+            segment.text = text
 
-    async def clean(self, text: str, *, language: str = "zh") -> str:
+    async def _llm_candidate_clean(self, text: str, language: str) -> str:
+        candidates = {
+            source: target
+            for source, target in self.candidate_rules.items()
+            if source in text
+        }
+        if not candidates or not getattr(self.llm, "model", ""):
+            return text
+        prompt = (
+            f"{self.system_prompt}\n"
+            "本次只允许确认以下候选替换："
+            + "；".join(f"{source}->{target}" for source, target in candidates.items())
+            + "。除候选词外必须逐字保留原文，不得增删、改写、调序，"
+            "不得修改数字、英文、时间、人名和标点。无法确认时原样输出。"
+        )
         tokens: list[str] = []
-        async for token in self.llm.stream_chat(
-            [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": text},
-            ],
-            temperature=0.0,
-            max_tokens=self.max_tokens,
-            chat_template_kwargs={"enable_thinking": False},
-        ):
-            tokens.append(token)
-        return "".join(tokens)
+        try:
+            async for token in self.llm.stream_chat(
+                [
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": text},
+                ],
+                temperature=0.0,
+                max_tokens=self.max_tokens,
+                chat_template_kwargs={"enable_thinking": False},
+            ):
+                tokens.append(token)
+        except Exception as exc:
+            logger.warning("LLM candidate correction failed, keep text: %s", exc)
+            return text
+        corrected = "".join(tokens).strip()
+        if corrected in candidate_outputs(text, candidates):
+            return corrected
+        logger.warning("LLM candidate correction changed non-candidate text, reject")
+        return text
 
     def is_ready(self) -> bool:
+        if not self.llm_enabled:
+            return True
         return bool(self.llm is not None and getattr(self.llm, "model", ""))
 
 
@@ -498,6 +527,7 @@ class AudioWorkflow:
         punctuation: PunctuationStage | None = None,
         diarization: SpeakerDiarizationStage | None = None,
         *,
+        correction: WorkflowStage | None = None,
         text_cleanup: WorkflowStage | None = None,
         language: str = "zh",
     ) -> None:
@@ -509,21 +539,23 @@ class AudioWorkflow:
         builder = WorkflowBuilder(language=language)
         builder.use(VadWorkflowStage(vad))
         builder.use(AsrWorkflowStage(asr))
-        if text_cleanup is not None:
-            builder.use(text_cleanup)
         builder.use(PunctuationWorkflowStage(self.punctuation))
         if diarization is not None:
             builder.use(DiarizationWorkflowStage(diarization))
+        if correction is not None and text_cleanup is not None:
+            raise ValueError("use correction or text_cleanup, not both")
+        self.correction = correction or text_cleanup
+        if self.correction is not None:
+            builder.use(self.correction)
         self.engine = builder.build()
-        self.text_cleanup = text_cleanup
 
     async def run(self, wav: str | Path, *, filename: str = "speech.wav") -> WorkflowResult:
         return await self.engine.run(wav, filename=filename)
 
     def stage_status(self) -> dict[str, object]:
         result = self.engine.stage_status()
-        if self.text_cleanup is None:
-            result["llm_cleanup"] = {"enabled": False, "ok": True}
+        if self.correction is None:
+            result["correction"] = {"enabled": False, "ok": True}
         if self.diarization is None:
             result["sd"] = {"enabled": False, "ok": True}
         return result

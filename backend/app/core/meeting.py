@@ -22,8 +22,8 @@ from .workflow import (
     ResemblyzerDiarizationStage,
     Segment,
     SileroVADStage,
-    TextCleanupStage,
     WorkflowEngine,
+    WorkflowStage,
 )
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,8 @@ class MeetingPipeline:
         workflow: WorkflowEngine | None = None,
         summary_stage: MeetingStage | None = None,
         translation_stage: MeetingStage | None = None,
-        text_cleanup: TextCleanupStage | None = None,
+        correction_stage: WorkflowStage | None = None,
+        text_cleanup: WorkflowStage | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
         self.vad_model = vad_model or str(
@@ -139,12 +140,15 @@ class MeetingPipeline:
             if diarization is _DEFAULT_DIARIZATION
             else diarization
         )
+        if correction_stage is not None and text_cleanup is not None:
+            raise ValueError("use correction_stage or text_cleanup, not both")
+        self.correction_stage = correction_stage or text_cleanup
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
             self.punctuation,
             self.diarization,
-            text_cleanup=text_cleanup,
+            correction=self.correction_stage,
         )
         self.summary_stage = summary_stage or SummaryStage(self._generate_summary)
         self.translation_stage = translation_stage or TranslationStage(
