@@ -233,6 +233,20 @@ async def test_correction_stage_applies_rules_and_restricts_llm_candidates() -> 
 
 
 @pytest.mark.anyio
+async def test_correction_stage_keeps_unconfirmed_cluster_machine_term() -> None:
+    context = WorkflowContext(
+        wav="meeting.wav",
+        filename="meeting.wav",
+        language="zh",
+        segments=[Segment(0.0, 1.0, "集群机单机变成集群")],
+    )
+
+    await CorrectionStage().run(context)
+
+    assert context.segments[0].text == "集群机单机变成集群"
+
+
+@pytest.mark.anyio
 async def test_diarization_propagates_registered_speaker_identity(monkeypatch) -> None:
     match = SpeakerMatch("speaker-uuid", "忠思", 0.91, "high")
     stage = ResemblyzerDiarizationStage()
