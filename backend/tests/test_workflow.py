@@ -93,6 +93,22 @@ def test_workflow_builder_rejects_empty_workflow() -> None:
         WorkflowBuilder().build()
 
 
+def test_meeting_pipeline_accepts_custom_workflow() -> None:
+    from app.core.meeting import MeetingPipeline
+
+    custom = WorkflowBuilder().use(SeedStageForTest()).build()
+    pipeline = MeetingPipeline(asr=FakeASR(), diarization=None, workflow=custom)
+
+    assert pipeline.workflow is custom
+
+
+class SeedStageForTest:
+    name = "custom"
+
+    async def run(self, context) -> None:
+        context.segments.append(Segment(0.0, 1.0, "自定义"))
+
+
 @pytest.mark.anyio
 async def test_audio_workflow_keeps_asr_text_when_punctuation_fails() -> None:
     class BrokenPunctuation:

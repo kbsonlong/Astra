@@ -22,6 +22,7 @@ from .workflow import (
     ResemblyzerDiarizationStage,
     Segment,
     SileroVADStage,
+    WorkflowEngine,
 )
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class MeetingPipeline:
         min_speaker_segments: int = 3,
         punctuation: Any = None,
         diarization: Any = _DEFAULT_DIARIZATION,
+        workflow: WorkflowEngine | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
         self.vad_model = vad_model or str(
@@ -85,11 +87,8 @@ class MeetingPipeline:
             if diarization is _DEFAULT_DIARIZATION
             else diarization
         )
-        self.workflow = AudioWorkflow(
-            self.vad,
-            self.asr,
-            self.punctuation,
-            self.diarization,
+        self.workflow = workflow or AudioWorkflow(
+            self.vad, self.asr, self.punctuation, self.diarization
         )
 
     # ------------------------------------------------------------------ #
