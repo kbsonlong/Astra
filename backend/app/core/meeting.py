@@ -14,7 +14,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Protocol, Sequence
 
 from .workflow import (
     AudioWorkflow,
@@ -52,6 +52,54 @@ class MeetingResult:
         return "\n".join(lines)
 
 
+@dataclass
+class MeetingContext:
+    """纪要阶段之间传递的上下文。"""
+
+    segments: list[Segment]
+    meeting_topic: str = ""
+    target_language: str = "简体中文"
+    chunk_tokens: int = 6000
+    translate: bool = True
+    summary: str = ""
+    translation: str = ""
+
+
+class MeetingStage(Protocol):
+    name: str
+
+    async def run(self, context: MeetingContext) -> None: ...
+
+
+class SummaryStage:
+    name = "summary"
+
+    def __init__(self, generator: Any) -> None:
+        self.generator = generator
+
+    async def run(self, context: MeetingContext) -> None:
+        context.summary = await self.generator(
+            context.segments,
+            meeting_topic=context.meeting_topic,
+            chunk_tokens=context.chunk_tokens,
+        )
+
+
+class TranslationStage:
+    name = "translation"
+
+    def __init__(self, translator: Any) -> None:
+        self.translator = translator
+
+    async def run(self, context: MeetingContext) -> None:
+        if not context.translate or not context.summary:
+            return
+        context.translation = await self.translator(
+            context.summary,
+            target_language=context.target_language,
+        )
+
+
 class MeetingPipeline:
     """离线会议处理: transcribe -> diarize -> summarize(可选)。"""
 
@@ -67,6 +115,8 @@ class MeetingPipeline:
         punctuation: Any = None,
         diarization: Any = _DEFAULT_DIARIZATION,
         workflow: WorkflowEngine | None = None,
+        summary_stage: MeetingStage | None = None,
+        translation_stage: MeetingStage | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
         self.vad_model = vad_model or str(
@@ -89,6 +139,10 @@ class MeetingPipeline:
         )
         self.workflow = workflow or AudioWorkflow(
             self.vad, self.asr, self.punctuation, self.diarization
+        )
+        self.summary_stage = summary_stage or SummaryStage(self._generate_summary)
+        self.translation_stage = translation_stage or TranslationStage(
+            self._translate_summary
         )
 
     # ------------------------------------------------------------------ #
@@ -136,29 +190,27 @@ class MeetingPipeline:
     # ------------------------------------------------------------------ #
     # 4. LLM 纪要 (摘要 + 翻译)
     # ------------------------------------------------------------------ #
-    async def summarize(
+    async def _generate_summary(
         self,
         segments: list[Segment],
         *,
         meeting_topic: str = "",
-        target_language: str = "简体中文",
         chunk_tokens: int = 6000,
-        translate: bool = True,
-    ) -> tuple[str, str]:
-        """返回 (summary_md, translation_md)。无 llm 时返回空。
+    ) -> str:
+        """生成中文纪要正文；无 llm 时返回空。
 
         逐字稿超过 chunk_tokens 时切块: 各块先独立出要点, 再合并成
         最终纪要——避免单请求 prefill 超 16GB 机型的 KV 内存上限。
         """
         if self.llm is None or not getattr(self.llm, "model", ""):
-            return "", ""
+            return ""
         transcript = "\n".join(
             f"[{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
             for s in segments
             if s.text.strip()
         )
         if not transcript.strip():
-            return "", ""
+            return ""
 
         # ---- 切块: 按字符粗估(中文1字≈1 token), 在段落边界断开 ----
         chunks: list[str] = []
@@ -239,29 +291,54 @@ class MeetingPipeline:
                 merged.append(tok)
             summary = "".join(merged).strip()
 
-        # ---- 翻译: 只翻最终纪要(一次请求), 不逐字翻全文 ----
+        return summary
+
+    async def _translate_summary(
+        self, summary: str, *, target_language: str = "简体中文"
+    ) -> str:
+        """只翻译最终纪要，不翻译逐字稿。"""
         mt = self.mt_llm or self.llm
-        translation = ""
-        if translate and summary and mt is not None and getattr(mt, "model", ""):
-            trans_tokens: list[str] = []
-            async for tok in mt.stream_chat(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"你是专业翻译。把会议纪要全文翻译成{target_language}，"
-                            "保留 markdown 结构与 [ ] 行动项格式。只输出译文。"
-                        ),
-                    },
-                    {"role": "user", "content": summary},
-                ],
-                temperature=0.0,
-                max_tokens=4096,
-                chat_template_kwargs={"enable_thinking": False},
-            ):
-                trans_tokens.append(tok)
-            translation = "".join(trans_tokens).strip()
-        return summary, translation
+        if not summary or mt is None or not getattr(mt, "model", ""):
+            return ""
+        trans_tokens: list[str] = []
+        async for tok in mt.stream_chat(
+            [
+                {
+                    "role": "system",
+                    "content": (
+                        f"你是专业翻译。把会议纪要全文翻译成{target_language}，"
+                        "保留 markdown 结构与 [ ] 行动项格式。只输出译文。"
+                    ),
+                },
+                {"role": "user", "content": summary},
+            ],
+            temperature=0.0,
+            max_tokens=4096,
+            chat_template_kwargs={"enable_thinking": False},
+        ):
+            trans_tokens.append(tok)
+        return "".join(trans_tokens).strip()
+
+    async def summarize(
+        self,
+        segments: list[Segment],
+        *,
+        meeting_topic: str = "",
+        target_language: str = "简体中文",
+        chunk_tokens: int = 6000,
+        translate: bool = True,
+    ) -> tuple[str, str]:
+        """按可插拔的纪要、翻译阶段生成结果。"""
+        context = MeetingContext(
+            segments=segments,
+            meeting_topic=meeting_topic,
+            target_language=target_language,
+            chunk_tokens=chunk_tokens,
+            translate=translate,
+        )
+        await self.summary_stage.run(context)
+        await self.translation_stage.run(context)
+        return context.summary, context.translation
 
     # ------------------------------------------------------------------ #
     # 5. 一键处理

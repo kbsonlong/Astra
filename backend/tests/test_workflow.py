@@ -141,6 +141,42 @@ async def test_diarization_propagates_registered_speaker_identity(monkeypatch) -
     assert segments[0].speaker_confidence == "high"
 
 
+@pytest.mark.anyio
+async def test_meeting_summary_and_translation_stages_are_replaceable() -> None:
+    from app.core.meeting import MeetingPipeline
+
+    events: list[str] = []
+
+    class CustomSummary:
+        name = "summary"
+
+        async def run(self, context) -> None:
+            events.append(f"summary:{context.meeting_topic}")
+            context.summary = "自定义纪要"
+
+    class CustomTranslation:
+        name = "translation"
+
+        async def run(self, context) -> None:
+            events.append(f"translation:{context.target_language}")
+            context.translation = f"translated:{context.summary}"
+
+    pipeline = MeetingPipeline(
+        asr=FakeASR(),
+        diarization=None,
+        summary_stage=CustomSummary(),
+        translation_stage=CustomTranslation(),
+    )
+    summary, translation = await pipeline.summarize(
+        [Segment(0.0, 1.0, "原文")],
+        meeting_topic="测试会议",
+        target_language="English",
+    )
+
+    assert events == ["summary:测试会议", "translation:English"]
+    assert (summary, translation) == ("自定义纪要", "translated:自定义纪要")
+
+
 def test_diarization_auto_clusters_more_than_two_speakers() -> None:
     stage = ResemblyzerDiarizationStage(cluster_distance_threshold=0.35)
     vectors = np.zeros((6, 256), dtype=np.float32)
