@@ -49,6 +49,10 @@ async def collect_health(
         and meeting_pipeline.llm is not None
         and getattr(meeting_pipeline.llm, "model", "")
     )
+    workflow = getattr(meeting_pipeline, "workflow", None)
+    workflow_status = (
+        workflow.stage_status() if workflow is not None else {"enabled": False}
+    )
     asr_mode = (
         "sherpa-sensevoice-onnx"
         if asr_client and type(asr_client).__name__ == "SherpaSenseVoiceAsrClient"
@@ -72,6 +76,7 @@ async def collect_health(
         "tts": {"ok": tts_ok, "mode": "piper-sdk"},
         "meeting": {
             "ok": meeting_ok,
+            "workflow": workflow_status,
             "whisper_model": getattr(
                 getattr(meeting_pipeline, "whisper_model", None), "", ""
             )

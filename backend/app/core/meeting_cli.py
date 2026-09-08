@@ -34,6 +34,8 @@ if str(ROOT / "backend") not in sys.path:
 
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
+from app.core.workflow import ResemblyzerDiarizationStage  # noqa: E402
+from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
 
 def _build_pipeline():
@@ -61,7 +63,26 @@ def _build_pipeline():
         connect_timeout_seconds=5.0,
         stream_idle_timeout_seconds=120.0,
     )
-    return MeetingPipeline(llm=llm, asr=meeting_asr)
+    punctuation = build_punctuation_client(
+        enabled=s.punctuation_enabled,
+        engine=s.punctuation_engine,
+        model=s.punctuation_model,
+        device=s.punctuation_device,
+    )
+    sd_engine = s.sd_engine.lower()
+    if sd_engine in {"", "none", "noop"}:
+        diarization = None
+    elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
+        diarization = ResemblyzerDiarizationStage()
+    else:
+        raise ValueError(f"unsupported SD engine: {s.sd_engine}")
+    return MeetingPipeline(
+        llm=llm,
+        asr=meeting_asr,
+        vad_model=s.vad_model,
+        punctuation=punctuation,
+        diarization=diarization,
+    )
 
 
 def _write_status(out_dir: Path, payload: dict) -> None:

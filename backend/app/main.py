@@ -7,6 +7,7 @@ from .config import Settings
 from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
+from .core.workflow import ResemblyzerDiarizationStage
 from .models.asr_client import (
     MlxAudioAsrClient,
     SherpaSenseVoiceAsrClient,
@@ -14,6 +15,7 @@ from .models.asr_client import (
 )
 from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
+from .models.punctuation_client import build_punctuation_client
 
 
 def _build_asr_client(current: Settings) -> object:
@@ -52,6 +54,23 @@ def _build_asr_client(current: Settings) -> object:
         hotwords=current.asr_hotwords,
         system_prompt=current.asr_system_prompt,
     )
+
+
+def _build_meeting_stages(current: Settings) -> tuple[object, object | None]:
+    punctuation = build_punctuation_client(
+        enabled=current.punctuation_enabled,
+        engine=current.punctuation_engine,
+        model=current.punctuation_model,
+        device=current.punctuation_device,
+    )
+    sd_engine = current.sd_engine.lower()
+    if sd_engine in {"", "none", "noop"}:
+        diarization = None
+    elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
+        diarization = ResemblyzerDiarizationStage()
+    else:
+        raise ValueError(f"unsupported SD engine: {current.sd_engine}")
+    return punctuation, diarization
 
 
 def create_app(
@@ -95,6 +114,7 @@ def create_app(
             hotwords=(),
             system_prompt="",
         )
+        punctuation, diarization = _build_meeting_stages(current)
         app.state.meeting_pipeline = MeetingPipeline(
             llm=OpenAICompatLLMClient(
                 current.llm_base_url,
@@ -105,6 +125,9 @@ def create_app(
                 stream_idle_timeout_seconds=120.0,
             ),
             asr=meeting_asr,
+            vad_model=current.vad_model,
+            punctuation=punctuation,
+            diarization=diarization,
         )
     app.include_router(ws_router)
     app.include_router(http_router)
@@ -135,6 +158,12 @@ def create_app(
             "asr_long_audio_threshold_seconds": current.asr_long_audio_threshold_seconds,
             "asr_hotwords": list(current.asr_hotwords),
             "asr_system_prompt_configured": bool(current.asr_system_prompt),
+            "vad_model": current.vad_model,
+            "punctuation_enabled": current.punctuation_enabled,
+            "punctuation_engine": current.punctuation_engine,
+            "punctuation_model": current.punctuation_model,
+            "punctuation_device": current.punctuation_device,
+            "sd_engine": current.sd_engine,
             "sherpa_model_dir": current.sherpa_model_dir,
             "sherpa_num_threads": current.sherpa_num_threads,
             "sherpa_provider": current.sherpa_provider,

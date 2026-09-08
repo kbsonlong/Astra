@@ -1,12 +1,8 @@
-"""Astra 会议处理管线: 录音文件 → 时间戳转写 → 说话人分离 → LLM 纪要。
+"""Astra 会议处理管线: 音频 Workflow → LLM 纪要。
 
 引擎组合(全部本地, 复用已有依赖):
-  - 转写: mlx-whisper large-v3-turbo (ModelScope 本地缓存, 段级时间戳)
-  - 分离: resemblyzer VoiceEncoder (torch CPU) + spectralcluster
+  - Workflow: Silero VAD → 配置的 ASR → 标点恢复 → resemblyzer SD
   - 纪要: OpenAICompatLLMClient -> omlx (Qwen3-8B / Hy-MT2)
-
-Speaker 对齐策略: 每个 whisper segment 单独 embed, 聚类后打标,
-相邻同簇段合并。clusterer 自动估计说话人数。
 """
 from __future__ import annotations
 
@@ -20,22 +16,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
+from .workflow import (
+    AudioWorkflow,
+    PassthroughPunctuation,
+    ResemblyzerDiarizationStage,
+    Segment,
+    SileroVADStage,
+)
+
 logger = logging.getLogger(__name__)
 
 SEGMENT_MIN_SECONDS = 1.0      # 短于它的 whisper 段并入前段
 SILENCE_PAD_SECONDS = 0.25     # embed 前每段前后补一点, 避免切边爆音
-
-
-@dataclass
-class Segment:
-    start: float
-    end: float
-    text: str
-    speaker: str = ""
-
-    @property
-    def duration(self) -> float:
-        return self.end - self.start
+_DEFAULT_DIARIZATION = object()
 
 
 @dataclass
@@ -70,9 +63,10 @@ class MeetingPipeline:
         vad_model: str = "",
         *,
         min_speaker_segments: int = 3,
+        punctuation: Any = None,
+        diarization: Any = _DEFAULT_DIARIZATION,
     ) -> None:
-        # 方案A: VAD 提供时间戳, Qwen3(asr) 提供文本; whisper 保留为
-        # 可选对照引擎但默认不启用。
+        # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
         self.vad_model = vad_model or str(
             Path(__file__).resolve().parents[3] / "models" / "silero_vad.onnx"
         )
@@ -84,7 +78,19 @@ class MeetingPipeline:
         self.llm = llm          # 摘要/推理 (如 Qwen3-8B)
         self.mt_llm = mt_llm    # 翻译 (可选专用 MT, 如 Hy-MT2; 空则回落 llm)
         self.min_speaker_segments = min_speaker_segments
-        self._whisper_lazy: Any = None
+        self.vad = SileroVADStage(self.vad_model)
+        self.punctuation = punctuation or PassthroughPunctuation()
+        self.diarization = (
+            ResemblyzerDiarizationStage()
+            if diarization is _DEFAULT_DIARIZATION
+            else diarization
+        )
+        self.workflow = AudioWorkflow(
+            self.vad,
+            self.asr,
+            self.punctuation,
+            self.diarization,
+        )
 
     # ------------------------------------------------------------------ #
     # 1. 音频解码
@@ -117,143 +123,16 @@ class MeetingPipeline:
     # 2. VAD 切段 + Qwen3 逐段转写 (方案A: 时间戳来自 Silero VAD)
     # ------------------------------------------------------------------ #
     async def transcribe(self, wav: str, *, progress: Any = None) -> tuple[str, list[Segment]]:
-        """返回 (language, segments)。
-
-        方案A 架构(时间戳与文本解耦):
-        - Silero VAD 切语音段 -> 段级时间戳(when);
-        - Qwen3-ASR 逐段转写(what), 中英混说强于 whisper;
-        - VAD 段即自然语音单元, 天然适合段级声纹 embed(who)。
-
-        VAD 参数: min_speech 0.25s 滤语气词碎片, min_silence 0.5s
-        合并句间短停顿, max_speech 30s 对齐 Qwen3 训练窗口。
-        """
-        import numpy as np
-
-        def _vad_blocking() -> list[tuple[float, float, np.ndarray]]:
-            import sherpa_onnx
-            from scipy.io import wavfile as _wf
-
-            sr, data = _wf.read(wav)
-            if data.ndim > 1:
-                data = data.mean(axis=1)
-            f32 = data.astype(np.float32) / (
-                np.iinfo(data.dtype).max + 1 if np.issubdtype(data.dtype, np.integer) else 1
-            )
-            cfg = sherpa_onnx.VadModelConfig()
-            cfg.silero_vad.model = self.vad_model
-            cfg.silero_vad.min_speech_duration = 0.25
-            cfg.silero_vad.min_silence_duration = 0.5
-            cfg.silero_vad.max_speech_duration = 30.0
-            vad = sherpa_onnx.VoiceActivityDetector(cfg)
-            for i in range(0, len(f32), 512):
-                vad.accept_waveform(f32[i : i + 512])
-            vad.flush()
-            out: list[tuple[float, float, np.ndarray]] = []
-            while not vad.empty():
-                seg = vad.front
-                start = seg.start / sr
-                dur = len(seg.samples) / sr
-                out.append((start, start + dur, np.asarray(seg.samples, dtype=np.float32)))
-                vad.pop()
-            return out
-
-        speech = await asyncio.to_thread(_vad_blocking)
-        if not speech:
-            return "zh", []
-
-        # ---- Qwen3 逐段转写 (asr_client 自带 chunk/热词/系统提示) ----
-        segments: list[Segment] = []
-        for start, end, samples in speech:
-            import soundfile as sf
-            import tempfile as _tf
-            import os as _os
-            with _tf.NamedTemporaryFile(suffix=".wav", delete=False) as tf:
-                sf.write(tf.name, samples, 16000, subtype="PCM_16")
-                seg_wav = tf.name
-            try:
-                pcm = open(seg_wav, "rb").read()
-                text = await self.asr.transcribe(pcm, filename=seg_wav)
-            finally:
-                _os.unlink(seg_wav)
-            text = (text or "").strip()
-            if not text:
-                continue
-            segments.append(Segment(float(start), float(end), text))
-        return "zh", segments
+        """执行 VAD -> ASR -> 标点恢复 -> SD，返回结构化段列表。"""
+        result = await self.workflow.run(wav, filename=Path(wav).name)
+        return result.language, result.segments
 
     # ------------------------------------------------------------------ #
     # 3. 说话人分离 (VAD 段级 resemblyzer embed + ward 聚 2 簇)
     # ------------------------------------------------------------------ #
     async def diarize(self, wav: str, segments: list[Segment]) -> None:
-        """原地给每个 segment 打 speaker 标签。短音频(<2段)直接返回。"""
-        if len(segments) < 2:
-            return
-        try:
-            labels = await asyncio.to_thread(self._diarize_blocking, wav, segments)
-        except Exception as exc:
-            logger.warning("diarization failed, skip: %s", exc)
-            return
-        for seg, label in zip(segments, labels):
-            seg.speaker = label
-
-    def _diarize_blocking(self, wav: str, segments: list[Segment]) -> list[str]:
-        import numpy as np
-        from scipy.io import wavfile
-        from resemblyzer import VoiceEncoder
-
-        sr, data = wavfile.read(wav)
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-        if np.issubdtype(data.dtype, np.integer):
-            data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
-
-        # 短音频(< 2 个有效段)不分离
-        if len(segments) < 2:
-            return ["S1"] * len(segments)
-
-        # ---- 方案A: VAD 段级 embed (段=自然语音单元, 直接 embed) ----
-        enc = VoiceEncoder(device="cpu")
-        embs: list[np.ndarray] = []
-        for seg in segments:
-            i0 = max(0, int(seg.start * sr))
-            i1 = min(data.shape[0], int(seg.end * sr))
-            chunk = data[i0:i1]
-            # <0.4s 无法可靠 embed -> 全零占位, 聚类前过滤
-            if chunk.shape[0] < int(0.4 * sr):
-                embs.append(np.zeros(256, dtype=np.float32))
-                continue
-            try:
-                embs.append(enc.embed_utterance(chunk))
-            except Exception:
-                embs.append(np.zeros(256, dtype=np.float32))
-
-        valid = [i for i, e in enumerate(embs) if e.any()]
-        if len(valid) < 2:
-            return ["S1"] * len(segments)
-        E = np.stack([embs[i] for i in valid])
-        E = E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
-
-        # ---- 聚类: ward 层次聚类, 恒分 2 簇(主/次) ----
-        from scipy.cluster.hierarchy import fcluster, linkage
-
-        Z = linkage(E, method="ward")
-        raw = fcluster(Z, 2, criterion="maxclust")  # 1/2
-        # 簇 id -> 时间序稳定标签 (按首次出现)
-        order: dict[int, str] = {}
-        mapped: dict[int, str] = {}
-        for idx_pos, seg_idx in enumerate(valid):
-            cid = int(raw[idx_pos])
-            if cid not in order:
-                order[cid] = f"S{len(order) + 1}"
-            mapped[seg_idx] = order[cid]
-        # 无效段(全零)继承最近有效段标签
-        labels: list[str] = []
-        last = "S1"
-        for i in range(len(segments)):
-            if i in mapped:
-                last = mapped[i]
-            labels.append(mapped.get(i, last))
-        return labels
+        """兼容旧调用方；新的 transcribe() 已在 Workflow 内完成 SD。"""
+        await self.diarization.assign(wav, segments)
 
     # ------------------------------------------------------------------ #
     # 4. LLM 纪要 (摘要 + 翻译)
@@ -265,6 +144,7 @@ class MeetingPipeline:
         meeting_topic: str = "",
         target_language: str = "简体中文",
         chunk_tokens: int = 6000,
+        translate: bool = True,
     ) -> tuple[str, str]:
         """返回 (summary_md, translation_md)。无 llm 时返回空。
 
@@ -298,9 +178,17 @@ class MeetingPipeline:
         per_chunk: list[str] = []
         for i, chunk in enumerate(chunks):
             sys_prompt = (
-                "你是专业会议纪要助手。基于带说话人标签(S1/S2/...)的逐字稿片段，"
-                "输出 markdown 要点，覆盖: 关键决策与结论、行动项([ ] 事项 @负责人或S#)、"
-                "发言人倾向。只基于本片段,不要臆造。"
+                "你是严谨的会议纪要助手。基于带说话人标签(S1/S2/...)的逐字稿片段，"
+                "只提取本片段明确说出的信息，不补充常识，不修正无法确认的专有名词，不臆造事实。"
+                "区分‘已确认结论’、‘明确提出的行动项’和‘讨论中/待确认事项’："
+                "只有明确承诺、明确要求或明确决定的内容才能列为行动项；没有明确负责人的行动项写‘负责人：待确认’，"
+                "不要根据谁说得多、谁赞同来推断负责人。保留原始 S1/S2 标签和原文中的人名。"
+                "同一事项只能出现一次：已列为行动项的内容不要再放入关键结论或待确认事项；"
+                "关键结论只写已经形成的结论，不写‘需要做/应当做’的行动句。"
+                "关键结论最多 8 条、明确行动项最多 8 条、待确认事项最多 5 条，优先保留最具体的内容。"
+                "输出简体中文 markdown，严格使用以下三个小节："
+                "### 关键结论、### 明确行动项、### 待确认事项。"
+                "没有内容的小节写‘无’。不要输出发言人性格评价，不要使用 ``` 代码块。"
             ) + (f"\n这是第{i+1}段/共{len(chunks)}段。" if len(chunks) > 1 else "") + topic_hint
             part_tokens: list[str] = []
             async for tok in self.llm.stream_chat(
@@ -323,9 +211,19 @@ class MeetingPipeline:
                 f"### 第{i+1}段要点\n{text}" for i, text in enumerate(per_chunk) if text
             )
             sys_merge = (
-                "你是会议纪要整理助手。下面是长会议分段生成的要点，把它们合并成一份"
-                "结构清晰的完整 markdown 纪要: ## 会议要点(去重、按主题归类) / "
-                "## 行动项(汇总去重) / ## 说话人分工(推断)。语言: 简体中文。"
+                "你是严谨的会议纪要总编。下面是同一场长会议分段生成的要点。"
+                "请合并为一份简体中文 markdown 纪要，去除重复内容，但不得新增逐字稿中没有的事实、"
+                "决定、日期、负责人、团队或工具名称。只有原文明确提出、明确承诺或明确决定的事项才保留为行动项；"
+                "负责人不明确时写‘负责人：待确认’，不得根据 S1/S2 的发言多少进行推断。"
+                "不确定或仅为讨论/建议的内容放入待确认事项。保留原始人名和 S1/S2 标签。"
+                "同一事项只能归入一个栏目：会议要点只放已形成的结论，明确行动项只放明确要求/承诺，"
+                "待确认事项只放尚未决定的问题；行动项不得重复出现在其他栏目，待确认事项也不得重复行动项。"
+                "同义或高度相似的条目只保留一条，确认过的结论不能再次列为待确认事项。"
+                "会议要点最多 8 条、明确行动项最多 8 条、待确认事项最多 5 条。"
+                "发言概览只概括各 S# 实际讨论的主题，不评价性格，不虚构分工。"
+                "严格只输出以下四个小节，不要输出 ``` 代码块，不要重复任何小节："
+                "## 会议要点、## 明确行动项、## 待确认事项、## 发言概览。"
+                "每个小节都必须存在；没有内容写‘无’。"
             ) + topic_hint
             merged: list[str] = []
             async for tok in self.llm.stream_chat(
@@ -343,7 +241,7 @@ class MeetingPipeline:
         # ---- 翻译: 只翻最终纪要(一次请求), 不逐字翻全文 ----
         mt = self.mt_llm or self.llm
         translation = ""
-        if summary and mt is not None and getattr(mt, "model", ""):
+        if translate and summary and mt is not None and getattr(mt, "model", ""):
             trans_tokens: list[str] = []
             async for tok in mt.stream_chat(
                 [
@@ -397,10 +295,9 @@ class MeetingPipeline:
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,
             )
-            await self.diarize(wav, segs)
             if summarize:
                 result.summary, result.translation = await self.summarize(
-                    segs, meeting_topic=topic,
+                    segs, meeting_topic=topic, translate=do_translate,
                 )
             logger.info(
                 "meeting done: %.1fs audio, %d segs, %.1fs wall",

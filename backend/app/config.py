@@ -42,7 +42,7 @@ class Settings:
     llm_correction_system_prompt: str = (
         "你是中文语音识别纠错器。只修正明显的同音词、技术术语、人名和专有名词错误。"
         "不新增、不删减、不总结，只输出修正后的文本。"
-        "术语映射：后视网络模式->host 网络模式；后视->host；单科->单机；多科->多机；集群机->集群。"
+        "术语映射：后视网络模式->host 网络模式；后视->host；单科->单机；多科->多机；集群机->集群；宗师->忠思；下限->下线；冷资源中心->云资源中心；光单->关单；空单->工单；谷歌表哥->Google 表格；嫁给豆包->交给豆包。"
         "保留技术术语中英文之间的空格。"
     )
     asr_engine: str = "mlx"
@@ -59,6 +59,13 @@ class Settings:
     asr_long_audio_threshold_seconds: float = 60.0
     asr_hotwords: tuple[str, ...] = ()
     asr_system_prompt: str = ""
+    # 离线会议 Workflow: VAD -> ASR -> punctuation -> speaker diarization
+    vad_model: str = "models/silero_vad.onnx"
+    punctuation_enabled: bool = True
+    punctuation_engine: str = "passthrough"
+    punctuation_model: str = "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
+    punctuation_device: str = "mps"
+    sd_engine: str = "resemblyzer"
     sherpa_model_dir: str = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
     sherpa_num_threads: int = 2
     sherpa_provider: str = "cpu"
@@ -121,6 +128,20 @@ class Settings:
             ),
             asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
             asr_system_prompt=os.getenv("ASR_SYSTEM_PROMPT", cls.asr_system_prompt),
+            vad_model=os.getenv("VAD_MODEL", cls.vad_model),
+            punctuation_enabled=_bool_env(
+                "PUNCTUATION_ENABLED", cls.punctuation_enabled
+            ),
+            punctuation_engine=os.getenv(
+                "PUNCTUATION_ENGINE", cls.punctuation_engine
+            ),
+            punctuation_model=os.getenv(
+                "PUNCTUATION_MODEL", cls.punctuation_model
+            ),
+            punctuation_device=os.getenv(
+                "PUNCTUATION_DEVICE", cls.punctuation_device
+            ),
+            sd_engine=os.getenv("SD_ENGINE", cls.sd_engine),
             sherpa_model_dir=os.getenv("SHERPA_MODEL_DIR", cls.sherpa_model_dir),
             sherpa_num_threads=_int_env("SHERPA_NUM_THREADS", cls.sherpa_num_threads),
             sherpa_provider=os.getenv("SHERPA_PROVIDER", cls.sherpa_provider),

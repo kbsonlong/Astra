@@ -1,9 +1,15 @@
 fastapi==0.116.1
+setuptools<81
 httpx==0.28.1
 uvicorn[standard]==0.35.0
 mlx-audio==0.5.0
 numpy>=1.24,<2
+scipy>=1.10
+soundfile>=0.12
 piper-tts==1.7.0
 python-multipart==0.0.20
 python-dotenv==1.1.1
 sherpa-onnx>=1.12.37
+resemblyzer>=0.1.4
+# Optional punctuation stage; install when PUNCTUATION_ENGINE=funasr.
+funasr>=1.2.0
