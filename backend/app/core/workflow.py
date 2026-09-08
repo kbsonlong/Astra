@@ -10,7 +10,7 @@ import asyncio
 import io
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol, Sequence
 
@@ -59,6 +59,25 @@ class SpeechChunk:
 class WorkflowResult:
     language: str
     segments: list[Segment]
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass
+class WorkflowContext:
+    """阶段之间传递的可扩展上下文。"""
+
+    wav: str | Path
+    filename: str
+    language: str
+    chunks: list[SpeechChunk] = field(default_factory=list)
+    segments: list[Segment] = field(default_factory=list)
+    metadata: dict[str, object] = field(default_factory=dict)
+
+
+class WorkflowStage(Protocol):
+    name: str
+
+    async def run(self, context: WorkflowContext) -> None: ...
 
 
 class VADStage(Protocol):
@@ -85,6 +104,140 @@ class PassthroughPunctuation:
 
     def is_ready(self) -> bool:
         return True
+
+
+class VadWorkflowStage:
+    name = "vad"
+
+    def __init__(self, vad: VADStage) -> None:
+        self.vad = vad
+        self.engine_name = vad.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        context.chunks = list(await self.vad.detect(context.wav))
+
+    def is_ready(self) -> bool:
+        ready = getattr(self.vad, "is_ready", None)
+        return bool(ready()) if callable(ready) else True
+
+
+class AsrWorkflowStage:
+    name = "asr"
+
+    def __init__(self, asr: ASRStage) -> None:
+        self.asr = asr
+        self.engine_name = asr.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        context.segments = []
+        for index, chunk in enumerate(context.chunks):
+            raw_text = await self.asr.transcribe(
+                chunk.audio,
+                filename=f"{Path(context.filename).stem}-{index}.wav",
+            )
+            text = (raw_text or "").strip()
+            if text:
+                context.segments.append(Segment(chunk.start, chunk.end, text))
+
+    def is_ready(self) -> bool:
+        ready = getattr(self.asr, "is_ready", None)
+        return bool(ready()) if callable(ready) else True
+
+
+class PunctuationWorkflowStage:
+    name = "punctuation"
+
+    def __init__(self, punctuation: PunctuationStage) -> None:
+        self.punctuation = punctuation
+        self.engine_name = punctuation.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        for segment in context.segments:
+            try:
+                text = await self.punctuation.restore(
+                    segment.text,
+                    language=context.language,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "punctuation restoration failed, keep ASR text: %s", exc
+                )
+                text = segment.text
+            segment.text = clean_repeated_punctuation((text or "").strip())
+        context.segments[:] = [
+            segment for segment in context.segments if segment.text
+        ]
+
+    def is_ready(self) -> bool:
+        ready = getattr(self.punctuation, "is_ready", None)
+        return bool(ready()) if callable(ready) else True
+
+
+class DiarizationWorkflowStage:
+    name = "sd"
+
+    def __init__(self, diarization: SpeakerDiarizationStage) -> None:
+        self.diarization = diarization
+        self.engine_name = diarization.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        await self.diarization.assign(context.wav, context.segments)
+
+    def is_ready(self) -> bool:
+        ready = getattr(self.diarization, "is_ready", None)
+        return bool(ready()) if callable(ready) else True
+
+
+class WorkflowEngine:
+    """按注册顺序执行阶段；阶段本身不依赖具体模型。"""
+
+    def __init__(self, stages: Sequence[WorkflowStage], *, language: str = "zh") -> None:
+        self.stages = tuple(stages)
+        self.language = language
+
+    async def run(
+        self, wav: str | Path, *, filename: str = "speech.wav"
+    ) -> WorkflowResult:
+        context = WorkflowContext(
+            wav=wav,
+            filename=filename,
+            language=self.language,
+        )
+        for stage in self.stages:
+            await stage.run(context)
+        return WorkflowResult(
+            language=context.language,
+            segments=context.segments,
+            metadata=context.metadata,
+        )
+
+    def stage_status(self) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for stage in self.stages:
+            ready = getattr(stage, "is_ready", None)
+            result[stage.name] = {
+                "enabled": True,
+                "ok": bool(ready()) if callable(ready) else True,
+                "engine": getattr(stage, "engine_name", stage.__class__.__name__),
+            }
+        return result
+
+
+class WorkflowBuilder:
+    """构建可复用的有序阶段列表。"""
+
+    def __init__(self, *, language: str = "zh") -> None:
+        self.language = language
+        self._stages: list[WorkflowStage] = []
+
+    def use(self, stage: WorkflowStage) -> "WorkflowBuilder":
+        self._stages.append(stage)
+        return self
+
+    def build(self) -> WorkflowEngine:
+        if not self._stages:
+            raise ValueError("workflow must contain at least one stage")
+        return WorkflowEngine(self._stages, language=self.language)
 
 
 class SileroVADStage:
@@ -282,7 +435,7 @@ class ResemblyzerDiarizationStage:
 
 
 class AudioWorkflow:
-    """按固定顺序编排四阶段，并保留每个语音段的时间边界。"""
+    """默认音频流程门面；具体编排由 WorkflowBuilder/WorkflowEngine 执行。"""
 
     def __init__(
         self,
@@ -298,45 +451,19 @@ class AudioWorkflow:
         self.punctuation = punctuation or PassthroughPunctuation()
         self.diarization = diarization
         self.language = language
+        builder = WorkflowBuilder(language=language)
+        builder.use(VadWorkflowStage(vad))
+        builder.use(AsrWorkflowStage(asr))
+        builder.use(PunctuationWorkflowStage(self.punctuation))
+        if diarization is not None:
+            builder.use(DiarizationWorkflowStage(diarization))
+        self.engine = builder.build()
 
     async def run(self, wav: str | Path, *, filename: str = "speech.wav") -> WorkflowResult:
-        chunks = await self.vad.detect(wav)
-        segments: list[Segment] = []
-        for index, chunk in enumerate(chunks):
-            raw_text = await self.asr.transcribe(
-                chunk.audio, filename=f"{Path(filename).stem}-{index}.wav"
-            )
-            text = (raw_text or "").strip()
-            if not text:
-                continue
-            try:
-                text = (
-                    await self.punctuation.restore(text, language=self.language)
-                ).strip()
-            except Exception as exc:
-                logger.warning("punctuation restoration failed, keep ASR text: %s", exc)
-            text = clean_repeated_punctuation(text)
-            if text:
-                segments.append(Segment(chunk.start, chunk.end, text))
-        if self.diarization is not None:
-            await self.diarization.assign(wav, segments)
-        return WorkflowResult(language=self.language, segments=segments)
+        return await self.engine.run(wav, filename=filename)
 
     def stage_status(self) -> dict[str, object]:
-        result: dict[str, object] = {}
-        for name, stage in (
-            ("vad", self.vad),
-            ("asr", self.asr),
-            ("punctuation", self.punctuation),
-            ("sd", self.diarization),
-        ):
-            if stage is None:
-                result[name] = {"enabled": False, "ok": True}
-                continue
-            ready = getattr(stage, "is_ready", None)
-            result[name] = {
-                "enabled": True,
-                "ok": bool(ready()) if callable(ready) else True,
-                "engine": stage.__class__.__name__,
-            }
+        result = self.engine.stage_status()
+        if self.diarization is None:
+            result["sd"] = {"enabled": False, "ok": True}
         return result

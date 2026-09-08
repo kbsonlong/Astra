@@ -10,6 +10,7 @@ from app.core.workflow import (
     ResemblyzerDiarizationStage,
     Segment,
     SpeechChunk,
+    WorkflowBuilder,
     clean_repeated_punctuation,
 )
 
@@ -49,11 +50,47 @@ async def test_audio_workflow_runs_stages_in_order_and_preserves_boundaries() ->
 
     result = await workflow.run("meeting.wav", filename="meeting.m4a")
 
-    assert events == ["vad", "asr:one", "punct:one", "asr:two", "punct:two", "sd"]
+    assert events == ["vad", "asr:one", "asr:two", "punct:one", "punct:two", "sd"]
     assert [(s.start, s.end, s.text, s.speaker) for s in result.segments] == [
         (1.25, 2.0, "one。", "S1"),
         (3.0, 4.5, "two。", "S2"),
     ]
+
+
+@pytest.mark.anyio
+async def test_workflow_builder_runs_only_registered_stages_in_order() -> None:
+    events.clear()
+
+    class SeedStage:
+        name = "seed"
+
+        async def run(self, context) -> None:
+            events.append("seed")
+            context.metadata["source"] = "custom"
+
+    class FinishStage:
+        name = "finish"
+
+        async def run(self, context) -> None:
+            events.append("finish")
+            context.segments.append(Segment(2.0, 3.0, "自定义阶段"))
+
+    engine = (
+        WorkflowBuilder(language="zh")
+        .use(SeedStage())
+        .use(FinishStage())
+        .build()
+    )
+    result = await engine.run("meeting.wav", filename="meeting.m4a")
+
+    assert events == ["seed", "finish"]
+    assert result.metadata == {"source": "custom"}
+    assert result.segments[0].text == "自定义阶段"
+
+
+def test_workflow_builder_rejects_empty_workflow() -> None:
+    with pytest.raises(ValueError, match="at least one stage"):
+        WorkflowBuilder().build()
 
 
 @pytest.mark.anyio
