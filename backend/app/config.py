@@ -66,6 +66,9 @@ class Settings:
     punctuation_model: str = "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
     punctuation_device: str = "mps"
     sd_engine: str = "resemblyzer"
+    speaker_store_path: str = "~/.astra/speakers.sqlite3"
+    speaker_match_threshold: float = 0.75
+    speaker_match_margin: float = 0.05
     sherpa_model_dir: str = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
     sherpa_num_threads: int = 2
     sherpa_provider: str = "cpu"
@@ -142,6 +145,13 @@ class Settings:
                 "PUNCTUATION_DEVICE", cls.punctuation_device
             ),
             sd_engine=os.getenv("SD_ENGINE", cls.sd_engine),
+            speaker_store_path=os.getenv("SPEAKER_STORE_PATH", cls.speaker_store_path),
+            speaker_match_threshold=_float_env(
+                "SPEAKER_MATCH_THRESHOLD", cls.speaker_match_threshold
+            ),
+            speaker_match_margin=_float_env(
+                "SPEAKER_MATCH_MARGIN", cls.speaker_match_margin
+            ),
             sherpa_model_dir=os.getenv("SHERPA_MODEL_DIR", cls.sherpa_model_dir),
             sherpa_num_threads=_int_env("SHERPA_NUM_THREADS", cls.sherpa_num_threads),
             sherpa_provider=os.getenv("SHERPA_PROVIDER", cls.sherpa_provider),

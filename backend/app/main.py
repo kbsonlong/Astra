@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from .api.meeting_routes import router as meeting_router
+from .api.speaker_routes import router as speaker_router
 from .api.ws_session import router as ws_router
 from .api.http_routes import router as http_router
 from .config import Settings
@@ -16,6 +17,7 @@ from .models.asr_client import (
 from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
+from .core.speaker_registry import SpeakerProfileStore
 
 
 def _build_asr_client(current: Settings) -> object:
@@ -84,6 +86,11 @@ def create_app(
     app = FastAPI(title="Astra API", version="0.1.0")
     current = settings or Settings.from_env()
     app.state.settings = current
+    app.state.speaker_store = SpeakerProfileStore(
+        current.speaker_store_path,
+        match_threshold=current.speaker_match_threshold,
+        match_margin=current.speaker_match_margin,
+    )
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
         app.state.pipeline = VoicePipeline(
@@ -132,6 +139,7 @@ def create_app(
     app.include_router(ws_router)
     app.include_router(http_router)
     app.include_router(meeting_router)
+    app.include_router(speaker_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
@@ -164,6 +172,9 @@ def create_app(
             "punctuation_model": current.punctuation_model,
             "punctuation_device": current.punctuation_device,
             "sd_engine": current.sd_engine,
+            "speaker_store_path": current.speaker_store_path,
+            "speaker_match_threshold": current.speaker_match_threshold,
+            "speaker_match_margin": current.speaker_match_margin,
             "sherpa_model_dir": current.sherpa_model_dir,
             "sherpa_num_threads": current.sherpa_num_threads,
             "sherpa_provider": current.sherpa_provider,
