@@ -8,7 +8,8 @@ from .config import Settings
 from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
-from .core.workflow import LlmTextCleanupStage, ResemblyzerDiarizationStage
+from .core.correction import parse_correction_rules
+from .core.workflow import CorrectionStage, ResemblyzerDiarizationStage
 from .models.asr_client import (
     MlxAudioAsrClient,
     SherpaSenseVoiceAsrClient,
@@ -134,14 +135,15 @@ def create_app(
             connect_timeout_seconds=5.0,
             stream_idle_timeout_seconds=120.0,
         )
-        text_cleanup = (
-            LlmTextCleanupStage(
-                meeting_llm,
-                system_prompt=current.llm_correction_system_prompt,
-                max_tokens=current.llm_correction_max_tokens,
-            )
-            if current.llm_correction_enabled
-            else None
+        correction_stage = CorrectionStage(
+            meeting_llm,
+            rules_enabled=current.meeting_rule_correction_enabled,
+            llm_enabled=current.meeting_llm_correction_enabled,
+            candidate_rules=parse_correction_rules(
+                current.meeting_llm_correction_candidates
+            ),
+            system_prompt=current.llm_correction_system_prompt,
+            max_tokens=current.llm_correction_max_tokens,
         )
         app.state.meeting_pipeline = MeetingPipeline(
             llm=meeting_llm,
@@ -149,7 +151,7 @@ def create_app(
             vad_model=current.vad_model,
             punctuation=punctuation,
             diarization=diarization,
-            text_cleanup=text_cleanup,
+            correction_stage=correction_stage,
         )
     app.include_router(ws_router)
     app.include_router(http_router)
@@ -171,6 +173,11 @@ def create_app(
             "llm_api_key": current.llm_api_key_masked,
             "llm_correction_enabled": current.llm_correction_enabled,
             "llm_correction_max_tokens": current.llm_correction_max_tokens,
+            "meeting_rule_correction_enabled": current.meeting_rule_correction_enabled,
+            "meeting_llm_correction_enabled": current.meeting_llm_correction_enabled,
+            "meeting_llm_correction_candidates": list(
+                current.meeting_llm_correction_candidates
+            ),
             "asr_engine": current.asr_engine,
             "asr_model": current.asr_model,
             "asr_language": current.asr_language,

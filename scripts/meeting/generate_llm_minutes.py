@@ -22,17 +22,6 @@ LINE_RE = re.compile(
     r"(?P<speaker>\S+)\s?(?P<text>.*)$"
 )
 DEFAULT_MODEL = "mlx-community/Qwen2.5-7B-Instruct-4bit"
-# 已确认的会议专有人名纠错；原始 ASR 逐字稿保持不变。
-TRANSCRIPT_CORRECTIONS = {
-    "宗师": "忠思",
-    "下限了五台机器": "下线了五台机器",
-    "冷资源中心": "云资源中心",
-    "光单": "关单",
-    "空单": "工单",
-    "用更长的资源支撑更多的业务": "用更少的资源支撑更多的业务",
-    "一个谷歌表哥": "一个 Google 表格",
-    "你可以嫁给豆包": "你可以交给豆包",
-}
 
 
 class MlxLocalLLMClient:
@@ -98,6 +87,7 @@ def _resolve_local_model(repo_id: str) -> Path:
 
 
 def _load_segments(report: Path):
+    from app.core.correction import DEFAULT_CORRECTION_RULES, apply_text_rules
     from app.core.workflow import Segment
 
     items = json.loads(report.read_text(encoding="utf-8"))
@@ -114,7 +104,7 @@ def _load_segments(report: Path):
                 Segment(
                     float(match.group("start")),
                     float(match.group("end")),
-                    _correct_transcript(match.group("text")),
+                    apply_text_rules(match.group("text"), DEFAULT_CORRECTION_RULES),
                     match.group("speaker"),
                 )
             )
@@ -122,12 +112,6 @@ def _load_segments(report: Path):
             raise ValueError(f"no transcript segments found for {item.get('filename')}")
         loaded.append((item["filename"], float(item["duration_s"]), segments))
     return loaded
-
-
-def _correct_transcript(text: str) -> str:
-    for source, target in TRANSCRIPT_CORRECTIONS.items():
-        text = text.replace(source, target)
-    return text
 
 
 async def _generate(report: Path, output_dir: Path, topic: str, model_repo: str) -> None:

@@ -45,6 +45,9 @@ class Settings:
         "术语映射：后视网络模式->host 网络模式；后视->host；单科->单机；多科->多机；集群机->集群；宗师->忠思；下限->下线；冷资源中心->云资源中心；光单->关单；空单->工单；谷歌表哥->Google 表格；嫁给豆包->交给豆包。"
         "保留技术术语中英文之间的空格。"
     )
+    meeting_rule_correction_enabled: bool = True
+    meeting_llm_correction_enabled: bool = False
+    meeting_llm_correction_candidates: tuple[str, ...] = ()
     asr_engine: str = "mlx"
     asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
     asr_language: str = "Chinese"
@@ -108,6 +111,16 @@ class Settings:
             ),
             llm_correction_system_prompt=os.getenv(
                 "LLM_CORRECTION_SYSTEM_PROMPT", cls.llm_correction_system_prompt
+            ),
+            meeting_rule_correction_enabled=_bool_env(
+                "MEETING_RULE_CORRECTION_ENABLED", cls.meeting_rule_correction_enabled
+            ),
+            meeting_llm_correction_enabled=_bool_env(
+                "MEETING_LLM_CORRECTION_ENABLED", cls.meeting_llm_correction_enabled
+            ),
+            meeting_llm_correction_candidates=_csv_env(
+                "MEETING_LLM_CORRECTION_CANDIDATES",
+                cls.meeting_llm_correction_candidates,
             ),
             asr_engine=os.getenv("ASR_ENGINE", cls.asr_engine),
             asr_model=os.getenv("ASR_MODEL", cls.asr_model),

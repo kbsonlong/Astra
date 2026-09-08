@@ -34,8 +34,9 @@ if str(ROOT / "backend") not in sys.path:
 
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
+from app.core.correction import parse_correction_rules  # noqa: E402
 from app.core.speaker_registry import SpeakerProfileStore  # noqa: E402
-from app.core.workflow import LlmTextCleanupStage, ResemblyzerDiarizationStage  # noqa: E402
+from app.core.workflow import CorrectionStage, ResemblyzerDiarizationStage  # noqa: E402
 from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
 
@@ -64,14 +65,13 @@ def _build_pipeline():
         connect_timeout_seconds=5.0,
         stream_idle_timeout_seconds=120.0,
     )
-    text_cleanup = (
-        LlmTextCleanupStage(
-            llm,
-            system_prompt=s.llm_correction_system_prompt,
-            max_tokens=s.llm_correction_max_tokens,
-        )
-        if s.llm_correction_enabled
-        else None
+    correction_stage = CorrectionStage(
+        llm,
+        rules_enabled=s.meeting_rule_correction_enabled,
+        llm_enabled=s.meeting_llm_correction_enabled,
+        candidate_rules=parse_correction_rules(s.meeting_llm_correction_candidates),
+        system_prompt=s.llm_correction_system_prompt,
+        max_tokens=s.llm_correction_max_tokens,
     )
     punctuation = build_punctuation_client(
         enabled=s.punctuation_enabled,
@@ -97,7 +97,7 @@ def _build_pipeline():
         vad_model=s.vad_model,
         punctuation=punctuation,
         diarization=diarization,
-        text_cleanup=text_cleanup,
+        correction_stage=correction_stage,
     )
 
 
