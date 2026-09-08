@@ -22,6 +22,7 @@ from .workflow import (
     ResemblyzerDiarizationStage,
     Segment,
     SileroVADStage,
+    TextCleanupStage,
     WorkflowEngine,
 )
 
@@ -117,6 +118,7 @@ class MeetingPipeline:
         workflow: WorkflowEngine | None = None,
         summary_stage: MeetingStage | None = None,
         translation_stage: MeetingStage | None = None,
+        text_cleanup: TextCleanupStage | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
         self.vad_model = vad_model or str(
@@ -138,7 +140,11 @@ class MeetingPipeline:
             else diarization
         )
         self.workflow = workflow or AudioWorkflow(
-            self.vad, self.asr, self.punctuation, self.diarization
+            self.vad,
+            self.asr,
+            self.punctuation,
+            self.diarization,
+            text_cleanup=text_cleanup,
         )
         self.summary_stage = summary_stage or SummaryStage(self._generate_summary)
         self.translation_stage = translation_stage or TranslationStage(

@@ -7,9 +7,11 @@ import pytest
 from app.core.speaker_registry import SpeakerMatch
 from app.core.workflow import (
     AudioWorkflow,
+    LlmTextCleanupStage,
     ResemblyzerDiarizationStage,
     Segment,
     SpeechChunk,
+    WorkflowContext,
     WorkflowBuilder,
     clean_repeated_punctuation,
 )
@@ -38,6 +40,15 @@ class FakeSD:
         events.append("sd")
         for index, segment in enumerate(segments, start=1):
             segment.speaker = f"S{index}"
+
+
+class FakeCleanup:
+    name = "llm_cleanup"
+
+    async def run(self, context: WorkflowContext) -> None:
+        events.append("cleanup")
+        for segment in context.segments:
+            segment.text = f"清洗:{segment.text}"
 
 
 events: list[str] = []
@@ -119,6 +130,67 @@ async def test_audio_workflow_keeps_asr_text_when_punctuation_fails() -> None:
     result = await workflow.run("meeting.wav")
 
     assert [segment.text for segment in result.segments] == ["one", "two"]
+
+
+@pytest.mark.anyio
+async def test_audio_workflow_places_cleanup_between_asr_and_punctuation() -> None:
+    events.clear()
+    workflow = AudioWorkflow(
+        FakeVAD(), FakeASR(), FakePunctuation(), FakeSD(), text_cleanup=FakeCleanup()
+    )
+
+    result = await workflow.run("meeting.wav", filename="meeting.m4a")
+
+    assert events == [
+        "vad",
+        "asr:one",
+        "asr:two",
+        "cleanup",
+        "punct:清洗:one",
+        "punct:清洗:two",
+        "sd",
+    ]
+    assert [segment.text for segment in result.segments] == ["清洗:one。", "清洗:two。"]
+
+
+@pytest.mark.anyio
+async def test_llm_cleanup_stage_rewrites_text_and_falls_back_on_error() -> None:
+    class FakeLLM:
+        model = "local-test"
+
+        async def stream_chat(self, messages, **kwargs):
+            assert messages[0]["content"] == "只清洗"
+            assert messages[1]["content"] == "宗师"
+            assert kwargs["max_tokens"] == 32
+            yield "忠思"
+
+    context = WorkflowContext(
+        wav="meeting.wav",
+        filename="meeting.wav",
+        language="zh",
+        segments=[Segment(0.0, 1.0, "宗师")],
+    )
+    stage = LlmTextCleanupStage(
+        FakeLLM(), system_prompt="只清洗", max_tokens=32
+    )
+    await stage.run(context)
+    assert context.segments[0].text == "忠思"
+
+    class BrokenLLM(FakeLLM):
+        async def stream_chat(self, messages, **kwargs):
+            raise RuntimeError("LLM unavailable")
+            yield "never"
+
+    fallback_context = WorkflowContext(
+        wav="meeting.wav",
+        filename="meeting.wav",
+        language="zh",
+        segments=[Segment(0.0, 1.0, "原始")],
+    )
+    await LlmTextCleanupStage(
+        BrokenLLM(), system_prompt="只清洗", max_tokens=32
+    ).run(fallback_context)
+    assert fallback_context.segments[0].text == "原始"
 
 
 @pytest.mark.anyio

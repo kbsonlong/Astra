@@ -8,7 +8,7 @@ from .config import Settings
 from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
-from .core.workflow import ResemblyzerDiarizationStage
+from .core.workflow import LlmTextCleanupStage, ResemblyzerDiarizationStage
 from .models.asr_client import (
     MlxAudioAsrClient,
     SherpaSenseVoiceAsrClient,
@@ -126,19 +126,30 @@ def create_app(
         punctuation, diarization = _build_meeting_stages(
             current, app.state.speaker_store
         )
+        meeting_llm = OpenAICompatLLMClient(
+            current.llm_base_url,
+            current.llm_model,
+            current.llm_api_key,
+            request_timeout_seconds=600.0,
+            connect_timeout_seconds=5.0,
+            stream_idle_timeout_seconds=120.0,
+        )
+        text_cleanup = (
+            LlmTextCleanupStage(
+                meeting_llm,
+                system_prompt=current.llm_correction_system_prompt,
+                max_tokens=current.llm_correction_max_tokens,
+            )
+            if current.llm_correction_enabled
+            else None
+        )
         app.state.meeting_pipeline = MeetingPipeline(
-            llm=OpenAICompatLLMClient(
-                current.llm_base_url,
-                current.llm_model,
-                current.llm_api_key,
-                request_timeout_seconds=600.0,
-                connect_timeout_seconds=5.0,
-                stream_idle_timeout_seconds=120.0,
-            ),
+            llm=meeting_llm,
             asr=meeting_asr,
             vad_model=current.vad_model,
             punctuation=punctuation,
             diarization=diarization,
+            text_cleanup=text_cleanup,
         )
     app.include_router(ws_router)
     app.include_router(http_router)

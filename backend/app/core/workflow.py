@@ -12,7 +12,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 from .speaker_registry import SpeakerMatch, SpeakerProfileStore
 
@@ -90,6 +90,10 @@ class ASRStage(Protocol):
 
 class PunctuationStage(Protocol):
     async def restore(self, text: str, *, language: str = "zh") -> str: ...
+
+
+class TextCleanupStage(Protocol):
+    async def clean(self, text: str, *, language: str = "zh") -> str: ...
 
 
 class SpeakerDiarizationStage(Protocol):
@@ -171,6 +175,56 @@ class PunctuationWorkflowStage:
     def is_ready(self) -> bool:
         ready = getattr(self.punctuation, "is_ready", None)
         return bool(ready()) if callable(ready) else True
+
+
+class LlmTextCleanupStage:
+    """ASR 后的可选 LLM 清洗；失败时保留原始识别文本。"""
+
+    name = "llm_cleanup"
+
+    def __init__(
+        self,
+        llm: Any,
+        *,
+        system_prompt: str,
+        max_tokens: int = 256,
+    ) -> None:
+        self.llm = llm
+        self.system_prompt = system_prompt
+        self.max_tokens = max_tokens
+        self.engine_name = llm.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        if self.llm is None or not getattr(self.llm, "model", ""):
+            return
+        for segment in context.segments:
+            original = segment.text
+            try:
+                cleaned = await self.clean(original, language=context.language)
+            except Exception as exc:
+                logger.warning("LLM text cleanup failed, keep ASR text: %s", exc)
+                continue
+            if cleaned.strip():
+                segment.text = cleaned.strip()
+            else:
+                segment.text = original
+
+    async def clean(self, text: str, *, language: str = "zh") -> str:
+        tokens: list[str] = []
+        async for token in self.llm.stream_chat(
+            [
+                {"role": "system", "content": self.system_prompt},
+                {"role": "user", "content": text},
+            ],
+            temperature=0.0,
+            max_tokens=self.max_tokens,
+            chat_template_kwargs={"enable_thinking": False},
+        ):
+            tokens.append(token)
+        return "".join(tokens)
+
+    def is_ready(self) -> bool:
+        return bool(self.llm is not None and getattr(self.llm, "model", ""))
 
 
 class DiarizationWorkflowStage:
@@ -444,6 +498,7 @@ class AudioWorkflow:
         punctuation: PunctuationStage | None = None,
         diarization: SpeakerDiarizationStage | None = None,
         *,
+        text_cleanup: WorkflowStage | None = None,
         language: str = "zh",
     ) -> None:
         self.vad = vad
@@ -454,16 +509,21 @@ class AudioWorkflow:
         builder = WorkflowBuilder(language=language)
         builder.use(VadWorkflowStage(vad))
         builder.use(AsrWorkflowStage(asr))
+        if text_cleanup is not None:
+            builder.use(text_cleanup)
         builder.use(PunctuationWorkflowStage(self.punctuation))
         if diarization is not None:
             builder.use(DiarizationWorkflowStage(diarization))
         self.engine = builder.build()
+        self.text_cleanup = text_cleanup
 
     async def run(self, wav: str | Path, *, filename: str = "speech.wav") -> WorkflowResult:
         return await self.engine.run(wav, filename=filename)
 
     def stage_status(self) -> dict[str, object]:
         result = self.engine.stage_status()
+        if self.text_cleanup is None:
+            result["llm_cleanup"] = {"enabled": False, "ok": True}
         if self.diarization is None:
             result["sd"] = {"enabled": False, "ok": True}
         return result
