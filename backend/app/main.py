@@ -58,7 +58,9 @@ def _build_asr_client(current: Settings) -> object:
     )
 
 
-def _build_meeting_stages(current: Settings) -> tuple[object, object | None]:
+def _build_meeting_stages(
+    current: Settings, speaker_store: SpeakerProfileStore
+) -> tuple[object, object | None]:
     punctuation = build_punctuation_client(
         enabled=current.punctuation_enabled,
         engine=current.punctuation_engine,
@@ -69,7 +71,7 @@ def _build_meeting_stages(current: Settings) -> tuple[object, object | None]:
     if sd_engine in {"", "none", "noop"}:
         diarization = None
     elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
-        diarization = ResemblyzerDiarizationStage()
+        diarization = ResemblyzerDiarizationStage(profile_store=speaker_store)
     else:
         raise ValueError(f"unsupported SD engine: {current.sd_engine}")
     return punctuation, diarization
@@ -121,7 +123,9 @@ def create_app(
             hotwords=(),
             system_prompt="",
         )
-        punctuation, diarization = _build_meeting_stages(current)
+        punctuation, diarization = _build_meeting_stages(
+            current, app.state.speaker_store
+        )
         app.state.meeting_pipeline = MeetingPipeline(
             llm=OpenAICompatLLMClient(
                 current.llm_base_url,

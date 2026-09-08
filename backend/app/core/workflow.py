@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence
 
+from .speaker_registry import SpeakerMatch, SpeakerProfileStore
+
 logger = logging.getLogger(__name__)
 
 _REPEATED_PUNCTUATION = re.compile(r"([，。！？；：、,.!?;:])\1+")
@@ -36,6 +38,10 @@ class Segment:
     end: float
     text: str
     speaker: str = ""
+    speaker_id: str | None = None
+    speaker_name: str = ""
+    speaker_similarity: float | None = None
+    speaker_confidence: str = ""
 
     @property
     def duration(self) -> float:
@@ -151,23 +157,30 @@ class SileroVADStage:
 class ResemblyzerDiarizationStage:
     """VAD 段级声纹 embedding + Ward 聚类的本地 SD 实现。"""
 
+    def __init__(self, profile_store: SpeakerProfileStore | None = None) -> None:
+        self.profile_store = profile_store
+
     async def assign(self, wav: str | Path, segments: list[Segment]) -> None:
-        if len(segments) < 2:
-            for segment in segments:
-                segment.speaker = "S1"
+        if not segments:
             return
         try:
-            labels = await asyncio.to_thread(
+            assignments = await asyncio.to_thread(
                 self._assign_blocking, str(wav), segments
             )
         except Exception as exc:
             logger.warning("diarization failed, skip: %s", exc)
             return
-        for segment, label in zip(segments, labels):
+        for segment, (label, match) in zip(segments, assignments):
             segment.speaker = label
+            if match is not None:
+                segment.speaker_id = match.speaker_id
+                segment.speaker_name = match.display_name
+                segment.speaker_similarity = match.similarity
+                segment.speaker_confidence = match.confidence
 
-    @staticmethod
-    def _assign_blocking(wav: str, segments: list[Segment]) -> list[str]:
+    def _assign_blocking(
+        self, wav: str, segments: list[Segment]
+    ) -> list[tuple[str, SpeakerMatch | None]]:
         import numpy as np
         from resemblyzer import VoiceEncoder
         from scipy.cluster.hierarchy import fcluster, linkage
@@ -195,7 +208,12 @@ class ResemblyzerDiarizationStage:
 
         valid = [i for i, embedding in enumerate(embeddings) if embedding.any()]
         if len(valid) < 2:
-            return ["S1"] * len(segments)
+            match = (
+                self.profile_store.match(embeddings[valid[0]])
+                if valid and self.profile_store is not None
+                else None
+            )
+            return [("S1", match) for _ in segments]
         matrix = np.stack([embeddings[i] for i in valid])
         matrix = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
         raw = fcluster(linkage(matrix, method="ward"), 2, criterion="maxclust")
@@ -205,14 +223,28 @@ class ResemblyzerDiarizationStage:
             cluster_id = int(raw[position])
             if cluster_id not in mapped:
                 mapped[cluster_id] = f"S{len(mapped) + 1}"
-        labels: list[str] = []
+        cluster_matches: dict[int, SpeakerMatch | None] = {}
+        if self.profile_store is not None:
+            for cluster_id in mapped:
+                cluster_vectors = [
+                    embeddings[index]
+                    for index, raw_cluster in zip(valid, raw)
+                    if int(raw_cluster) == cluster_id
+                ]
+                centroid = np.mean(np.stack(cluster_vectors), axis=0)
+                centroid /= np.linalg.norm(centroid) + 1e-9
+                cluster_matches[cluster_id] = self.profile_store.match(centroid)
+
+        assignments: list[tuple[str, SpeakerMatch | None]] = []
         last = "S1"
+        last_match: SpeakerMatch | None = None
         for index in range(len(segments)):
             cluster_id = int(raw[valid.index(index)]) if index in valid else None
             if cluster_id is not None:
                 last = mapped[cluster_id]
-            labels.append(last)
-        return labels
+                last_match = cluster_matches.get(cluster_id)
+            assignments.append((last, last_match))
+        return assignments
 
     def is_ready(self) -> bool:
         try:

@@ -3,7 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from app.core.workflow import AudioWorkflow, Segment, SpeechChunk, clean_repeated_punctuation
+from app.core.speaker_registry import SpeakerMatch
+from app.core.workflow import (
+    AudioWorkflow,
+    ResemblyzerDiarizationStage,
+    Segment,
+    SpeechChunk,
+    clean_repeated_punctuation,
+)
 
 
 class FakeVAD:
@@ -58,6 +65,26 @@ async def test_audio_workflow_keeps_asr_text_when_punctuation_fails() -> None:
     result = await workflow.run("meeting.wav")
 
     assert [segment.text for segment in result.segments] == ["one", "two"]
+
+
+@pytest.mark.anyio
+async def test_diarization_propagates_registered_speaker_identity(monkeypatch) -> None:
+    match = SpeakerMatch("speaker-uuid", "忠思", 0.91, "high")
+    stage = ResemblyzerDiarizationStage()
+    monkeypatch.setattr(
+        stage,
+        "_assign_blocking",
+        lambda wav, segments: [("S1", match) for _ in segments],
+    )
+    segments = [Segment(0.0, 1.0, "测试")]
+
+    await stage.assign("meeting.wav", segments)
+
+    assert segments[0].speaker == "S1"
+    assert segments[0].speaker_id == "speaker-uuid"
+    assert segments[0].speaker_name == "忠思"
+    assert segments[0].speaker_similarity == 0.91
+    assert segments[0].speaker_confidence == "high"
 
 
 @pytest.mark.parametrize(

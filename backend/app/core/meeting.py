@@ -46,7 +46,7 @@ class MeetingResult:
         lines = []
         for s in self.segments:
             mm, ss = int(s.start // 60), int(s.start % 60)
-            who = s.speaker or "?"
+            who = s.speaker_name or s.speaker or "?"
             lines.append(f"[{mm:02d}:{ss:02d}] {who} {s.text.strip()}")
         return "\n".join(lines)
 
@@ -154,7 +154,9 @@ class MeetingPipeline:
         if self.llm is None or not getattr(self.llm, "model", ""):
             return "", ""
         transcript = "\n".join(
-            f"[{s.speaker or '?'}] {s.text.strip()}" for s in segments if s.text.strip()
+            f"[{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
+            for s in segments
+            if s.text.strip()
         )
         if not transcript.strip():
             return "", ""

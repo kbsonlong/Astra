@@ -34,6 +34,7 @@ if str(ROOT / "backend") not in sys.path:
 
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
+from app.core.speaker_registry import SpeakerProfileStore  # noqa: E402
 from app.core.workflow import ResemblyzerDiarizationStage  # noqa: E402
 from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
@@ -70,10 +71,15 @@ def _build_pipeline():
         device=s.punctuation_device,
     )
     sd_engine = s.sd_engine.lower()
+    speaker_store = SpeakerProfileStore(
+        s.speaker_store_path,
+        match_threshold=s.speaker_match_threshold,
+        match_margin=s.speaker_match_margin,
+    )
     if sd_engine in {"", "none", "noop"}:
         diarization = None
     elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
-        diarization = ResemblyzerDiarizationStage()
+        diarization = ResemblyzerDiarizationStage(profile_store=speaker_store)
     else:
         raise ValueError(f"unsupported SD engine: {s.sd_engine}")
     return MeetingPipeline(
