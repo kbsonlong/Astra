@@ -36,12 +36,19 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Literal
 
+from ..core.meeting_prompts import (
+    DEFAULT_MEETING_PROMPT_ID,
+    MeetingPromptTemplateStore,
+    get_meeting_prompt_template,
+    list_meeting_prompt_templates,
+)
+
 router = APIRouter(prefix="/api/meeting", tags=["meeting"])
 
 ALLOWED_SUFFIX = {".m4a", ".wav", ".mp3", ".flac", ".aac", ".mov", ".mp4"}
 
 # 实际引擎链(meeting.py 方案A): Silero VAD 出时间戳 -> Qwen3-ASR 逐段转写
-# -> resemblyzer 声纹 embed + scipy ward 聚类打标。勿写回已弃用的 whisper。
+# -> resemblyzer 声纹 embed + scipy ward 聚类打标。
 ENGINE_LABEL = "Silero VAD + Qwen3-ASR + punctuation + resemblyzer (自动簇数余弦聚类)"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]  # backend/app/api -> repo 根
@@ -54,6 +61,29 @@ _SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
 class TrainingReviewPayload(BaseModel):
     review_status: Literal["pending", "approved", "rejected"]
     corrected_text: str = Field(min_length=1, max_length=20_000)
+
+
+class MeetingPromptTemplatePayload(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    description: str = Field(default="", max_length=200)
+    chunk_system_prompt: str = Field(min_length=1, max_length=20_000)
+    merge_system_prompt: str = Field(min_length=1, max_length=20_000)
+
+
+def _prompt_store(request: Request) -> MeetingPromptTemplateStore:
+    return MeetingPromptTemplateStore(request.app.state.settings.meeting_prompt_templates_path)
+
+
+def _prompt_item(template: Any) -> dict[str, object]:
+    return {
+        "id": template.id,
+        "name": template.name,
+        "description": template.description,
+        "chunk_system_prompt": template.chunk_system_prompt,
+        "merge_system_prompt": template.merge_system_prompt,
+        "builtin": not template.id.startswith("custom-"),
+        "editable": template.id.startswith("custom-"),
+    }
 
 
 def _new_task_id() -> str:
@@ -76,7 +106,8 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
         out.append(f"- **主题**: {meta['topic']}")
     out.append(
         f"- **生成**: {time.strftime('%Y-%m-%d %H:%M')}  · "
-        f"引擎: {meta.get('engine', '-')}  · 纪要模型: {meta.get('llm_model', '-')}"
+        f"引擎: {meta.get('engine', '-')}  · 纪要模型: {meta.get('llm_model', '-')}  · "
+        f"提示词模板: {meta.get('prompt_template_name', meta.get('prompt_template', '-'))}"
     )
     out.append("")
 
@@ -174,6 +205,55 @@ async def training_data(task_id: str, request: Request) -> dict[str, object]:
     return {"task_id": task_id, "items": rows, "counts": counts}
 
 
+@router.get("/prompt-templates")
+async def meeting_prompt_templates(request: Request) -> dict[str, object]:
+    return {
+        "default": DEFAULT_MEETING_PROMPT_ID,
+        "items": list_meeting_prompt_templates(
+            request.app.state.settings.meeting_prompt_templates_path
+        ),
+    }
+
+
+@router.post("/prompt-templates")
+async def create_meeting_prompt_template(
+    payload: MeetingPromptTemplatePayload,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        template = _prompt_store(request).create(**payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": _prompt_item(template)}
+
+
+@router.put("/prompt-templates/{template_id}")
+async def update_meeting_prompt_template(
+    template_id: str,
+    payload: MeetingPromptTemplatePayload,
+    request: Request,
+) -> dict[str, object]:
+    try:
+        template = _prompt_store(request).update(
+            template_id, **payload.model_dump()
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"item": _prompt_item(template)}
+
+
+@router.delete("/prompt-templates/{template_id}")
+async def delete_meeting_prompt_template(
+    template_id: str,
+    request: Request,
+) -> dict[str, str]:
+    try:
+        _prompt_store(request).delete(template_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"id": template_id, "status": "deleted"}
+
+
 @router.patch("/{task_id}/training-data/{segment_id}")
 async def review_training_data(
     task_id: str,
@@ -221,9 +301,17 @@ async def process_meeting(
     request: Request,
     file: UploadFile = File(...),
     topic: str = Form(default=""),
+    prompt_template: str = Form(default=DEFAULT_MEETING_PROMPT_ID),
 ) -> dict[str, object]:
     settings = request.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()
+    try:
+        selected_template = get_meeting_prompt_template(
+            prompt_template,
+            custom_templates_path=settings.meeting_prompt_templates_path,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     filename = file.filename or "meeting.m4a"
     suffix = Path(filename).suffix.lower()
@@ -257,6 +345,10 @@ async def process_meeting(
     ]
     if topic:
         argv += ["--topic", topic]
+    argv += [
+        "--prompt-template", selected_template.id,
+        "--prompt-templates-path", settings.meeting_prompt_templates_path,
+    ]
     env = dict(os.environ)
     env["PYTHONPATH"] = str(_REPO_ROOT / "backend")
     log_path = out_dir / "job.log"
@@ -278,6 +370,7 @@ async def process_meeting(
         "task_id": task_id,
         "filename": filename,
         "status": "processing",
+        "prompt_template": selected_template.id,
         "report_path": str(out_dir / "report.md"),
         "note": "处理在独立进程执行; 用 WebSocket /api/meeting/{task_id}/events 订阅状态",
     }

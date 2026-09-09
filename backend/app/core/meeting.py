@@ -25,11 +25,10 @@ from .workflow import (
     WorkflowEngine,
     WorkflowStage,
 )
+from .meeting_prompts import DEFAULT_MEETING_PROMPT_ID, get_meeting_prompt_template
 
 logger = logging.getLogger(__name__)
 
-SEGMENT_MIN_SECONDS = 1.0      # 短于它的 whisper 段并入前段
-SILENCE_PAD_SECONDS = 0.25     # embed 前每段前后补一点, 避免切边爆音
 _DEFAULT_DIARIZATION = object()
 
 
@@ -61,6 +60,7 @@ class MeetingContext:
     meeting_topic: str = ""
     target_language: str = "简体中文"
     chunk_tokens: int = 6000
+    prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID
     translate: bool = True
     summary: str = ""
     translation: str = ""
@@ -83,6 +83,7 @@ class SummaryStage:
             context.segments,
             meeting_topic=context.meeting_topic,
             chunk_tokens=context.chunk_tokens,
+            prompt_template_id=context.prompt_template_id,
         )
 
 
@@ -106,7 +107,6 @@ class MeetingPipeline:
 
     def __init__(
         self,
-        whisper_model: str = "",
         llm: Any = None,
         mt_llm: Any = None,
         asr: Any = None,
@@ -120,16 +120,13 @@ class MeetingPipeline:
         translation_stage: MeetingStage | None = None,
         correction_stage: WorkflowStage | None = None,
         text_cleanup: WorkflowStage | None = None,
+        prompt_templates_path: str | Path | None = None,
     ) -> None:
-        # VAD 提供时间戳，ASR 负责文本；旧 whisper_model 参数保留兼容。
+        # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
             Path(__file__).resolve().parents[3] / "models" / "silero_vad.onnx"
         )
         self.asr = asr  # MlxAudioAsrClient (Qwen3), 逐段转写
-        self.whisper_model = whisper_model or (
-            "/Users/kbsonlong/.cache/modelscope/hub/models/mlx-community/"
-            "whisper-large-v3-turbo"
-        )
         self.llm = llm          # 摘要/推理 (如 Qwen3-8B)
         self.mt_llm = mt_llm    # 翻译 (可选专用 MT, 如 Hy-MT2; 空则回落 llm)
         self.min_speaker_segments = min_speaker_segments
@@ -143,6 +140,7 @@ class MeetingPipeline:
         if correction_stage is not None and text_cleanup is not None:
             raise ValueError("use correction_stage or text_cleanup, not both")
         self.correction_stage = correction_stage or text_cleanup
+        self.prompt_templates_path = prompt_templates_path
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
@@ -206,12 +204,17 @@ class MeetingPipeline:
         *,
         meeting_topic: str = "",
         chunk_tokens: int = 6000,
+        prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
     ) -> str:
         """生成中文纪要正文；无 llm 时返回空。
 
         逐字稿超过 chunk_tokens 时切块: 各块先独立出要点, 再合并成
         最终纪要——避免单请求 prefill 超 16GB 机型的 KV 内存上限。
         """
+        prompt_template = get_meeting_prompt_template(
+            prompt_template_id,
+            custom_templates_path=self.prompt_templates_path,
+        )
         if self.llm is None or not getattr(self.llm, "model", ""):
             return ""
         transcript = "\n".join(
@@ -221,7 +224,6 @@ class MeetingPipeline:
         )
         if not transcript.strip():
             return ""
-
         # ---- 切块: 按字符粗估(中文1字≈1 token), 在段落边界断开 ----
         chunks: list[str] = []
         current: list[str] = []
@@ -241,18 +243,10 @@ class MeetingPipeline:
         per_chunk: list[str] = []
         for i, chunk in enumerate(chunks):
             sys_prompt = (
-                "你是严谨的会议纪要助手。基于带说话人标签(S1/S2/...)的逐字稿片段，"
-                "只提取本片段明确说出的信息，不补充常识，不修正无法确认的专有名词，不臆造事实。"
-                "区分‘已确认结论’、‘明确提出的行动项’和‘讨论中/待确认事项’："
-                "只有明确承诺、明确要求或明确决定的内容才能列为行动项；没有明确负责人的行动项写‘负责人：待确认’，"
-                "不要根据谁说得多、谁赞同来推断负责人。保留原始 S1/S2 标签和原文中的人名。"
-                "同一事项只能出现一次：已列为行动项的内容不要再放入关键结论或待确认事项；"
-                "关键结论只写已经形成的结论，不写‘需要做/应当做’的行动句。"
-                "关键结论最多 8 条、明确行动项最多 8 条、待确认事项最多 5 条，优先保留最具体的内容。"
-                "输出简体中文 markdown，严格使用以下三个小节："
-                "### 关键结论、### 明确行动项、### 待确认事项。"
-                "没有内容的小节写‘无’。不要输出发言人性格评价，不要使用 ``` 代码块。"
-            ) + (f"\n这是第{i+1}段/共{len(chunks)}段。" if len(chunks) > 1 else "") + topic_hint
+                prompt_template.chunk_system_prompt
+                + (f"\n这是第{i+1}段/共{len(chunks)}段。" if len(chunks) > 1 else "")
+                + topic_hint
+            )
             part_tokens: list[str] = []
             async for tok in self.llm.stream_chat(
                 [
@@ -273,21 +267,7 @@ class MeetingPipeline:
             joined = "\n\n---\n\n".join(
                 f"### 第{i+1}段要点\n{text}" for i, text in enumerate(per_chunk) if text
             )
-            sys_merge = (
-                "你是严谨的会议纪要总编。下面是同一场长会议分段生成的要点。"
-                "请合并为一份简体中文 markdown 纪要，去除重复内容，但不得新增逐字稿中没有的事实、"
-                "决定、日期、负责人、团队或工具名称。只有原文明确提出、明确承诺或明确决定的事项才保留为行动项；"
-                "负责人不明确时写‘负责人：待确认’，不得根据 S1/S2 的发言多少进行推断。"
-                "不确定或仅为讨论/建议的内容放入待确认事项。保留原始人名和 S1/S2 标签。"
-                "同一事项只能归入一个栏目：会议要点只放已形成的结论，明确行动项只放明确要求/承诺，"
-                "待确认事项只放尚未决定的问题；行动项不得重复出现在其他栏目，待确认事项也不得重复行动项。"
-                "同义或高度相似的条目只保留一条，确认过的结论不能再次列为待确认事项。"
-                "会议要点最多 8 条、明确行动项最多 8 条、待确认事项最多 5 条。"
-                "发言概览只概括各 S# 实际讨论的主题，不评价性格，不虚构分工。"
-                "严格只输出以下四个小节，不要输出 ``` 代码块，不要重复任何小节："
-                "## 会议要点、## 明确行动项、## 待确认事项、## 发言概览。"
-                "每个小节都必须存在；没有内容写‘无’。"
-            ) + topic_hint
+            sys_merge = prompt_template.merge_system_prompt + topic_hint
             merged: list[str] = []
             async for tok in self.llm.stream_chat(
                 [
@@ -337,6 +317,7 @@ class MeetingPipeline:
         target_language: str = "简体中文",
         chunk_tokens: int = 6000,
         translate: bool = True,
+        prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
     ) -> tuple[str, str]:
         """按可插拔的纪要、翻译阶段生成结果。"""
         context = MeetingContext(
@@ -344,6 +325,7 @@ class MeetingPipeline:
             meeting_topic=meeting_topic,
             target_language=target_language,
             chunk_tokens=chunk_tokens,
+            prompt_template_id=prompt_template_id,
             translate=translate,
         )
         await self.summary_stage.run(context)
@@ -361,6 +343,7 @@ class MeetingPipeline:
         summarize: bool = True,
         do_translate: bool = True,
         topic: str = "",
+        prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
         progress: Any = None,
     ) -> MeetingResult:
         t0 = time.time()
@@ -385,7 +368,10 @@ class MeetingPipeline:
             )
             if summarize:
                 result.summary, result.translation = await self.summarize(
-                    segs, meeting_topic=topic, translate=do_translate,
+                    segs,
+                    meeting_topic=topic,
+                    translate=do_translate,
+                    prompt_template_id=prompt_template_id,
                 )
             logger.info(
                 "meeting done: %.1fs audio, %d segs, %.1fs wall",

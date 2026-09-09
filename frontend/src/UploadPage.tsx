@@ -14,6 +14,24 @@ type TimelineSegment = {
   text: string;
 };
 
+type MeetingPromptTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  chunk_system_prompt: string;
+  merge_system_prompt: string;
+  builtin?: boolean;
+  editable?: boolean;
+};
+
+type PromptEditorState = {
+  id?: string;
+  name: string;
+  description: string;
+  chunk_system_prompt: string;
+  merge_system_prompt: string;
+};
+
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
@@ -90,6 +108,7 @@ type MeetingResult = {
   report_path: string;
   summary: string;
   timeline_preview: string;
+  prompt_template?: string;
   training_artifacts?: {
     clips_dir?: string;
     transcript_segments?: string;
@@ -112,6 +131,7 @@ type MeetingStatus = {
   error?: string;
   message?: string;
   training_artifacts?: MeetingResult["training_artifacts"];
+  prompt_template?: string;
 };
 
 const meetingEventUrl = (taskId: string) => {
@@ -162,6 +182,10 @@ export default function UploadPage() {
   const [status, setStatus] = useState("选择一个音频文件开始测试");
   const [busy, setBusy] = useState(false);
   const [topic, setTopic] = useState("");
+  const [promptTemplates, setPromptTemplates] = useState<MeetingPromptTemplate[]>([]);
+  const [promptTemplate, setPromptTemplate] = useState("standard");
+  const [promptEditor, setPromptEditor] = useState<PromptEditorState | null>(null);
+  const [promptEditorStatus, setPromptEditorStatus] = useState("");
   const [meeting, setMeeting] = useState<MeetingResult | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerProfile[]>([]);
   const [speakerName, setSpeakerName] = useState("");
@@ -174,12 +198,103 @@ export default function UploadPage() {
 
   useEffect(() => {
     void refreshSpeakers();
+    void loadPromptTemplates();
     connectNotifications();
     return () => {
       meetingSocket.current?.close();
       notificationSocket.current?.close();
     };
   }, []);
+
+  async function loadPromptTemplates(preferredId?: string) {
+    try {
+      const response = await fetch("/api/meeting/prompt-templates");
+      const payload = await response.json() as { default?: string; items?: MeetingPromptTemplate[] };
+      if (!response.ok) return;
+      const items = payload.items ?? [];
+      setPromptTemplates(items);
+      setPromptTemplate((current) => {
+        if (preferredId && items.some((item) => item.id === preferredId)) return preferredId;
+        if (items.some((item) => item.id === current)) return current;
+        return payload.default ?? items[0]?.id ?? "standard";
+      });
+    } catch {
+      // The standard template remains usable if metadata loading fails.
+    }
+  }
+
+  function openNewPromptTemplate() {
+    const selected = promptTemplates.find((template) => template.id === promptTemplate);
+    setPromptEditor({
+      name: selected ? `${selected.name}（自定义）` : "我的会议纪要",
+      description: selected?.description ?? "",
+      chunk_system_prompt: selected?.chunk_system_prompt ?? "你是严谨的会议纪要助手。只根据逐字稿提取明确说出的信息，不补充或臆造事实。输出简体中文 markdown。",
+      merge_system_prompt: selected?.merge_system_prompt ?? "你是会议纪要总编。合并分段要点，去除重复内容，不新增逐字稿中没有的事实。输出简体中文 markdown。",
+    });
+    setPromptEditorStatus("");
+  }
+
+  function openEditPromptTemplate() {
+    const selected = promptTemplates.find((template) => template.id === promptTemplate);
+    if (!selected?.editable) return;
+    setPromptEditor({
+      id: selected.id,
+      name: selected.name,
+      description: selected.description,
+      chunk_system_prompt: selected.chunk_system_prompt,
+      merge_system_prompt: selected.merge_system_prompt,
+    });
+    setPromptEditorStatus("");
+  }
+
+  function updatePromptEditor(field: keyof Omit<PromptEditorState, "id">, value: string) {
+    setPromptEditor((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  async function savePromptTemplate() {
+    if (!promptEditor) return;
+    setPromptEditorStatus("保存中...");
+    try {
+      const response = await fetch(
+        promptEditor.id
+          ? `/api/meeting/prompt-templates/${encodeURIComponent(promptEditor.id)}`
+          : "/api/meeting/prompt-templates",
+        {
+          method: promptEditor.id ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: promptEditor.name,
+            description: promptEditor.description,
+            chunk_system_prompt: promptEditor.chunk_system_prompt,
+            merge_system_prompt: promptEditor.merge_system_prompt,
+          }),
+        },
+      );
+      const payload = await response.json() as { detail?: string; item?: MeetingPromptTemplate };
+      if (!response.ok || !payload.item) throw new Error(payload.detail ?? "模板保存失败");
+      setPromptEditor(null);
+      setPromptEditorStatus("");
+      await loadPromptTemplates(payload.item.id);
+      setStatus("纪要模板已保存");
+    } catch (error) {
+      setPromptEditorStatus(error instanceof Error ? error.message : "模板保存失败");
+    }
+  }
+
+  async function deletePromptTemplate() {
+    const selected = promptTemplates.find((template) => template.id === promptTemplate);
+    if (!selected?.editable || !window.confirm(`确定删除“${selected.name}”吗？`)) return;
+    try {
+      const response = await fetch(`/api/meeting/prompt-templates/${encodeURIComponent(selected.id)}`, { method: "DELETE" });
+      const payload = await response.json() as { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? "模板删除失败");
+      await loadPromptTemplates("standard");
+      setPromptEditorStatus("");
+      setStatus("自定义纪要模板已删除");
+    } catch (error) {
+      setPromptEditorStatus(error instanceof Error ? error.message : "模板删除失败");
+    }
+  }
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -237,6 +352,7 @@ export default function UploadPage() {
           summary: current.summary_preview ?? "",
           timeline_preview: current.transcript_preview ?? "",
           training_artifacts: current.training_artifacts,
+          prompt_template: current.prompt_template,
         });
       };
 
@@ -345,6 +461,7 @@ export default function UploadPage() {
     const form = new FormData();
     form.append("file", file);
     form.append("topic", topic);
+    form.append("prompt_template", promptTemplate);
     try {
       const response = await fetch("/api/meeting/process", { method: "POST", body: form });
       const payload = await response.json() as MeetingResult | { detail?: string };
@@ -551,6 +668,33 @@ export default function UploadPage() {
             <span>会议主题</span>
             <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="例如：云资源成本优化周会" />
           </label>
+
+          <label className="field">
+            <span>纪要提示词模板</span>
+            <select value={promptTemplate} onChange={(e) => setPromptTemplate(e.target.value)}>
+              {(promptTemplates.length > 0 ? promptTemplates : [{
+                id: "standard",
+                name: "标准纪要",
+                description: "",
+                chunk_system_prompt: "",
+                merge_system_prompt: "",
+              }]).map((template) => (
+                <option key={template.id} value={template.id}>{template.name}</option>
+              ))}
+            </select>
+            <small className="field-hint">
+              {promptTemplates.find((template) => template.id === promptTemplate)?.description ?? "提取会议结论、行动项和待确认事项"}
+            </small>
+            <span className="prompt-template-actions">
+              <button type="button" className="secondary-action compact-button" onClick={openNewPromptTemplate}>新建自定义</button>
+              {promptTemplates.find((template) => template.id === promptTemplate)?.editable && (
+                <>
+                  <button type="button" className="secondary-action compact-button" onClick={openEditPromptTemplate}>编辑</button>
+                  <button type="button" className="danger-action compact-button" onClick={deletePromptTemplate}>删除</button>
+                </>
+              )}
+            </span>
+          </label>
         </section>
 
         <section className="action-panel">
@@ -561,6 +705,41 @@ export default function UploadPage() {
           </button>
         </section>
       </form>
+
+      {promptEditor && (
+        <section className="prompt-editor-panel" aria-live="polite">
+          <div className="prompt-editor-head">
+            <div>
+              <span className="eyebrow">CUSTOM MEETING PROMPT</span>
+              <h2>{promptEditor.id ? "编辑自定义模板" : "新建自定义模板"}</h2>
+            </div>
+            <button type="button" className="secondary-action compact-button" onClick={() => setPromptEditor(null)}>取消</button>
+          </div>
+          <div className="prompt-editor-grid">
+            <label className="field">
+              <span>模板名称</span>
+              <input value={promptEditor.name} maxLength={80} onChange={(event) => updatePromptEditor("name", event.target.value)} placeholder="例如：产品评审纪要" />
+            </label>
+            <label className="field">
+              <span>模板说明</span>
+              <input value={promptEditor.description} maxLength={200} onChange={(event) => updatePromptEditor("description", event.target.value)} placeholder="说明这个模板适用的会议类型" />
+            </label>
+            <label className="field prompt-textarea-field">
+              <span>分段提取系统提示词</span>
+              <textarea value={promptEditor.chunk_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("chunk_system_prompt", event.target.value)} rows={8} />
+            </label>
+            <label className="field prompt-textarea-field">
+              <span>最终合并系统提示词</span>
+              <textarea value={promptEditor.merge_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("merge_system_prompt", event.target.value)} rows={8} />
+            </label>
+          </div>
+          <div className="prompt-editor-footer">
+            <button type="button" disabled={!promptEditor.name.trim() || !promptEditor.chunk_system_prompt.trim() || !promptEditor.merge_system_prompt.trim()} onClick={savePromptTemplate}>保存模板</button>
+            <small className="field-hint">自定义模板保存在服务端配置文件中，内置模板不可覆盖。</small>
+            {promptEditorStatus && <small className="prompt-editor-status">{promptEditorStatus}</small>}
+          </div>
+        </section>
+      )}
 
       <section className="speaker-panel" aria-live="polite">
         <div className="speaker-panel-head">

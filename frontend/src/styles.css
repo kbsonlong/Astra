@@ -556,7 +556,8 @@ h1 {
   font-weight: 750;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   border: 1px solid rgba(22, 32, 37, 0.13);
   border-radius: 8px;
@@ -564,6 +565,77 @@ h1 {
   color: #162025;
   background: #ffffff;
   font: inherit;
+}
+
+.field-hint {
+  color: #65747a;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.prompt-template-actions,
+.prompt-editor-footer,
+.prompt-editor-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.prompt-template-actions {
+  margin-top: 2px;
+}
+
+.prompt-editor-panel {
+  margin-top: 20px;
+  border: 1px solid rgba(22, 32, 37, 0.08);
+  border-radius: 8px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 18px 44px rgba(34, 49, 52, 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.prompt-editor-head {
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.prompt-editor-head h2 {
+  margin: 0;
+}
+
+.prompt-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.prompt-textarea-field {
+  align-content: start;
+}
+
+.prompt-textarea-field textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  border: 1px solid rgba(22, 32, 37, 0.13);
+  border-radius: 8px;
+  padding: 13px 14px;
+  color: #162025;
+  background: #ffffff;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.prompt-editor-footer {
+  margin-top: 18px;
+}
+
+.prompt-editor-status {
+  color: #963f4b;
+  font-size: 12px;
 }
 
 .action-panel {
@@ -1114,6 +1186,7 @@ summary {
   .hero-panel,
   .workbench-hero,
   .workbench-grid,
+  .prompt-editor-grid,
   .page-heading,
   .speaker-row,
   .conversation-grid,

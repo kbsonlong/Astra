@@ -380,6 +380,44 @@ async def test_meeting_summary_and_translation_stages_are_replaceable() -> None:
     assert (summary, translation) == ("自定义纪要", "translated:自定义纪要")
 
 
+@pytest.mark.anyio
+async def test_meeting_summary_uses_selected_prompt_template(tmp_path) -> None:
+    from app.core.meeting import MeetingPipeline
+    from app.core.meeting_prompts import MeetingPromptTemplateStore
+
+    prompts: list[str] = []
+    store = MeetingPromptTemplateStore(tmp_path / "templates.json")
+    custom = store.create(
+        name="测试模板",
+        description="测试",
+        chunk_system_prompt="你是自定义分段助手。只提取明确决策。",
+        merge_system_prompt="你是自定义合并助手。只合并明确决策。",
+    )
+
+    class PromptLLM:
+        model = "local-test"
+
+        async def stream_chat(self, messages, **kwargs):
+            prompts.append(messages[0]["content"])
+            yield "## 会议决策\n无"
+
+    pipeline = MeetingPipeline(
+        llm=PromptLLM(),
+        asr=FakeASR(),
+        diarization=None,
+        prompt_templates_path=tmp_path / "templates.json",
+    )
+    await pipeline.summarize(
+        [Segment(0.0, 1.0, "确定周五发布", speaker="S1")],
+        translate=False,
+        prompt_template_id=custom.id,
+    )
+
+    assert len(prompts) == 1
+    assert "自定义分段助手" in prompts[0]
+    assert "明确决策" in prompts[0]
+
+
 def test_diarization_auto_clusters_more_than_two_speakers() -> None:
     stage = ResemblyzerDiarizationStage(cluster_distance_threshold=0.35)
     vectors = np.zeros((6, 256), dtype=np.float32)

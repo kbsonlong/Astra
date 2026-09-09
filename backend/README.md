@@ -20,6 +20,16 @@ PYTHONPATH=backend .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 Silero VAD -> ASR -> punctuation -> speaker diarization -> LLM summary
 ```
 
+可通过 `GET /api/meeting/prompt-templates` 查看纪要模板，并在上传时以
+`prompt_template` 表单字段选择内置或自定义模板。自定义模板可通过同一资源的
+`POST`、`PUT /{template_id}`、`DELETE /{template_id}` 接口管理；内置模板
+`standard`、`decisions`、`concise` 只读。模板只影响 LLM 纪要阶段，不影响 ASR、
+标点、声纹分离或确定性纠错；任务的选择会记录在 `meta.json` 中。
+
+自定义模板默认保存到 `~/.astra/meeting-prompt-templates.json`，可通过
+`MEETING_PROMPT_TEMPLATES_PATH` 修改路径。每个模板包含名称、说明、分段提取系统
+提示词和最终合并系统提示词。
+
 四阶段编排位于 `app/core/workflow.py`，每个输出段保留 VAD 的 `start/end` 时间戳。默认 `PUNCTUATION_ENGINE=passthrough` 保持最小依赖；安装 FunASR 后设置 `PUNCTUATION_ENGINE=funasr`，并通过 `PUNCTUATION_MODEL`、`PUNCTUATION_DEVICE` 选择标点模型和设备。当前 SD 实现为 `resemblyzer` + Ward 聚类，可通过相同的 `SpeakerDiarizationStage` 契约替换为 CAM++ 等模型。
 
 声纹档案保存在 `SPEAKER_STORE_PATH` 指定的 SQLite 中。`SPEAKER_MAX_SPEAKERS` 控制单场会议的最大聚类人数，默认 32，可按团队规模调整；未匹配到正式档案的声纹会进入 `pending_review`，管理员在前端站内提醒中改名并点击“审核通过”后，才会参与后续会议匹配。

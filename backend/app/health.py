@@ -53,16 +53,6 @@ async def collect_health(
     workflow_status = (
         workflow.stage_status() if workflow is not None else {"enabled": False}
     )
-    asr_mode = (
-        "sherpa-sensevoice-onnx"
-        if asr_client and type(asr_client).__name__ == "SherpaSenseVoiceAsrClient"
-        else (
-            "sherpa-zipformer-bilingual-onnx"
-            if asr_client and type(asr_client).__name__ == "SherpaZipformerBilingualAsrClient"
-            else "mlx-sdk"
-        )
-    )
-
     return {
         "ok": llm.ok and asr_ok and tts_ok,
         "llm": {
@@ -72,16 +62,11 @@ async def collect_health(
             "models_ok": llm.ok,
             "stream_ok": False,
         },
-        "asr": {"ok": asr_ok, "mode": asr_mode, "engine": settings.asr_engine},
+        "asr": {"ok": asr_ok, "mode": "mlx-sdk"},
         "tts": {"ok": tts_ok, "mode": "piper-sdk"},
         "meeting": {
             "ok": meeting_ok,
             "workflow": workflow_status,
-            "whisper_model": getattr(
-                getattr(meeting_pipeline, "whisper_model", None), "", ""
-            )
-            if meeting_pipeline
-            else "",
             "output_dir": settings.meeting_output_dir,
         },
         "version": settings.version,

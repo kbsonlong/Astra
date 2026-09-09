@@ -164,13 +164,8 @@ class Settings:
     meeting_rule_correction_enabled: bool = True
     meeting_llm_correction_enabled: bool = False
     meeting_llm_correction_candidates: tuple[str, ...] = ()
-    asr_engine: str = "mlx"
     asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
     asr_language: str = "Chinese"
-    # 会议管线: whisper-large-v3-turbo 本地目录(默认 ModelScope 缓存)
-    whisper_model_path: str = (
-        "/Users/kbsonlong/.cache/modelscope/hub/models/mlx-community/whisper-large-v3-turbo"
-    )
     asr_max_tokens: int = 512
     asr_repetition_penalty: float = 1.08
     asr_repetition_context_size: int = 100
@@ -191,15 +186,7 @@ class Settings:
     speaker_max_speakers: int = 32
     speaker_duplicate_threshold: float = 0.82
     speaker_sample_dir: str = "~/.astra/speaker_samples"
-    sherpa_model_dir: str = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
-    sherpa_num_threads: int = 2
-    sherpa_provider: str = "cpu"
-    sherpa_auto_language: bool = True
-    sherpa_use_itn: bool = True
-    zipformer_model_dir: str = "models/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
-    zipformer_num_threads: int = 2
-    zipformer_provider: str = "cpu"
-    zipformer_decoding_method: str = "greedy_search"
+    meeting_prompt_templates_path: str = "~/.astra/meeting-prompt-templates.json"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     meeting_output_dir: str = "~/Astra/meetings"
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
@@ -244,12 +231,8 @@ class Settings:
                 "MEETING_LLM_CORRECTION_CANDIDATES",
                 cls.meeting_llm_correction_candidates,
             ),
-            asr_engine=os.getenv("ASR_ENGINE", cls.asr_engine),
             asr_model=os.getenv("ASR_MODEL", cls.asr_model),
             asr_language=os.getenv("ASR_LANGUAGE", cls.asr_language),
-            whisper_model_path=os.getenv(
-                "WHISPER_MODEL_PATH", cls.whisper_model_path
-            ),
             asr_max_tokens=_int_env("ASR_MAX_TOKENS", cls.asr_max_tokens),
             asr_repetition_penalty=_float_env(
                 "ASR_REPETITION_PENALTY", cls.asr_repetition_penalty
@@ -294,16 +277,8 @@ class Settings:
                 "SPEAKER_DUPLICATE_THRESHOLD", cls.speaker_duplicate_threshold
             ),
             speaker_sample_dir=os.getenv("SPEAKER_SAMPLE_DIR", cls.speaker_sample_dir),
-            sherpa_model_dir=os.getenv("SHERPA_MODEL_DIR", cls.sherpa_model_dir),
-            sherpa_num_threads=_int_env("SHERPA_NUM_THREADS", cls.sherpa_num_threads),
-            sherpa_provider=os.getenv("SHERPA_PROVIDER", cls.sherpa_provider),
-            sherpa_auto_language=_bool_env("SHERPA_AUTO_LANGUAGE", cls.sherpa_auto_language),
-            sherpa_use_itn=_bool_env("SHERPA_USE_ITN", cls.sherpa_use_itn),
-            zipformer_model_dir=os.getenv("ZIPFORMER_MODEL_DIR", cls.zipformer_model_dir),
-            zipformer_num_threads=_int_env("ZIPFORMER_NUM_THREADS", cls.zipformer_num_threads),
-            zipformer_provider=os.getenv("ZIPFORMER_PROVIDER", cls.zipformer_provider),
-            zipformer_decoding_method=os.getenv(
-                "ZIPFORMER_DECODING_METHOD", cls.zipformer_decoding_method
+            meeting_prompt_templates_path=os.getenv(
+                "MEETING_PROMPT_TEMPLATES_PATH", cls.meeting_prompt_templates_path
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),

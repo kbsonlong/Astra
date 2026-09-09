@@ -10,7 +10,8 @@
 
 用法(父进程):
   python -m app.core.meeting_cli --audio <file> --out <dir>
-      [--topic T] [--no-summarize] [--no-translate]
+      [--topic T] [--prompt-template ID] [--prompt-templates-path PATH]
+      [--no-summarize] [--no-translate]
 
 产物写到 --out/: status.json(processing|done|failed) + report.md +
 transcript.txt + meta.json + job.log(stdout/stderr)。
@@ -35,12 +36,16 @@ if str(ROOT / "backend") not in sys.path:
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
 from app.core.correction import parse_correction_rules  # noqa: E402
+from app.core.meeting_prompts import (  # noqa: E402
+    DEFAULT_MEETING_PROMPT_ID,
+    get_meeting_prompt_template,
+)
 from app.core.speaker_registry import SpeakerProfileStore  # noqa: E402
 from app.core.workflow import CorrectionStage, ResemblyzerDiarizationStage  # noqa: E402
 from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
 
-def _build_pipeline():
+def _build_pipeline(prompt_templates_path: str = ""):
     """与 main.py 中会议管线一致的干净配置(无热词/无 system_prompt)。"""
     from app.config import Settings
     from app.core.meeting import MeetingPipeline
@@ -102,6 +107,7 @@ def _build_pipeline():
         punctuation=punctuation,
         diarization=diarization,
         correction_stage=correction_stage,
+        prompt_templates_path=prompt_templates_path,
     )
 
 
@@ -219,18 +225,31 @@ def _write_training_artifacts(out_dir: Path, result: object) -> dict[str, str | 
     }
 
 
-async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translate: bool) -> int:
+async def _run(
+    audio: Path,
+    out_dir: Path,
+    topic: str,
+    summarize: bool,
+    translate: bool,
+    prompt_template_id: str,
+    prompt_templates_path: str,
+) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_status(out_dir, {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")})
     t0 = time.time()
     try:
-        pipeline = _build_pipeline()
+        prompt_template = get_meeting_prompt_template(
+            prompt_template_id,
+            custom_templates_path=prompt_templates_path,
+        )
+        pipeline = _build_pipeline(prompt_templates_path)
         result = await pipeline.process(
             audio,
             filename=audio.name,
             summarize=summarize,
             do_translate=translate,
             topic=topic,
+            prompt_template_id=prompt_template.id,
         )
     except Exception:
         traceback.print_exc()
@@ -246,6 +265,8 @@ async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translat
         "task_id": out_dir.name,
         "filename": result.filename,
         "topic": topic,
+        "prompt_template": prompt_template.id,
+        "prompt_template_name": prompt_template.name,
         "llm_model": getattr(getattr(pipeline, "llm", None), "model", "") or "",
         "engine": ENGINE_LABEL,
     }
@@ -258,6 +279,8 @@ async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translat
     )
     _write_status(out_dir, {
         "status": "done",
+        "prompt_template": prompt_template.id,
+        "prompt_template_name": prompt_template.name,
         "duration_s": round(result.duration_s, 1),
         "segments": len(result.segments),
         "speakers": sorted({s.speaker for s in result.segments if s.speaker}),
@@ -279,9 +302,22 @@ def main() -> int:
     parser.add_argument("--audio", required=True, help="输入音频文件(m4a/wav/mp3...)")
     parser.add_argument("--out", required=True, help="输出目录(报告落盘 + status.json)")
     parser.add_argument("--topic", default="", help="会议主题提示")
+    parser.add_argument(
+        "--prompt-template",
+        default=DEFAULT_MEETING_PROMPT_ID,
+        help="纪要系统提示词模板 ID",
+    )
+    parser.add_argument(
+        "--prompt-templates-path",
+        default="",
+        help="自定义纪要提示词模板 JSON 文件路径",
+    )
     parser.add_argument("--no-summarize", action="store_true", help="跳过 LLM 纪要")
     parser.add_argument("--no-translate", action="store_true", help="跳过翻译")
     args = parser.parse_args()
+    from app.config import Settings
+
+    prompt_templates_path = args.prompt_templates_path or Settings.from_env().meeting_prompt_templates_path
     return asyncio.run(
         _run(
             Path(args.audio),
@@ -289,6 +325,8 @@ def main() -> int:
             args.topic,
             summarize=not args.no_summarize,
             translate=not args.no_translate,
+            prompt_template_id=args.prompt_template,
+            prompt_templates_path=prompt_templates_path,
         )
     )
 

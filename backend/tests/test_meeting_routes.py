@@ -15,6 +15,136 @@ from app.config import Settings
 from app.core.meeting import MeetingResult, Segment
 
 
+def test_prompt_templates_endpoint_and_invalid_selection(tmp_path) -> None:
+    from app.main import create_app
+
+    app = create_app(
+        settings=Settings(meeting_output_dir=str(tmp_path)),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/meeting/prompt-templates")
+    assert response.status_code == 200, response.text
+    assert response.json()["default"] == "standard"
+
+    invalid = client.post(
+        "/api/meeting/process",
+        files={"file": ("meeting.wav", b"audio", "audio/wav")},
+        data={"prompt_template": "unknown"},
+    )
+    assert invalid.status_code == 400
+    assert "unknown meeting prompt template" in invalid.json()["detail"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_custom_prompt_template_store_round_trip(tmp_path) -> None:
+    from app.core.meeting_prompts import MeetingPromptTemplateStore
+
+    store = MeetingPromptTemplateStore(tmp_path / "templates.json")
+    created = store.create(
+        name="产品评审",
+        description="记录产品评审结果",
+        chunk_system_prompt="提取明确的评审结论。",
+        merge_system_prompt="合并评审结论并去重。",
+    )
+    assert created.id.startswith("custom-")
+    assert store.get(created.id).name == "产品评审"
+
+    updated = store.update(
+        created.id,
+        name="产品评审更新",
+        description="记录最终评审结果",
+        chunk_system_prompt="只提取明确的评审结论。",
+        merge_system_prompt="合并最终评审结论并去重。",
+    )
+    assert store.get(created.id) == updated
+    assert any(item.id == created.id for item in store.list_templates())
+
+    store.delete(created.id)
+    with pytest.raises(ValueError, match="unknown meeting prompt template"):
+        store.get(created.id)
+
+
+def test_custom_prompt_template_api_crud_and_builtin_is_read_only(tmp_path) -> None:
+    from app.main import create_app
+
+    settings = Settings(
+        meeting_output_dir=str(tmp_path / "meetings"),
+        meeting_prompt_templates_path=str(tmp_path / "templates.json"),
+    )
+    app = create_app(settings=settings, enable_pipeline=False, enable_meeting=False)
+    client = TestClient(app)
+    body = {
+        "name": "产品评审",
+        "description": "只记录评审结果",
+        "chunk_system_prompt": "提取明确的评审结论。",
+        "merge_system_prompt": "合并评审结论并去重。",
+    }
+
+    created = client.post("/api/meeting/prompt-templates", json=body)
+    assert created.status_code == 200
+    item = created.json()["item"]
+    assert item["id"].startswith("custom-")
+    assert item["editable"] is True
+
+    body["name"] = "产品评审更新"
+    updated = client.put(f"/api/meeting/prompt-templates/{item['id']}", json=body)
+    assert updated.status_code == 200
+    assert updated.json()["item"]["name"] == "产品评审更新"
+
+    listed = client.get("/api/meeting/prompt-templates")
+    assert any(template["name"] == "产品评审更新" for template in listed.json()["items"])
+
+    builtin = client.put("/api/meeting/prompt-templates/standard", json=body)
+    assert builtin.status_code == 400
+    assert "read-only" in builtin.json()["detail"]
+
+    deleted = client.delete(f"/api/meeting/prompt-templates/{item['id']}")
+    assert deleted.status_code == 200
+
+
+def test_process_forwards_custom_prompt_template_to_worker(tmp_path, monkeypatch) -> None:
+    from app.api import meeting_routes
+    from app.main import create_app
+
+    settings = Settings(
+        meeting_output_dir=str(tmp_path / "meetings"),
+        meeting_prompt_templates_path=str(tmp_path / "templates.json"),
+    )
+    app = create_app(settings=settings, enable_pipeline=False, enable_meeting=False)
+    client = TestClient(app)
+    template = client.post(
+        "/api/meeting/prompt-templates",
+        json={
+            "name": "周会",
+            "description": "测试",
+            "chunk_system_prompt": "提取周会结论。",
+            "merge_system_prompt": "合并周会结论。",
+        },
+    ).json()["item"]
+    observed: list[object] = []
+
+    async def fake_create_subprocess_exec(*args, **kwargs):
+        observed.extend(args)
+        return object()
+
+    monkeypatch.setattr(meeting_routes.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+    response = client.post(
+        "/api/meeting/process",
+        files={"file": ("meeting.wav", b"audio", "audio/wav")},
+        data={"prompt_template": template["id"]},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["prompt_template"] == template["id"]
+    assert "--prompt-template" in observed
+    assert template["id"] in observed
+    assert "--prompt-templates-path" in observed
+    assert str(tmp_path / "templates.json") in observed
+
+
 def test_new_task_id_unique_and_formatted() -> None:
     ids = {_new_task_id() for _ in range(50)}
     assert len(ids) == 50  # uuid 后缀保证唯一
@@ -48,12 +178,19 @@ def test_render_markdown_uses_real_engine_label() -> None:
         summary="# 摘要\n要点。",
         translation="",
     )
-    md = _render_markdown(result, {"topic": "成本优化", "engine": ENGINE_LABEL, "llm_model": "Qwen3-8B"})
+    md = _render_markdown(
+        result,
+        {
+            "topic": "成本优化",
+            "engine": ENGINE_LABEL,
+            "llm_model": "Qwen3-8B",
+            "prompt_template_name": "标准纪要",
+        },
+    )
 
     assert ENGINE_LABEL in md                      # 真实引擎链
-    assert "whisper-large-v3-turbo" not in md       # 已弃用标注不应出现
-    assert "spectralcluster" not in md
     assert "成本优化" in md
+    assert "提示词模板: 标准纪要" in md
     assert "[00:00] S1 测试内容" in md
 
 
