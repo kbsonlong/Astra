@@ -10,6 +10,13 @@ python3.11 -m venv .venv
 PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 ```
 
+## 文档
+
+- [用户使用指引](docs/user-guide.md)：启动服务、上传音频、实时转写、流式修正和会议纪要。
+- [开发指引](docs/development-guide.md)：项目结构、开发环境、测试、模型配置和扩展边界。
+- [部署预检](deploy/README.md)：Mac mini、远端 LLM 和前端 Compose 验收。
+- [AGENT.md](AGENT.md)：代码代理和协作者在本仓库中的操作约定。
+
 ## Compose
 
 ```bash
@@ -30,6 +37,9 @@ docker compose up -d
 PYTHONPATH=backend .venv/bin/python scripts/meeting/download_and_test_workflow.py
 PYTHONPATH=backend .venv/bin/python scripts/meeting/generate_llm_minutes.py
 ```
+
+本地录音样本统一放在 `recordings/`，该目录只保留占位文件进 Git，实际音频
+不提交。
 
 纪要脚本默认读取 `/tmp/astra-workflow-test/report.json`，使用本机缓存的
 `mlx-community/Qwen2.5-7B-Instruct-4bit`，不重复执行 ASR。

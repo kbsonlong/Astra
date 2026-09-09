@@ -1,0 +1,83 @@
+<h2>项目结构 & MVP 功能边界</h2>
+<p class="subtitle">Monorepo 管理 · 前后端分离 · Docker 部署 · 为后续迁移到 Go 网关预留接口</p>
+
+<div class="section" style="margin-top:28px">
+  <h3 style="margin-bottom:16px">📁 MVP 阶段目录结构（Monorepo）</h3>
+  <div style="max-width:760px;margin:0 auto;background:#1f2937;color:#d1d5db;padding:20px 24px;border-radius:12px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.9">
+    <div><span style="color:#fbbf24">Astra/</span></div>
+    <div style="padding-left:20px"><span style="color:#60a5fa">frontend/</span>　<span style="color:#9ca3af"># React Web 前端（MVP）+ 后续 Tauri 壳</span></div>
+    <div style="padding-left:40px"><span style="color:#a78bfa">src/</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">components/</span>　<span style="color:#9ca3af"># UI 组件（录音按钮、波形图、对话列表）</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">hooks/</span>　　<span style="color:#9ca3af"># WebSocket、录音、VAD、TTS 播放 hooks</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">store/</span>　　<span style="color:#9ca3af"># 会话状态、消息历史</span></div>
+    <div style="padding-left:40px">package.json · vite.config.ts</div>
+    <div style="padding-left:20px;margin-top:8px"><span style="color:#60a5fa">backend/</span>　<span style="color:#9ca3af"># Python FastAPI 后端（MVP），后续替换为 Go 网关</span></div>
+    <div style="padding-left:40px"><span style="color:#a78bfa">app/</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">api/</span>　　　<span style="color:#9ca3af"># HTTP + WebSocket 路由</span></div>
+    <div style="padding-left:80px">ws_session.py　<span style="color:#9ca3af"># 语音会话 WebSocket 核心</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">core/</span>　　　<span style="color:#9ca3af"># 业务逻辑</span></div>
+    <div style="padding-left:80px">session_manager.py　<span style="color:#9ca3af"># 会话状态机</span></div>
+    <div style="padding-left:80px">pipeline.py　　　<span style="color:#9ca3af"># ASR → LLM → TTS 流水线</span></div>
+    <div style="padding-left:80px">interrupt.py　　　<span style="color:#9ca3af"># 打断逻辑（任务取消）</span></div>
+    <div style="padding-left:60px"><span style="color:#34d399">models/</span>　　<span style="color:#9ca3af"># 模型服务客户端</span></div>
+    <div style="padding-left:80px">llm_client.py　<span style="color:#9ca3af"># Ollama → 后续换 llama-server</span></div>
+    <div style="padding-left:80px">asr_client.py　<span style="color:#9ca3af"># Faster-Whisper</span></div>
+    <div style="padding-left:80px">tts_client.py　<span style="color:#9ca3af"># Piper TTS</span></div>
+    <div style="padding-left:40px">requirements.txt · Dockerfile</div>
+    <div style="padding-left:20px;margin-top:8px"><span style="color:#60a5fa">deploy/</span>　<span style="color:#9ca3af"># 部署配置</span></div>
+    <div style="padding-left:40px"><span style="color:#34d399">docker/</span>　　<span style="color:#9ca3af"># Docker Compose + 各服务 Dockerfile</span></div>
+    <div style="padding-left:40px"><span style="color:#34d399">models/</span>　　<span style="color:#9ca3af"># 模型文件下载脚本（GGUF 等）</span></div>
+    <div style="padding-left:20px;margin-top:8px"><span style="color:#60a5fa">docs/</span>　　<span style="color:#9ca3af"># 设计文档、API 文档</span></div>
+    <div style="padding-left:20px">docker-compose.yml　<span style="color:#9ca3af"># MVP 一键启动：Ollama + FastAPI + 前端静态服务</span></div>
+    <div>.gitignore · README.md</div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:32px">
+  <h3 style="margin-bottom:16px">🎯 MVP 功能边界（绿色 = 包含 · 灰色 = 后续迭代）</h3>
+  <div style="max-width:760px;margin:0 auto">
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f0fdf4;padding:14px 18px;font-weight:700;color:#166534;border-bottom:1px solid #bbf7d0">🎙️ 实时语音通话（核心）</div>
+      <div style="padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 开始/结束通话按钮</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 麦克风录音（16kHz PCM）+ 波形可视化</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> VAD 自动打断 + 手动打断按钮</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> ASR 实时识别文字显示（中间+最终结果）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> LLM 流式回复文字显示</div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> TTS 流式播放（支持随时打断）</div>
+      </div>
+    </div>
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f3f4f6;padding:14px 18px;font-weight:700;color:#374151;border-bottom:1px solid #d1d5db">💬 会话管理</div>
+      <div style="padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 单次通话多轮对话上下文（LLM 记忆 10 轮）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 对话历史文字展示（用户/助手气泡）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">会话持久化（保存到本地数据库）</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">历史会话列表 & 回溯</span></div>
+      </div>
+    </div>
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f3f4f6;padding:14px 18px;font-weight:700;color:#374151;border-bottom:1px solid #d1d5db">🧠 模型配置</div>
+      <div style="padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 配置页面：模型名称、temperature、system prompt</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> 模型服务地址配置（Ollama / ASR / TTS endpoint）</div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">多模型切换 & 模型热更新</span></div>
+      </div>
+    </div>
+
+    <div style="background:white;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;margin-bottom:16px">
+      <div style="background:#f3f4f6;padding:14px 18px;font-weight:700;color:#374151;border-bottom:1px solid #d1d5db">📱 跨平台 & 其他</div>
+      <div style="padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> React Web 端（Chrome/Safari 支持）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#22c55e"></span> Docker Compose 一键启动（Mac mini 部署）</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">Tauri 桌面端封装（macOS/Linux）</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">移动端（iOS/Android）</span></div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:16px;height:16px;border-radius:4px;background:#9ca3af;opacity:0.6"></span> <span style="opacity:0.6">翻译助手模块</span></div>
+      </div>
+    </div>
+
+  </div>
+</div>

@@ -332,6 +332,13 @@ class SileroVADStage:
         return await asyncio.to_thread(self._detect_blocking, str(wav))
 
     def _detect_blocking(self, wav: str) -> list[SpeechChunk]:
+        model_path = Path(self.model_path).expanduser()
+        if not model_path.is_file():
+            raise RuntimeError(
+                f"Silero VAD model not found: {model_path}. "
+                "Set VAD_MODEL to a valid silero_vad.onnx path or run "
+                "scripts/meeting/download_and_test_workflow.py"
+            )
         try:
             import numpy as np
             import sherpa_onnx
@@ -353,7 +360,7 @@ class SileroVADStage:
             raise RuntimeError(f"VAD expects {self.sample_rate}Hz audio, got {sr}Hz")
 
         cfg = sherpa_onnx.VadModelConfig()
-        cfg.silero_vad.model = self.model_path
+        cfg.silero_vad.model = str(model_path)
         cfg.silero_vad.min_speech_duration = 0.25
         cfg.silero_vad.min_silence_duration = 0.5
         cfg.silero_vad.max_speech_duration = 30.0

@@ -36,12 +36,14 @@ class OpenAICompatLLMClient:
             await self._client.aclose()
 
     async def list_models(self) -> Mapping[str, Any]:
-        response = await self._client.get(f"{self.base_url}/models", headers=self._headers)
         try:
+            response = await self._client.get(f"{self.base_url}/models", headers=self._headers)
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            raise LLMClientError("invalid /models response") from exc
+            raise LLMClientError(
+                f"models request failed: {exc.__class__.__name__}"
+            ) from exc
         if not isinstance(payload, dict):
             raise LLMClientError("/models response must be an object")
         return payload
@@ -66,38 +68,41 @@ class OpenAICompatLLMClient:
             payload["max_tokens"] = max_tokens
         if chat_template_kwargs is not None:
             payload["chat_template_kwargs"] = dict(chat_template_kwargs)
-        async with self._client.stream(
-            "POST",
-            f"{self.base_url}/chat/completions",
-            headers=self._headers,
-            json=payload,
-        ) as response:
-            try:
+        try:
+            async with self._client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                headers=self._headers,
+                json=payload,
+            ) as response:
                 response.raise_for_status()
-            except httpx.HTTPError as exc:
-                raise LLMClientError("chat request failed") from exc
-
-            async for line in response.aiter_lines():
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    return
-                try:
-                    chunk = json.loads(data)
-                except ValueError as exc:
-                    raise LLMClientError("invalid chat stream chunk") from exc
-                # 容错: 部分服务在流中插入 usage/keepalive 等无 choices 的
-                # chunk(如 omlx chunked SSE), 以及 delta 无 content 的
-                # reasoning/空片——均跳过, 不当作错误。
-                try:
-                    choices = chunk.get("choices") or []
-                    delta = (choices[0] or {}).get("delta") or {}
-                except (KeyError, IndexError, TypeError, AttributeError):
-                    # 无 choices / 非标准结构(usage/keepalive 等)——跳过
-                    continue
-                token = delta.get("content", "")
-                if not isinstance(token, str):
-                    continue
-                if token:
-                    yield str(token)
+                async for line in response.aiter_lines():
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        return
+                    try:
+                        chunk = json.loads(data)
+                    except ValueError as exc:
+                        raise LLMClientError("invalid chat stream chunk") from exc
+                    # 容错: 部分服务在流中插入 usage/keepalive 等无 choices 的
+                    # chunk(如 omlx chunked SSE), 以及 delta 无 content 的
+                    # reasoning/空片——均跳过, 不当作错误。
+                    try:
+                        choices = chunk.get("choices") or []
+                        delta = (choices[0] or {}).get("delta") or {}
+                    except (KeyError, IndexError, TypeError, AttributeError):
+                        # 无 choices / 非标准结构(usage/keepalive 等)——跳过
+                        continue
+                    token = delta.get("content", "")
+                    if not isinstance(token, str):
+                        continue
+                    if token:
+                        yield str(token)
+        except LLMClientError:
+            raise
+        except httpx.HTTPError as exc:
+            raise LLMClientError(
+                f"chat request failed: {exc.__class__.__name__}"
+            ) from exc

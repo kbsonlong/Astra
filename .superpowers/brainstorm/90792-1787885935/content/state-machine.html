@@ -1,0 +1,116 @@
+<h2>实时语音通话 - 状态机 & 数据流</h2>
+<p class="subtitle">VAD 自动打断 + 手动按钮双模式 · 全双工交互设计</p>
+
+<div class="section" style="margin-top:28px">
+  <h3 style="margin-bottom:16px">🔄 核心状态机</h3>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;max-width:900px;margin:0 auto">
+    <div style="background:#f0fdf4;border:2px solid #86efac;padding:16px;border-radius:12px;position:relative">
+      <div style="font-size:11px;color:#16a34a;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:4px">State 0</div>
+      <div style="font-weight:700;font-size:15px;color:#166534;margin-bottom:6px">🟢 IDLE 空闲</div>
+      <div style="font-size:13px;color:#15803d;line-height:1.5">等待用户发起会话<br>显示"开始通话"按钮</div>
+      <div style="position:absolute;right:-8px;top:50%;transform:translateY(-50%);font-size:20px;color:#86efac">➡</div>
+    </div>
+    <div style="background:#fefce8;border:2px solid #fde047;padding:16px;border-radius:12px;position:relative">
+      <div style="font-size:11px;color:#ca8a04;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:4px">State 1</div>
+      <div style="font-weight:700;font-size:15px;color:#a16207;margin-bottom:6px">🟡 LISTENING 监听中</div>
+      <div style="font-size:13px;color:#854d0e;line-height:1.5">麦克风录音 + VAD 检测<br>音频分片上传到后端</div>
+      <div style="position:absolute;right:-8px;top:50%;transform:translateY(-50%);font-size:20px;color:#fde047">➡</div>
+    </div>
+    <div style="background:#eff6ff;border:2px solid #93c5fd;padding:16px;border-radius:12px;position:relative">
+      <div style="font-size:11px;color:#2563eb;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:4px">State 2</div>
+      <div style="font-weight:700;font-size:15px;color:#1e40af;margin-bottom:6px">🔵 REASONING 推理中</div>
+      <div style="font-size:13px;color:#1d4ed8;line-height:1.5">ASR 转文字 → LLM 生成<br>流式输出 token</div>
+      <div style="position:absolute;right:-8px;top:50%;transform:translateY(-50%);font-size:20px;color:#93c5fd">➡</div>
+    </div>
+    <div style="background:#fdf2f8;border:2px solid #f9a8d4;padding:16px;border-radius:12px">
+      <div style="font-size:11px;color:#db2777;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;margin-bottom:4px">State 3</div>
+      <div style="font-weight:700;font-size:15px;color:#9d174d;margin-bottom:6px">🔴 SPEAKING 播放中</div>
+      <div style="font-size:13px;color:#be185d;line-height:1.5">TTS 流式合成播放<br>同时保持 VAD 监听打断</div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:32px">
+  <h3 style="margin-bottom:16px">⚡ 打断触发路径（双模式）</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:900px;margin:0 auto">
+    <div style="background:#f0f9ff;border:1px solid #7dd3fc;padding:18px;border-radius:12px">
+      <div style="font-weight:700;color:#0369a1;margin-bottom:10px">🎐 路径 1：VAD 自动打断（SPEAKING 状态下）</div>
+      <ol style="font-size:13px;color:#0c4a6e;line-height:2;padding-left:18px;margin:0">
+        <li>前端持续分析麦克风输入音量</li>
+        <li>连续 300ms 超过阈值 → 触发打断信号</li>
+        <li>立即 WebSocket 发送 <code style="background:#e0f2fe;padding:1px 6px;border-radius:4px">interrupt</code> 消息</li>
+        <li>后端：<br>　· 停止 TTS 合成<br>　· 取消 LLM 推理请求<br>　· 清空缓冲队列</li>
+        <li>立即切回 LISTENING 状态</li>
+      </ol>
+    </div>
+    <div style="background:#fef3c7;border:1px solid #fcd34d;padding:18px;border-radius:12px">
+      <div style="font-weight:700;color:#92400e;margin-bottom:10px">🖱️ 路径 2：手动按钮打断（任意状态）</div>
+      <ol style="font-size:13px;color:#78350f;line-height:2;padding-left:18px;margin:0">
+        <li>用户点击"停止/打断"按钮</li>
+        <li>前端立即停止 TTS 音频播放</li>
+        <li>WebSocket 发送 <code style="background:#fde68a;padding:1px 6px;border-radius:4px">interrupt</code> 消息</li>
+        <li>后端：<br>　· 取消全部进行中的任务<br>　· 清空上下文缓冲</li>
+        <li>可选：自动进入 LISTENING / IDLE</li>
+      </ol>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:32px">
+  <h3 style="margin-bottom:16px">📦 数据管道 - WebSocket 消息协议</h3>
+  <div style="max-width:900px;margin:0 auto;background:#1f2937;color:white;padding:20px 24px;border-radius:12px;font-family:ui-monospace,Menlo,monospace;font-size:13px;line-height:1.8">
+    <div style="color:#60a5fa;margin-bottom:8px">// Client → Server</div>
+    <div><span style="color:#a78bfa">audio_chunk</span>　　<span style="color:#9ca3af">// 二进制音频分片 (PCM 16kHz 16bit)</span></div>
+    <div><span style="color:#a78bfa">interrupt</span>　　　<span style="color:#9ca3af">// 打断信号，立即停止一切</span></div>
+    <div><span style="color:#a78bfa">start_session</span>　<span style="color:#9ca3af">// 开始新通话会话</span></div>
+    <div><span style="color:#a78bfa">end_session</span>　　<span style="color:#9ca3af">// 结束当前会话</span></div>
+    <div style="color:#60a5fa;margin:16px 0 8px 0">// Server → Client</div>
+    <div><span style="color:#34d399">asr_partial</span>　　<span style="color:#9ca3af">// ASR 中间识别结果（实时显示）</span></div>
+    <div><span style="color:#34d399">asr_final</span>　　　<span style="color:#9ca3af">// ASR 最终识别结果</span></div>
+    <div><span style="color:#34d399">llm_token</span>　　　<span style="color:#9ca3af">// LLM 流式 token（实时显示文字）</span></div>
+    <div><span style="color:#34d399">tts_chunk</span>　　　<span style="color:#9ca3af">// TTS 音频分片（流式播放）</span></div>
+    <div><span style="color:#34d399">state_change</span>　　<span style="color:#9ca3af">// 状态变更通知 idle/listening/reasoning/speaking</span></div>
+    <div><span style="color:#34d399">error</span>　　　　　<span style="color:#9ca3af">// 错误消息</span></div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:32px">
+  <h3 style="margin-bottom:16px">💾 内存资源规划（Mac mini 16G）</h3>
+  <div style="max-width:900px;margin:0 auto">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">系统 + Docker</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#e5e7eb 0%,#e5e7eb 18%,transparent 18%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 2.5G / 18%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">LLM 7B Q4_K_M</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#4facfe 0%,#4facfe 45%,transparent 45%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 5.0G / 31%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">ASR (Faster-Whisper)</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#06b6d4 0%,#06b6d4 18%,transparent 18%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 2.5G / 16%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">TTS (Piper)</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#a855f7 0%,#a855f7 2%,transparent 2%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 0.3G / 2%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">FastAPI 后端</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#10b981 0%,#10b981 12%,transparent 12%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 1.0G / 6%</div>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="width:120px;font-size:13px;font-weight:600;color:#374151">预留缓冲</div>
+        <div style="flex:1;height:28px;border-radius:6px;background:linear-gradient(90deg,#f59e0b 0%,#f59e0b 28%,transparent 28%)"></div>
+        <div style="width:80px;text-align:right;font-size:13px;color:#6b7280">~ 4.7G / 29%</div>
+      </div>
+      <div style="margin-top:10px;padding:10px 14px;background:#fef3c7;border-radius:8px;font-size:12px;color:#92400e">
+        ⚠️ 注意：16G 吃紧，需启用 Ollama 的 Apple Metal offload + 量化；ASR 和 LLM 尽量分时复用内存，同时跑可能需要 swap
+      </div>
+    </div>
+  </div>
+</div>

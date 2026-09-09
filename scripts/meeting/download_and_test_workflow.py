@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""下载完整 Workflow 模型，并对仓库根目录的三段 M4A 做端到端测试。
+"""下载完整 Workflow 模型，并对固定录音目录的三段 M4A 做端到端测试。
 
 默认执行：
   1. Qwen3-ASR-0.6B-4bit (Hugging Face cache)
   2. Silero VAD (models/silero_vad.onnx)
   3. FunASR ct-punc-c (ModelScope cache)
   4. resemblyzer 声纹模型（首次构造 VoiceEncoder 时下载）
-  5. 对根目录排序后的三个 *.m4a 执行 VAD -> ASR -> 标点 -> SD
+  5. 对 recordings/ 下固定的三个 *.m4a 执行 VAD -> ASR -> 标点 -> SD
 
 使用 --skip-download 可在模型准备好后只重复测试。完整测试可能需要较长时间，
 结果写入 /tmp/astra-workflow-test/，不会污染仓库。
@@ -33,10 +33,11 @@ QWEN_REPO = "mlx-community/Qwen3-ASR-0.6B-4bit"
 PUNC_REPO = "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch"
 VAD_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx"
 VAD_PATH = PROJECT_ROOT / "models" / "silero_vad.onnx"
+RECORDINGS_DIR = PROJECT_ROOT / "recordings"
 RECORDINGS = (
-    PROJECT_ROOT / "1787882095007-5ef1.m4a",
-    PROJECT_ROOT / "1787899449766-9e93.m4a",
-    PROJECT_ROOT / "1788504363364-1819.m4a",
+    RECORDINGS_DIR / "1787882095007-5ef1.m4a",
+    RECORDINGS_DIR / "1787899449766-9e93.m4a",
+    RECORDINGS_DIR / "1788504363364-1819.m4a",
 )
 
 

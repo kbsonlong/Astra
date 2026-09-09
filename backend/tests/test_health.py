@@ -59,6 +59,25 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.tts_model_path == "/models/piper.onnx"
 
 
+def test_settings_resolves_relative_vad_model_from_project_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("VAD_MODEL", "models/custom-vad.onnx")
+
+    from app.config import PROJECT_ROOT, Settings
+
+    assert Settings.from_env().vad_model == str(PROJECT_ROOT / "models/custom-vad.onnx")
+
+
+def test_settings_normalizes_llm_base_url_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "http://127.0.0.1:8000//v1///")
+
+    from app.config import Settings
+
+    assert Settings.from_env().llm_base_url == "http://127.0.0.1:8000/v1"
+
+
 @pytest.mark.anyio
 async def test_collects_dependency_health(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:

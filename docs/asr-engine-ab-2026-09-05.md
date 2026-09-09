@@ -1,9 +1,9 @@
 # ASR 引擎 A/B 对比: SenseVoice vs Qwen3 (会议转写)
 
 > 日期: 2026-09-05
-> 样本: `1788504363364-1819.m4a` — 38.7 min 会议(云资源成本优化, 中英混说/术语/人名密集)
+> 样本: `recordings/1788504363364-1819.m4a` — 38.7 min 会议(云资源成本优化, 中英混说/术语/人名密集)
 > 方法: **同一 Silero VAD 分段**(meeting.py 方案A), 仅替换逐段转写引擎, 131/131 段对齐逐段比对
-> 复跑: `python _ab_sensevoice_vs_qwen3.py`(缓存: `/tmp/meeting_1819_{sv,sv_zh}_segments.json`)
+> 复跑: 历史 A/B 一次性脚本已删除；当前会议 Workflow 回归入口为 `python scripts/meeting/download_and_test_workflow.py`
 
 ---
 

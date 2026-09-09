@@ -1,0 +1,56 @@
+<h2>Astra 语音助手 - 整体架构概览</h2>
+<p class="subtitle">基于 Mac mini 16G 本地模型底座 · 实时语音通话 · React + Tauri 跨平台</p>
+
+<div class="section" style="margin-top:32px">
+  <h3 style="margin-bottom:16px">🏗️ 系统架构分层</h3>
+  <div style="display:flex;flex-direction:column;gap:12px;max-width:760px;margin:0 auto">
+    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:20px 24px;border-radius:12px">
+      <div style="font-weight:600;font-size:16px;margin-bottom:8px">📱 客户端层（Client Layer）</div>
+      <div style="opacity:0.9;font-size:14px;line-height:1.6">
+        MVP: React Web 页面（浏览器访问）<br>
+        桌面端: Tauri 封装（macOS / Linux）<br>
+        移动端: 后续 Capacitor 或 PWA（iOS / Android）<br>
+        <span style="opacity:0.75">→ 负责：录音采集、TTS 播放、实时 UI 交互</span>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center"><div style="font-size:20px;opacity:0.4">⬆⬇ WebSocket + HTTP API</div></div>
+    <div style="background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%);color:white;padding:20px 24px;border-radius:12px">
+      <div style="font-weight:600;font-size:16px;margin-bottom:8px">🔌 后端网关层（API Gateway）—— 部署在 Mac mini</div>
+      <div style="opacity:0.9;font-size:14px;line-height:1.6">
+        会话管理 · 音频流调度 · VAD 端点检测<br>
+        打断逻辑 · 状态机编排 · 模型接口适配<br>
+        <span style="opacity:0.75">→ 推荐技术栈：Rust Axum 或 Python FastAPI</span>
+      </div>
+    </div>
+    <div style="display:flex;justify-content:center"><div style="font-size:20px;opacity:0.4">⬆⬇ 本地进程间调用</div></div>
+    <div style="background:linear-gradient(135deg,#4facfe 0%,#00f2fe 100%);color:white;padding:20px 24px;border-radius:12px">
+      <div style="font-weight:600;font-size:16px;margin-bottom:8px">🧠 模型服务层（Model Serving）—— Mac mini 本地</div>
+      <div style="opacity:0.9;font-size:14px;line-height:1.6">
+        LLM 推理（7B~8B 量化） · ASR 语音识别 · TTS 语音合成<br>
+        <span style="opacity:0.75">→ 候选方案：Ollama / llama.cpp + Whisper / Faster-Whisper + Piper / Coqui</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:40px">
+  <h3 style="margin-bottom:16px">📋 需求确认汇总</h3>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:760px;margin:0 auto">
+    <div style="background:#f8f9fa;padding:14px 18px;border-radius:10px;border-left:4px solid #667eea">
+      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">MVP 范围</div>
+      <div style="font-weight:600">语音助手优先（翻译助手后续迭代）</div>
+    </div>
+    <div style="background:#f8f9fa;padding:14px 18px;border-radius:10px;border-left:4px solid #764ba2">
+      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">交互模式</div>
+      <div style="font-weight:600">实时语音通话 · 支持打断插话</div>
+    </div>
+    <div style="background:#f8f9fa;padding:14px 18px;border-radius:10px;border-left:4px solid #f5576c">
+      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">模型策略</div>
+      <div style="font-weight:600">效果优先 · 7B~8B 量化 · 2~4s 延迟</div>
+    </div>
+    <div style="background:#f8f9fa;padding:14px 18px;border-radius:10px;border-left:4px solid #4facfe">
+      <div style="font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px">技术栈</div>
+      <div style="font-weight:600">React + Tauri · Mac mini 部署模型+后端</div>
+    </div>
+  </div>
+</div>

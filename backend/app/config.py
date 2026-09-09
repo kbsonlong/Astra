@@ -1,8 +1,11 @@
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _float_env(name: str, default: float) -> float:
@@ -25,6 +28,17 @@ def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     return default if value is None else value.lower() in {"1", "true", "yes", "on"}
+
+
+def _project_path(value: str) -> str:
+    path = Path(value).expanduser()
+    return str(path if path.is_absolute() else PROJECT_ROOT / path)
+
+
+def _normalize_base_url(value: str) -> str:
+    parsed = urlsplit(value.strip())
+    path = "/" + "/".join(part for part in parsed.path.split("/") if part)
+    return urlunsplit((parsed.scheme, parsed.netloc, path.rstrip("/"), "", ""))
 
 
 @dataclass(frozen=True)
@@ -89,7 +103,9 @@ class Settings:
     def from_env(cls) -> "Settings":
         load_dotenv(dotenv_path=Path.cwd() / ".env")
         return cls(
-            llm_base_url=os.getenv("LLM_BASE_URL", cls.llm_base_url).rstrip("/"),
+            llm_base_url=_normalize_base_url(
+                os.getenv("LLM_BASE_URL", cls.llm_base_url)
+            ),
             llm_chat_path=os.getenv("LLM_CHAT_PATH", cls.llm_chat_path),
             llm_models_path=os.getenv("LLM_MODELS_PATH", cls.llm_models_path),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
@@ -144,7 +160,7 @@ class Settings:
             ),
             asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
             asr_system_prompt=os.getenv("ASR_SYSTEM_PROMPT", cls.asr_system_prompt),
-            vad_model=os.getenv("VAD_MODEL", cls.vad_model),
+            vad_model=_project_path(os.getenv("VAD_MODEL", cls.vad_model)),
             punctuation_enabled=_bool_env(
                 "PUNCTUATION_ENABLED", cls.punctuation_enabled
             ),

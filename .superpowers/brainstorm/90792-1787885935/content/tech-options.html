@@ -1,0 +1,100 @@
+<h2>技术实现方案对比（三选一）</h2>
+<p class="subtitle">后端语言 + 模型服务组合 + 部署策略的整体方案</p>
+
+<div class="options" style="margin-top:24px">
+
+  <div class="option" data-choice="a" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>🟢 方案 A：Python FastAPI + Ollama 全家桶（推荐 · MVP 速度优先）</h3>
+      <p style="margin-bottom:12px"><strong>后端：</strong>Python FastAPI（WebSocket 音频流 + 会话状态机）</p>
+      <p style="margin-bottom:12px"><strong>LLM：</strong>Ollama 部署 Qwen2.5-7B / Llama3-8B（GGUF Q4_K_M 量化，约 5GB 内存）</p>
+      <p style="margin-bottom:12px"><strong>ASR：</strong>Faster-Whisper（large-v3 量化版，约 3GB）或 Ollama 内置 Whisper</p>
+      <p style="margin-bottom:12px"><strong>TTS：</strong>Piper TTS（轻量模型，约 100MB）或 Coqui TTS</p>
+      <p style="margin-bottom:12px"><strong>部署：</strong>全部 Docker Compose 编排（Ollama 容器 + FastAPI 容器 + 模型文件卷挂载）</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>✅ 优势</h4>
+          <ul>
+            <li>开发速度最快，Python AI 生态最成熟</li>
+            <li>Ollama 一键部署模型，省心省力</li>
+            <li>调试简单，社区资源多</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>⚠️ 劣势</h4>
+          <ul>
+            <li>Python GIL 下高并发弱于 Rust</li>
+            <li>内存占用略高（多个 Python 进程）</li>
+            <li>16G 内存可能需要精细调参</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="b" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>🔵 方案 B：Rust Axum + llama.cpp 原生（性能优先）</h3>
+      <p style="margin-bottom:12px"><strong>后端：</strong>Rust Axum（异步 WebSocket + 无锁状态机）</p>
+      <p style="margin-bottom:12px"><strong>LLM：</strong>llama.cpp server（Apple Silicon 原生加速，7B Q4_K_M，约 4.5GB）</p>
+      <p style="margin-bottom:12px"><strong>ASR：</strong>whisper.cpp server（Apple Silicon 优化，约 2GB）</p>
+      <p style="margin-bottom:12px"><strong>TTS：</strong>Piper TTS（C++ 后端，Rust 调用）或 Rust 原生 TTS crate</p>
+      <p style="margin-bottom:12px"><strong>部署：</strong>全部原生二进制或 Docker 封装，最低内存开销</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>✅ 优势</h4>
+          <ul>
+            <li>内存占用最小，16G 利用率最高</li>
+            <li>Apple Silicon 原生优化，延迟最低</li>
+            <li>Rust 后端并发强，稳定性高</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>⚠️ 劣势</h4>
+          <ul>
+            <li>Rust 开发周期长，迭代慢</li>
+            <li>AI 生态库不如 Python 丰富</li>
+            <li>排错成本高，模型兼容性需验证</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="option" data-choice="c" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>🟣 方案 C：混合架构（平衡 · 推荐长期方案）</h3>
+      <p style="margin-bottom:12px"><strong>网关：</strong>Rust Axum（负责 WebSocket、VAD、会话编排、打断逻辑）</p>
+      <p style="margin-bottom:12px"><strong>LLM：</strong>Ollama（Docker，7B~8B 量化）—— Axum 通过 HTTP 调用</p>
+      <p style="margin-bottom:12px"><strong>ASR：</strong>Faster-Whisper（Python 独立服务）—— Axum 通过 gRPC/HTTP 调用</p>
+      <p style="margin-bottom:12px"><strong>TTS：</strong>Piper TTS（独立轻量服务）—— Axum 通过 HTTP 调用</p>
+      <p style="margin-bottom:12px"><strong>部署：</strong>Docker Compose 编排 4 个微服务容器</p>
+      <div class="pros-cons" style="margin-top:12px">
+        <div class="pros"><h4>✅ 优势</h4>
+          <ul>
+            <li>各层最优：Rust 强并发 + Python 好生态</li>
+            <li>服务解耦，可独立替换升级模型</li>
+            <li>为未来横向扩展留空间</li>
+          </ul>
+        </div>
+        <div class="cons"><h4>⚠️ 劣势</h4>
+          <ul>
+            <li>MVP 复杂度最高，需管 4 个服务</li>
+            <li>进程间通信开销</li>
+            <li>16G 内存同时跑 4 容器需测试</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:32px;max-width:760px;margin-left:auto;margin-right:auto">
+  <div style="background:#fffbeb;padding:16px 20px;border-radius:10px;border:1px solid #fcd34d">
+    <div style="font-weight:600;color:#92400e;margin-bottom:6px">💡 我的推荐</div>
+    <div style="color:#78350f;font-size:14px;line-height:1.7">
+      <strong>MVP 阶段选方案 A</strong>（Python FastAPI + Ollama）：快速跑通闭环验证可行性，16G 内存通过 Ollama 的 offload 和量化可以跑起来。
+      验证通过后再迁移到方案 C（混合架构），把网关层换成 Rust 提升稳定性和并发。这样风险最低，迭代速度最快。
+    </div>
+  </div>
+</div>

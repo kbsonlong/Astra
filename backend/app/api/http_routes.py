@@ -1,9 +1,13 @@
+import asyncio
 import json
+import tempfile
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
+from ..core.meeting import MeetingPipeline
 from ..models.asr_client import ASRClientError
 from ..models.llm_client import LLMClientError
 
@@ -51,32 +55,64 @@ async def transcribe_and_correct(
     if not llm.model:
         raise HTTPException(status_code=503, detail="LLM model is not configured")
 
-    try:
-        text = await asr.transcribe(audio, filename=file.filename or "speech.wav")
-    except ASRClientError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    timeline: list[dict[str, object]] = []
+    meeting_pipeline = getattr(request.app.state, "meeting_pipeline", None)
+    vad = getattr(meeting_pipeline, "vad", None)
+    if vad is not None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="astra_stream_") as directory:
+                source = Path(directory) / Path(file.filename or "speech.wav").name
+                source.write_bytes(audio)
+                wav_path, _ = await asyncio.to_thread(MeetingPipeline.decode_to_wav, source)
+                chunks = await vad.detect(wav_path)
+                for index, chunk in enumerate(chunks):
+                    text = await asr.transcribe(chunk.audio, filename=f"stream-{index}.wav")
+                    text = (text or "").strip()
+                    if text:
+                        timeline.append(
+                            {"index": index, "start": chunk.start, "end": chunk.end, "text": text}
+                        )
+        except Exception:
+            # VAD/afconvert is an enhancement; keep whole-file transcription usable
+            # when local audio conversion or the optional VAD model is unavailable.
+            timeline = []
+
+    if not timeline:
+        try:
+            text = await asr.transcribe(audio, filename=file.filename or "speech.wav")
+        except ASRClientError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        timeline = [{"index": 0, "start": 0.0, "end": 0.0, "text": text}]
 
     async def events() -> AsyncIterator[str]:
-        yield _sse({"type": "asr_final", "text": text})
-        corrected = ""
-        messages = [
-            {"role": "system", "content": settings.llm_correction_system_prompt},
-            {"role": "user", "content": text},
-        ]
-        try:
-            async for token in llm.stream_chat(
-                messages,
-                temperature=0.0,
-                max_tokens=settings.llm_correction_max_tokens,
-                chat_template_kwargs={"enable_thinking": False},
-            ):
-                corrected += token
-                yield _sse({"type": "correction_token", "token": token})
-        except LLMClientError as exc:
-            yield _sse({"type": "error", "code": "llm_correction_failed", "message": str(exc)})
-            yield _sse({"type": "correction_final", "text": text, "fallback": True})
-        else:
-            yield _sse({"type": "correction_final", "text": corrected.strip()})
+        if len(timeline) == 1 and timeline[0]["end"] == 0.0:
+            yield _sse({"type": "asr_final", "text": timeline[0]["text"]})
+        for segment in timeline:
+            index = int(segment["index"])
+            start = float(segment["start"])
+            end = float(segment["end"])
+            segment_text = str(segment["text"])
+            yield _sse({"type": "asr_segment", "index": index, "start": start, "end": end, "text": segment_text})
+            corrected = ""
+            messages = [
+                {"role": "system", "content": settings.llm_correction_system_prompt},
+                {"role": "user", "content": segment_text},
+            ]
+            try:
+                async for token in llm.stream_chat(
+                    messages,
+                    temperature=0.0,
+                    max_tokens=settings.llm_correction_max_tokens,
+                    chat_template_kwargs={"enable_thinking": False},
+                ):
+                    corrected += token
+                    yield _sse({"type": "correction_token", "index": index, "token": token})
+            except LLMClientError as exc:
+                yield _sse({"type": "error", "code": "llm_correction_failed", "message": str(exc)})
+                corrected = segment_text
+                yield _sse({"type": "correction_segment", "index": index, "start": start, "end": end, "text": corrected, "fallback": True})
+            else:
+                yield _sse({"type": "correction_segment", "index": index, "start": start, "end": end, "text": corrected.strip()})
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

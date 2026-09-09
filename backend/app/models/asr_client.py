@@ -630,7 +630,7 @@ class SherpaZipformerBilingualAsrClient:
         if not os.path.isdir(self.model_dir):
             raise ASRClientError(
                 f"Zipformer Bilingual model dir not found: {self.model_dir}. "
-                f"Run `_step1d_download_zipformer.py` to download "
+                f"Run `scripts/meeting/download_and_test_workflow.py` to download "
                 f"csukuangfj/sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20"
             )
 

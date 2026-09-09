@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.models.llm_client import OpenAICompatLLMClient
+from app.models.llm_client import LLMClientError, OpenAICompatLLMClient
 
 
 @pytest.mark.anyio
@@ -83,3 +83,25 @@ async def test_stream_chat_tolerates_non_choices_chunks() -> None:
         await client._client.aclose()
 
     assert tokens == ["你", "好"]
+
+
+@pytest.mark.anyio
+async def test_stream_chat_wraps_connect_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("remote LLM did not respond", request=request)
+
+    client = OpenAICompatLLMClient(
+        "http://llm.test/v1",
+        "test-model",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        with pytest.raises(LLMClientError, match="ConnectTimeout"):
+            _ = [
+                token
+                async for token in client.stream_chat(
+                    [{"role": "user", "content": "Hi"}]
+                )
+            ]
+    finally:
+        await client._client.aclose()
