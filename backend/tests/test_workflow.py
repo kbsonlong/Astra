@@ -94,6 +94,39 @@ def test_meeting_worker_exports_reviewable_qwen_jsonl(tmp_path) -> None:
     assert (tmp_path / "asr_clips/seg-000001.wav").read_bytes() == b"RIFF"
 
 
+def test_training_export_merges_adjacent_same_speaker_segments(tmp_path) -> None:
+    import io
+    import soundfile as sf
+
+    from app.core.meeting import MeetingResult
+    from app.core.meeting_cli import _write_training_artifacts
+
+    def wav_bytes(value: float) -> bytes:
+        buffer = io.BytesIO()
+        sf.write(buffer, np.full(1600, value, dtype=np.float32), 16000, format="WAV")
+        return buffer.getvalue()
+
+    result = MeetingResult(
+        filename="meeting.wav",
+        duration_s=4.0,
+        language="zh",
+        segments=[
+            Segment(0.0, 1.0, "第一句", speaker="S1", audio=wav_bytes(0.1), raw_text="第一句"),
+            Segment(1.4, 2.4, "第二句", speaker="S1", audio=wav_bytes(0.2), raw_text="第二句"),
+            Segment(2.5, 3.5, "第三句", speaker="S2", audio=wav_bytes(0.3), raw_text="第三句"),
+        ],
+    )
+
+    artifacts = _write_training_artifacts(tmp_path, result)
+    assert artifacts["candidate_segments"] == 2
+    rows = [json.loads(line) for line in (tmp_path / "qwen3-asr-candidates.jsonl").read_text().splitlines()]
+    assert rows[0]["text"] == "第一句第二句"
+    assert rows[1]["text"] == "第三句"
+    detailed = [json.loads(line) for line in (tmp_path / "transcript_segments.jsonl").read_text().splitlines()]
+    assert detailed[0]["start"] == 0.0
+    assert detailed[0]["end"] == 2.4
+
+
 def test_training_loader_explains_pending_meeting_samples(tmp_path) -> None:
     import importlib.util
 

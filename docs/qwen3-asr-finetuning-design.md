@@ -109,6 +109,8 @@ POST /api/meeting/process
 
 `qwen3-asr-candidates.jsonl` 已符合 Qwen3-ASR 的 `audio`/`text` 输入结构，但候选样本必须经过人工审校并改为 `review_status=approved` 后才能训练。训练脚本会跳过 `pending` 样本；没有 `review_status` 字段的旧版人工数据仍兼容读取。
 
+训练候选按“完整话轮”导出：底层 VAD 小段仍保留用于时间轴和声纹识别；在声纹识别完成后，相邻且属于同一说话人的片段会在停顿不超过 1.5 秒时合并。跨说话人或较长停顿不会合并。
+
 ### 3.3 数据集拆分
 
 必须按会议拆分，而不是随机按片段拆分：

@@ -111,6 +111,60 @@ def _write_status(out_dir: Path, payload: dict) -> None:
     )
 
 
+def _merge_training_segments(segments: list[object], *, max_gap_s: float = 1.5) -> list[object]:
+    """Merge adjacent same-speaker segments into complete training utterances."""
+    if not segments:
+        return []
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    merged: list[object] = []
+    for segment in segments:
+        if not getattr(segment, "audio", None):
+            continue
+        if not merged:
+            merged.append(segment)
+            continue
+        previous = merged[-1]
+        speaker_key = (
+            getattr(previous, "speaker_id", None)
+            or getattr(previous, "speaker_name", "")
+            or getattr(previous, "speaker", "")
+        )
+        current_key = (
+            getattr(segment, "speaker_id", None)
+            or getattr(segment, "speaker_name", "")
+            or getattr(segment, "speaker", "")
+        )
+        gap = float(segment.start) - float(previous.end)
+        if speaker_key != current_key or not speaker_key or gap > max_gap_s:
+            merged.append(segment)
+            continue
+
+        previous_audio, previous_sr = sf.read(io.BytesIO(previous.audio), dtype="float32", always_2d=False)
+        current_audio, current_sr = sf.read(io.BytesIO(segment.audio), dtype="float32", always_2d=False)
+        if previous_sr != current_sr:
+            merged.append(segment)
+            continue
+        if previous_audio.ndim > 1:
+            previous_audio = np.mean(previous_audio, axis=1)
+        if current_audio.ndim > 1:
+            current_audio = np.mean(current_audio, axis=1)
+        silence = np.zeros(max(0, round(gap * previous_sr)), dtype=np.float32)
+        combined = np.concatenate((previous_audio, silence, current_audio))
+        buffer = io.BytesIO()
+        sf.write(buffer, combined, previous_sr, subtype="PCM_16", format="WAV")
+        previous.audio = buffer.getvalue()
+        previous.end = segment.end
+        text_separator = " " if previous.text[-1:].isascii() and segment.text[:1].isascii() else ""
+        raw_separator = " " if previous.raw_text[-1:].isascii() and segment.raw_text[:1].isascii() else ""
+        previous.text = f"{previous.text.rstrip()}{text_separator}{segment.text.lstrip()}".strip()
+        previous.raw_text = f"{previous.raw_text.rstrip()}{raw_separator}{segment.raw_text.lstrip()}".strip()
+    return merged
+
+
 def _write_training_artifacts(out_dir: Path, result: object) -> dict[str, str | int]:
     """Export reviewable segment WAVs and Qwen3-ASR JSONL candidates."""
     clips_dir = out_dir / "asr_clips"
@@ -120,7 +174,8 @@ def _write_training_artifacts(out_dir: Path, result: object) -> dict[str, str | 
     transcript_lines: list[str] = []
     training_lines: list[str] = []
 
-    for index, segment in enumerate(result.segments, 1):  # type: ignore[attr-defined]
+    training_segments = _merge_training_segments(result.segments)  # type: ignore[attr-defined]
+    for index, segment in enumerate(training_segments, 1):
         if not segment.audio:
             continue
         clip_path = clips_dir / f"seg-{index:06d}.wav"
