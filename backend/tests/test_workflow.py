@@ -94,6 +94,25 @@ def test_meeting_worker_exports_reviewable_qwen_jsonl(tmp_path) -> None:
     assert (tmp_path / "asr_clips/seg-000001.wav").read_bytes() == b"RIFF"
 
 
+def test_training_loader_explains_pending_meeting_samples(tmp_path) -> None:
+    import importlib.util
+
+    script_path = Path(__file__).resolve().parents[2] / "scripts/training/train_qwen3_asr.py"
+    spec = importlib.util.spec_from_file_location("train_qwen3_asr", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    dataset_path = tmp_path / "transcript_segments.jsonl"
+    dataset_path.write_text(
+        json.dumps({"audio": "missing.wav", "corrected_text": "待审核", "review_status": "pending"}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="no approved samples.*pending"):
+        module.load_dataset(str(dataset_path))
+
+
 @pytest.mark.anyio
 async def test_workflow_builder_runs_only_registered_stages_in_order() -> None:
     events.clear()

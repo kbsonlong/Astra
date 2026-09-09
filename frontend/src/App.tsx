@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import UploadPage from "./UploadPage";
+import ReviewPage from "./ReviewPage";
+import TrainingPage from "./TrainingPage";
 
 type ServerEvent = {
   type: string;
@@ -34,6 +36,8 @@ const stateHints: Record<string, string> = {
 
 export default function App() {
   if (location.pathname === "/upload") return <UploadPage />;
+  if (location.pathname === "/review") return <ReviewPage />;
+  if (location.pathname === "/training") return <TrainingPage />;
 
   const socket = useRef<WebSocket | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -214,7 +218,9 @@ export default function App() {
         </a>
         <nav className="nav-actions" aria-label="Astra tools">
           <a className="nav-link active" href="/">实时通话</a>
-          <a className="nav-link" href="/upload">音频工作台</a>
+          <a className="nav-link" href="/upload">会议工作台</a>
+          <a className="nav-link" href="/review">逐段审校</a>
+          <a className="nav-link" href="/training">训练设置</a>
         </nav>
       </header>
 

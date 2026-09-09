@@ -1,9 +1,49 @@
 """训练任务 API。"""
+import json
+import re
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
 
 from ..main_types import TrainingConfigPayload
 
 router = APIRouter(prefix="/api/training", tags=["training"])
+_TASK_ID_RE = re.compile(r"^\d{8}-\d{6}-[\da-f]{4,8}$")
+
+
+def _approved_datasets(meeting_dir: Path) -> list[dict[str, object]]:
+    if not meeting_dir.is_dir():
+        return []
+    datasets: list[dict[str, object]] = []
+    for task_dir in sorted(meeting_dir.iterdir(), reverse=True):
+        if not task_dir.is_dir() or not _TASK_ID_RE.match(task_dir.name):
+            continue
+        dataset_path = task_dir / "qwen3-asr-candidates.jsonl"
+        if not dataset_path.is_file():
+            continue
+        total = approved = 0
+        for line in dataset_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            total += 1
+            if json.loads(line).get("review_status") == "approved":
+                approved += 1
+        if approved:
+            datasets.append({
+                "id": task_dir.name,
+                "task_id": task_dir.name,
+                "path": str(dataset_path.resolve()),
+                "approved_count": approved,
+                "total_count": total,
+                "updated_at": dataset_path.stat().st_mtime,
+            })
+    return datasets
+
+
+@router.get("/datasets")
+async def training_datasets(request: Request) -> dict[str, object]:
+    meeting_dir = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    return {"items": _approved_datasets(meeting_dir)}
 
 
 @router.post("/start")

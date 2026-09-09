@@ -7,33 +7,6 @@ type TranscriptionResult = {
 };
 
 
-type TrainingConfig = {
-  model_path: string;
-  train_file: string;
-  eval_file: string;
-  output_dir: string;
-  device: "auto" | "cuda" | "mps" | "cpu";
-  precision: "bf16" | "fp16" | "fp32";
-  batch_size: number;
-  grad_acc: number;
-  learning_rate: number;
-  epochs: number;
-  save_steps: number;
-  save_total_limit: number;
-  num_workers: number;
-  pin_memory: boolean;
-  persistent_workers: boolean;
-  prefetch_factor: number;
-  resume_from: string;
-  resume_latest: boolean;
-};
-type TrainingStatus = {
-  status: "idle" | "processing" | "done" | "failed";
-  task_id?: string;
-  returncode?: number | null;
-  log_path?: string;
-  output_dir?: string;
-};
 type TimelineSegment = {
   index: number;
   start: number;
@@ -196,28 +169,17 @@ export default function UploadPage() {
   const [renaming, setRenaming] = useState<Record<string, string>>({});
   const [speakerNotifications, setSpeakerNotifications] = useState<SpeakerNotification[]>([]);
   const [speakerSamples, setSpeakerSamples] = useState<Record<string, SpeakerSample[]>>({});
-  const [trainingConfig, setTrainingConfig] = useState<TrainingConfig | null>(null);
-  const [trainingStatus, setTrainingStatus] = useState("训练参数未加载");
-  const [trainingBusy, setTrainingBusy] = useState(false);
-  const [trainingStatusInfo, setTrainingStatusInfo] = useState<TrainingStatus>({ status: "idle" });
   const meetingSocket = useRef<WebSocket | null>(null);
   const notificationSocket = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     void refreshSpeakers();
-    void refreshTrainingConfig();
     connectNotifications();
     return () => {
       meetingSocket.current?.close();
       notificationSocket.current?.close();
     };
   }, []);
-
-  useEffect(() => {
-    if (trainingStatusInfo.status !== "processing") return undefined;
-    const timer = window.setInterval(() => { void refreshTrainingStatus(); }, 2000);
-    return () => window.clearInterval(timer);
-  }, [trainingStatusInfo.status]);
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -228,196 +190,6 @@ export default function UploadPage() {
     meetingSocket.current?.close();
     meetingSocket.current = null;
     setStatus(event.target.files?.[0]?.name ?? "选择一个音频文件开始测试");
-  }
-
-  async function refreshTrainingConfig() {
-    try {
-      const response = await fetch("/api/training/config");
-      const payload = await response.json() as { config?: TrainingConfig; detail?: string };
-      if (!response.ok || !payload.config) throw new Error(payload.detail ?? "无法读取训练参数");
-      setTrainingConfig(payload.config);
-      setTrainingStatus("已加载离线训练参数");
-    } catch (error) {
-      setTrainingStatus(error instanceof Error ? error.message : "训练参数加载失败");
-    }
-  }
-
-  async function saveTrainingConfig() {
-    if (!trainingConfig) return;
-    setTrainingBusy(true);
-    setTrainingStatus("正在保存训练参数...");
-    try {
-      const response = await fetch("/api/training/config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(trainingConfig),
-      });
-      const payload = await response.json() as { config?: TrainingConfig; detail?: string };
-      if (!response.ok || !payload.config) throw new Error(payload.detail ?? "训练参数保存失败");
-      setTrainingConfig(payload.config);
-      setTrainingStatus("训练参数已保存；不会自动启动训练或热切换模型");
-    } catch (error) {
-      setTrainingStatus(error instanceof Error ? error.message : "训练参数保存失败");
-    } finally {
-      setTrainingBusy(false);
-    }
-  }
-
-  async function refreshTrainingStatus() {
-    try {
-      const response = await fetch("/api/training/status");
-      const payload = await response.json() as TrainingStatus & { detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "训练状态读取失败");
-      setTrainingStatusInfo(payload);
-      if (payload.status === "processing") setTrainingStatus(`训练进行中 · ${payload.task_id ?? ""}`);
-      if (payload.status === "done") setTrainingStatus("训练完成，适配器已写入输出目录");
-      if (payload.status === "failed") setTrainingStatus(`训练失败（退出码 ${payload.returncode ?? "未知"}），请查看日志`);
-      if (payload.status === "idle") setTrainingStatus("当前没有运行中的训练任务");
-    } catch (error) {
-      setTrainingStatus(error instanceof Error ? error.message : "训练状态读取失败");
-    }
-  }
-
-  async function startTraining() {
-    if (!trainingConfig) return;
-    setTrainingBusy(true);
-    setTrainingStatus("正在启动后台训练...");
-    try {
-      const response = await fetch("/api/training/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(trainingConfig),
-      });
-      const payload = await response.json() as TrainingStatus & { detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "训练启动失败");
-      setTrainingStatusInfo(payload);
-      setTrainingStatus(`训练已启动 · ${payload.task_id ?? ""}`);
-    } catch (error) {
-      setTrainingStatus(error instanceof Error ? error.message : "训练启动失败");
-    } finally {
-      setTrainingBusy(false);
-    }
-  }
-
-  async function stopTraining() {
-    setTrainingBusy(true);
-    try {
-      const response = await fetch("/api/training/stop", { method: "POST" });
-      const payload = await response.json() as TrainingStatus & { detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "训练停止失败");
-      setTrainingStatusInfo(payload);
-      setTrainingStatus("已请求停止训练");
-    } catch (error) {
-      setTrainingStatus(error instanceof Error ? error.message : "训练停止失败");
-    } finally {
-      setTrainingBusy(false);
-    }
-  }
-
-  function updateTrainingConfig<K extends keyof TrainingConfig>(key: K, value: TrainingConfig[K]) {
-    setTrainingConfig((current) => current ? { ...current, [key]: value } : current);
-  }
-
-  function numberValue(value: string, fallback: number): number {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : fallback;
-  }
-
-  function renderTrainingNumber(
-    key: keyof TrainingConfig,
-    label: string,
-    step = "1",
-  ) {
-    if (!trainingConfig) return null;
-    const value = trainingConfig[key];
-    return (
-      <label className="training-field" key={String(key)}>
-        <span>{label}</span>
-        <input
-          type="number"
-          step={step}
-          value={String(value)}
-          onChange={(event) => updateTrainingConfig(key, numberValue(event.target.value, Number(value)) as TrainingConfig[typeof key])}
-        />
-      </label>
-    );
-  }
-
-  function renderTrainingText(key: "model_path" | "train_file" | "eval_file" | "output_dir" | "resume_from", label: string) {
-    if (!trainingConfig) return null;
-    return (
-      <label className="training-field training-field-wide" key={key}>
-        <span>{label}</span>
-        <input
-          type="text"
-          value={trainingConfig[key]}
-          onChange={(event) => updateTrainingConfig(key, event.target.value)}
-        />
-      </label>
-    );
-  }
-
-  function renderTrainingCheckbox(key: "pin_memory" | "persistent_workers" | "resume_latest", label: string) {
-    if (!trainingConfig) return null;
-    return (
-      <label className="training-check" key={key}>
-        <input
-          type="checkbox"
-          checked={trainingConfig[key]}
-          onChange={(event) => updateTrainingConfig(key, event.target.checked)}
-        />
-        <span>{label}</span>
-      </label>
-    );
-  }
-
-  function renderTrainingPanel() {
-    return (
-      <section className="training-panel" aria-live="polite">
-        <div className="speaker-panel-head">
-          <div>
-            <span className="eyebrow">QWEN3-ASR · OFFLINE SFT</span>
-            <h2>领域微调参数</h2>
-          </div>
-          <div className="speaker-actions">
-            <button type="button" className="secondary-action compact-button" onClick={refreshTrainingConfig} disabled={trainingBusy}>重载</button>
-            <button type="button" className="secondary-action compact-button" onClick={refreshTrainingStatus} disabled={trainingBusy}>查状态</button>
-            <button type="button" className="compact-button" onClick={saveTrainingConfig} disabled={!trainingConfig || trainingBusy}>保存参数</button>
-            {trainingStatusInfo.status === "processing" ? (
-              <button type="button" className="danger-action compact-button" onClick={stopTraining} disabled={trainingBusy}>停止训练</button>
-            ) : (
-              <button type="button" className="compact-button" onClick={startTraining} disabled={!trainingConfig || trainingBusy}>启动训练</button>
-            )}
-          </div>
-        </div>
-        <p className="training-note">训练在独立后台进程运行，不阻塞 API；需要使用已安装 mlx-tune 的 Python。默认训练基座是非量化 Qwen3-ASR-0.6B，会议推理仍使用独立的 MLX 4bit 模型。</p>
-        <p className="speaker-status">{trainingStatus}</p>
-        {trainingConfig && (
-          <div className="training-grid">
-            {renderTrainingText("model_path", "训练基座模型")}
-            {renderTrainingText("train_file", "训练 JSONL")}
-            {renderTrainingText("eval_file", "验证 JSONL")}
-            {renderTrainingText("output_dir", "输出目录")}
-            <label className="training-field"><span>设备</span><select value={trainingConfig.device} onChange={(event) => updateTrainingConfig("device", event.target.value as TrainingConfig["device"])}><option value="cuda">CUDA</option><option value="mps">Apple MPS（实验）</option><option value="cpu">CPU（不推荐）</option><option value="auto">自动</option></select></label>
-            <label className="training-field"><span>精度</span><select value={trainingConfig.precision} onChange={(event) => updateTrainingConfig("precision", event.target.value as TrainingConfig["precision"])}><option value="bf16">BF16</option><option value="fp16">FP16</option><option value="fp32">FP32</option></select></label>
-            {renderTrainingNumber("batch_size", "Batch size")}
-            {renderTrainingNumber("grad_acc", "梯度累积")}
-            {renderTrainingNumber("learning_rate", "学习率", "0.000001")}
-            {renderTrainingNumber("epochs", "Epochs")}
-            {renderTrainingNumber("save_steps", "保存步数")}
-            {renderTrainingNumber("save_total_limit", "保留 checkpoint")}
-            {renderTrainingNumber("num_workers", "数据线程")}
-            {renderTrainingNumber("prefetch_factor", "预取因子")}
-            {renderTrainingText("resume_from", "恢复 checkpoint（可选）")}
-            <div className="training-checks">
-              {renderTrainingCheckbox("pin_memory", "启用 pin memory")}
-              {renderTrainingCheckbox("persistent_workers", "保持数据线程")}
-              {renderTrainingCheckbox("resume_latest", "自动恢复最新 checkpoint")}
-            </div>
-          </div>
-        )}
-      </section>
-    );
   }
 
   function waitForMeeting(taskId: string, reportPath: string, filename: string): Promise<MeetingResult> {
@@ -581,6 +353,7 @@ export default function UploadPage() {
       setStatus("会议处理中，请稍候...");
       const completed = await waitForMeeting(job.task_id, job.report_path ?? "", file.name);
       setMeeting(completed);
+      localStorage.setItem("astra:lastMeetingTask", completed.task_id);
       setStatus("会议纪要生成完成");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "会议处理失败");
@@ -743,7 +516,9 @@ export default function UploadPage() {
         </a>
         <nav className="nav-actions" aria-label="Astra tools">
           <a className="nav-link" href="/">实时通话</a>
-          <a className="nav-link active" href="/upload">音频工作台</a>
+          <a className="nav-link active" href="/upload">会议工作台</a>
+          <a className="nav-link" href="/review">逐段审校</a>
+          <a className="nav-link" href="/training">训练设置</a>
           <span className={`notification-indicator${speakerNotifications.length > 0 ? " has-notifications" : ""}`} title="声纹审核提醒">
             {speakerNotifications.length > 0 ? `待审核 ${speakerNotifications.length}` : "无新提醒"}
           </span>
@@ -786,8 +561,6 @@ export default function UploadPage() {
           </button>
         </section>
       </form>
-
-      {renderTrainingPanel()}
 
       <section className="speaker-panel" aria-live="polite">
         <div className="speaker-panel-head">
@@ -875,6 +648,7 @@ export default function UploadPage() {
               </details>
             )}
             <p className="result-meta">完整报告: {meeting.report_path}</p>
+            <p className="result-meta"><a className="review-link" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a> · <a className="review-link" href="/training">打开训练设置</a></p>
             {meeting.training_artifacts && (
               <div className="result-meta">
                 <strong>ASR 训练候选数据:</strong>{" "}

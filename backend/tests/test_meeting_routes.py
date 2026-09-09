@@ -115,3 +115,48 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
         assert event["transcript_preview"] == "[00:00] S1 测试\n[00:02] S1 完成"
         with pytest.raises(WebSocketDisconnect):
             websocket.receive_json()
+
+
+def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
+    task_id = "20260905-123456-1a2b3c4d"
+    out_dir = tmp_path / task_id
+    clips_dir = out_dir / "asr_clips"
+    clips_dir.mkdir(parents=True)
+    row = {
+        "segment_id": "seg-000001",
+        "start": 0.0,
+        "end": 1.0,
+        "raw_text": "冷资源中心",
+        "corrected_text": "冷资源中心",
+        "text": "冷资源中心",
+        "review_status": "pending",
+        "audio": str((clips_dir / "seg-000001.wav").resolve()),
+    }
+    for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
+        (out_dir / name).write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    (clips_dir / "seg-000001.wav").write_bytes(b"RIFF")
+
+    from app.main import create_app
+
+    app = create_app(settings=Settings(meeting_output_dir=str(tmp_path)), enable_pipeline=False, enable_meeting=False)
+    client = TestClient(app)
+
+    review = client.get(f"/api/meeting/{task_id}/training-data")
+    assert review.status_code == 200
+    assert review.json()["counts"] == {"pending": 1, "approved": 0, "rejected": 0}
+    assert review.json()["items"][0]["audio_url"].endswith("/seg-000001/audio")
+
+    response = client.patch(
+        f"/api/meeting/{task_id}/training-data/seg-000001",
+        json={"corrected_text": "云资源中心", "review_status": "approved"},
+    )
+    assert response.status_code == 200
+    assert response.json()["item"]["review_status"] == "approved"
+    for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
+        saved = json.loads((out_dir / name).read_text(encoding="utf-8"))
+        assert saved["text"] == "云资源中心"
+        assert saved["review_status"] == "approved"
+
+    audio = client.get(f"/api/meeting/{task_id}/training-data/seg-000001/audio")
+    assert audio.status_code == 200
+    assert audio.content == b"RIFF"

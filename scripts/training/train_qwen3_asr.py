@@ -16,15 +16,17 @@ from app.config import Qwen3TrainingConfig
 
 def load_dataset(path: str) -> list[dict[str, object]]:
     samples: list[dict[str, object]] = []
+    pending_count = 0
     for line_number, line in enumerate(Path(path).expanduser().read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip():
             continue
         item = json.loads(line)
         # 会议处理导出的候选集必须先人工审校；兼容没有该字段的旧版人工数据集。
         if item.get("review_status") not in (None, "approved"):
+            pending_count += 1
             continue
         audio_path = Path(str(item["audio"])).expanduser()
-        text = str(item["text"]).strip()
+        text = str(item.get("text", item.get("corrected_text", ""))).strip()
         if not audio_path.is_file() or not text:
             raise ValueError(f"invalid training sample at {path}:{line_number}")
         audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
@@ -32,6 +34,13 @@ def load_dataset(path: str) -> list[dict[str, object]]:
             audio = np.mean(audio, axis=1)
         samples.append({"audio": {"array": mx.array(audio), "sampling_rate": sample_rate}, "text": text})
     if not samples:
+        if pending_count:
+            raise ValueError(
+                f"training dataset has no approved samples: {path}; "
+                f"found {pending_count} pending samples. Review the meeting "
+                "transcript, set approved rows in qwen3-asr-candidates.jsonl "
+                "or transcript_segments.jsonl, then retry"
+            )
         raise ValueError(f"training dataset is empty: {path}")
     return samples
 

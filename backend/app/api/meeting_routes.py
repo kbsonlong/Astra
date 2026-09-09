@@ -32,6 +32,9 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+from typing import Literal
 
 router = APIRouter(prefix="/api/meeting", tags=["meeting"])
 
@@ -45,6 +48,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]  # backend/app/api -> repo 根
 
 # 新格式: 20260905-123456-1a2b3c4d | 旧格式(兼容只读): 20260905-123456-1234
 _TASK_ID_RE = re.compile(r"^\d{8}-\d{6}-[\da-f]{4,8}$")
+_SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
+
+
+class TrainingReviewPayload(BaseModel):
+    review_status: Literal["pending", "approved", "rejected"]
+    corrected_text: str = Field(min_length=1, max_length=20_000)
 
 
 def _new_task_id() -> str:
@@ -127,6 +136,84 @@ def _status_payload(base: Path, task_id: str) -> dict[str, object]:
     elif status.get("status") == "processing":
         result["elapsed_s"] = _elapsed(status.get("started", ""))
     return result
+
+
+def _jsonl_rows(path: Path) -> list[dict[str, object]]:
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="training review data not found")
+    rows: list[dict[str, object]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.strip():
+            rows.append(json.loads(line))
+    return rows
+
+
+def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + ("\n" if rows else ""),
+        encoding="utf-8",
+    )
+    temporary.replace(path)
+
+
+def _review_rows(out_dir: Path, task_id: str) -> list[dict[str, object]]:
+    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
+    for row in rows:
+        segment_id = str(row.get("segment_id", ""))
+        row["audio_url"] = f"/api/meeting/{task_id}/training-data/{segment_id}/audio"
+    return rows
+
+
+@router.get("/{task_id}/training-data")
+async def training_data(task_id: str, request: Request) -> dict[str, object]:
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    rows = _review_rows(out_dir, task_id)
+    counts = {status: sum(row.get("review_status") == status for row in rows) for status in ("pending", "approved", "rejected")}
+    return {"task_id": task_id, "items": rows, "counts": counts}
+
+
+@router.patch("/{task_id}/training-data/{segment_id}")
+async def review_training_data(
+    task_id: str,
+    segment_id: str,
+    payload: TrainingReviewPayload,
+    request: Request,
+) -> dict[str, object]:
+    if not _SEGMENT_ID_RE.match(segment_id):
+        raise HTTPException(status_code=400, detail="invalid segment_id format")
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
+    row = next((item for item in rows if item.get("segment_id") == segment_id), None)
+    if row is None:
+        raise HTTPException(status_code=404, detail="segment not found")
+    row["corrected_text"] = payload.corrected_text.strip()
+    row["text"] = payload.corrected_text.strip()
+    row["review_status"] = payload.review_status
+    row["correction_source"] = "human"
+    _write_jsonl(out_dir / "transcript_segments.jsonl", rows)
+
+    candidates = _jsonl_rows(out_dir / "qwen3-asr-candidates.jsonl")
+    candidate = next((item for item in candidates if item.get("segment_id") == segment_id), None)
+    if candidate is not None:
+        candidate["text"] = payload.corrected_text.strip()
+        candidate["review_status"] = payload.review_status
+        _write_jsonl(out_dir / "qwen3-asr-candidates.jsonl", candidates)
+    return {"task_id": task_id, "item": {**row, "audio_url": f"/api/meeting/{task_id}/training-data/{segment_id}/audio"}}
+
+
+@router.get("/{task_id}/training-data/{segment_id}/audio")
+async def training_segment_audio(task_id: str, segment_id: str, request: Request) -> FileResponse:
+    if not _SEGMENT_ID_RE.match(segment_id):
+        raise HTTPException(status_code=400, detail="invalid segment_id format")
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    audio_path = (out_dir / "asr_clips" / f"{segment_id}.wav").resolve()
+    if out_dir.resolve() not in audio_path.parents or not audio_path.is_file():
+        raise HTTPException(status_code=404, detail="segment audio not found")
+    return FileResponse(audio_path, media_type="audio/wav", filename=f"{segment_id}.wav")
 
 
 @router.post("/process")
