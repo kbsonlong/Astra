@@ -1,7 +1,4 @@
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
-from typing import Literal
-
 from .api.meeting_routes import router as meeting_router
 from .api.speaker_routes import router as speaker_router
 from .api.notification_routes import router as notification_router
@@ -27,30 +24,9 @@ from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
-
-
-class TrainingConfigPayload(BaseModel):
-    model_path: str = Field(min_length=1, max_length=500)
-    train_file: str = Field(min_length=1, max_length=1000)
-    eval_file: str = Field(min_length=1, max_length=1000)
-    output_dir: str = Field(min_length=1, max_length=1000)
-    device: Literal["auto", "cuda", "mps", "cpu"]
-    precision: Literal["bf16", "fp16", "fp32"]
-    batch_size: int = Field(ge=1, le=256)
-    grad_acc: int = Field(ge=1, le=1024)
-    learning_rate: float = Field(gt=0, le=1)
-    epochs: int = Field(ge=1, le=100)
-    save_steps: int = Field(ge=1, le=1_000_000)
-    save_total_limit: int = Field(ge=1, le=100)
-    num_workers: int = Field(ge=0, le=64)
-    pin_memory: bool
-    persistent_workers: bool
-    prefetch_factor: int = Field(ge=1, le=32)
-    resume_from: str = Field(default="", max_length=1000)
-    resume_latest: bool = False
-
-    def to_config(self) -> Qwen3TrainingConfig:
-        return Qwen3TrainingConfig.from_mapping(self.model_dump())
+from .main_types import TrainingConfigPayload
+from .api.training_routes import router as training_router
+from .core.training import TrainingManager
 
 
 def _build_asr_client(current: Settings) -> object:
@@ -124,6 +100,10 @@ def create_app(
     app = FastAPI(title="Astra API", version="0.1.0")
     current = settings or Settings.from_env()
     app.state.settings = current
+    app.state.training_manager = TrainingManager()
+    app.state.training_config_loader = lambda: load_qwen3_training_config(
+        current.qwen3_training_config_path
+    )
     app.state.speaker_store = SpeakerProfileStore(
         current.speaker_store_path,
         match_threshold=current.speaker_match_threshold,
@@ -195,6 +175,7 @@ def create_app(
     app.include_router(meeting_router)
     app.include_router(speaker_router)
     app.include_router(notification_router)
+    app.include_router(training_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:

@@ -27,6 +27,13 @@ type TrainingConfig = {
   resume_from: string;
   resume_latest: boolean;
 };
+type TrainingStatus = {
+  status: "idle" | "processing" | "done" | "failed";
+  task_id?: string;
+  returncode?: number | null;
+  log_path?: string;
+  output_dir?: string;
+};
 type TimelineSegment = {
   index: number;
   start: number;
@@ -185,6 +192,7 @@ export default function UploadPage() {
   const [trainingConfig, setTrainingConfig] = useState<TrainingConfig | null>(null);
   const [trainingStatus, setTrainingStatus] = useState("训练参数未加载");
   const [trainingBusy, setTrainingBusy] = useState(false);
+  const [trainingStatusInfo, setTrainingStatusInfo] = useState<TrainingStatus>({ status: "idle" });
   const meetingSocket = useRef<WebSocket | null>(null);
   const notificationSocket = useRef<WebSocket | null>(null);
 
@@ -197,6 +205,12 @@ export default function UploadPage() {
       notificationSocket.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (trainingStatusInfo.status !== "processing") return undefined;
+    const timer = window.setInterval(() => { void refreshTrainingStatus(); }, 2000);
+    return () => window.clearInterval(timer);
+  }, [trainingStatusInfo.status]);
 
   function selectFile(event: ChangeEvent<HTMLInputElement>) {
     setFile(event.target.files?.[0] ?? null);
@@ -237,6 +251,57 @@ export default function UploadPage() {
       setTrainingStatus("训练参数已保存；不会自动启动训练或热切换模型");
     } catch (error) {
       setTrainingStatus(error instanceof Error ? error.message : "训练参数保存失败");
+    } finally {
+      setTrainingBusy(false);
+    }
+  }
+
+  async function refreshTrainingStatus() {
+    try {
+      const response = await fetch("/api/training/status");
+      const payload = await response.json() as TrainingStatus & { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? "训练状态读取失败");
+      setTrainingStatusInfo(payload);
+      if (payload.status === "processing") setTrainingStatus(`训练进行中 · ${payload.task_id ?? ""}`);
+      if (payload.status === "done") setTrainingStatus("训练完成，适配器已写入输出目录");
+      if (payload.status === "failed") setTrainingStatus(`训练失败（退出码 ${payload.returncode ?? "未知"}），请查看日志`);
+      if (payload.status === "idle") setTrainingStatus("当前没有运行中的训练任务");
+    } catch (error) {
+      setTrainingStatus(error instanceof Error ? error.message : "训练状态读取失败");
+    }
+  }
+
+  async function startTraining() {
+    if (!trainingConfig) return;
+    setTrainingBusy(true);
+    setTrainingStatus("正在启动后台训练...");
+    try {
+      const response = await fetch("/api/training/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(trainingConfig),
+      });
+      const payload = await response.json() as TrainingStatus & { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? "训练启动失败");
+      setTrainingStatusInfo(payload);
+      setTrainingStatus(`训练已启动 · ${payload.task_id ?? ""}`);
+    } catch (error) {
+      setTrainingStatus(error instanceof Error ? error.message : "训练启动失败");
+    } finally {
+      setTrainingBusy(false);
+    }
+  }
+
+  async function stopTraining() {
+    setTrainingBusy(true);
+    try {
+      const response = await fetch("/api/training/stop", { method: "POST" });
+      const payload = await response.json() as TrainingStatus & { detail?: string };
+      if (!response.ok) throw new Error(payload.detail ?? "训练停止失败");
+      setTrainingStatusInfo(payload);
+      setTrainingStatus("已请求停止训练");
+    } catch (error) {
+      setTrainingStatus(error instanceof Error ? error.message : "训练停止失败");
     } finally {
       setTrainingBusy(false);
     }
@@ -309,10 +374,16 @@ export default function UploadPage() {
           </div>
           <div className="speaker-actions">
             <button type="button" className="secondary-action compact-button" onClick={refreshTrainingConfig} disabled={trainingBusy}>重载</button>
-            <button type="button" className="compact-button" onClick={saveTrainingConfig} disabled={!trainingConfig || trainingBusy}>{trainingBusy ? "保存中..." : "保存参数"}</button>
+            <button type="button" className="secondary-action compact-button" onClick={refreshTrainingStatus} disabled={trainingBusy}>查状态</button>
+            <button type="button" className="compact-button" onClick={saveTrainingConfig} disabled={!trainingConfig || trainingBusy}>保存参数</button>
+            {trainingStatusInfo.status === "processing" ? (
+              <button type="button" className="danger-action compact-button" onClick={stopTraining} disabled={trainingBusy}>停止训练</button>
+            ) : (
+              <button type="button" className="compact-button" onClick={startTraining} disabled={!trainingConfig || trainingBusy}>启动训练</button>
+            )}
           </div>
         </div>
-        <p className="training-note">这里只保存离线 SFT 配置，不会在 Mac mini 的 API 进程中启动训练。默认训练基座是非量化 Qwen3-ASR-0.6B；当前会议推理仍使用独立的 MLX 4bit 模型。</p>
+        <p className="training-note">训练在独立后台进程运行，不阻塞 API；需要使用已安装 mlx-tune 的 Python。默认训练基座是非量化 Qwen3-ASR-0.6B，会议推理仍使用独立的 MLX 4bit 模型。</p>
         <p className="speaker-status">{trainingStatus}</p>
         {trainingConfig && (
           <div className="training-grid">

@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from app.core.training import TrainingManager
 
 
 @pytest.fixture
@@ -146,4 +147,23 @@ def test_training_config_rejects_unsupported_device(tmp_path) -> None:
         "/api/training/config",
         json={"device": "metal", "batch_size": 1},
     )
+    assert response.status_code == 422
+
+
+def test_training_status_is_idle_without_a_job(tmp_path) -> None:
+    settings = Settings(qwen3_training_config_path=str(tmp_path / "qwen3-training.json"))
+    client = TestClient(create_app(settings, enable_pipeline=False, enable_meeting=False))
+    response = client.get("/api/training/status")
+    assert response.status_code == 200
+    assert response.json() == {"status": "idle"}
+
+
+def test_training_start_reports_spawn_error(tmp_path) -> None:
+    settings = Settings(qwen3_training_config_path=str(tmp_path / "qwen3-training.json"))
+    app = create_app(settings, enable_pipeline=False, enable_meeting=False)
+    async def fail_start(config):
+        raise OSError("mlx-tune runtime is unavailable")
+    app.state.training_manager.start = fail_start
+    client = TestClient(app)
+    response = client.post("/api/training/start")
     assert response.status_code == 422

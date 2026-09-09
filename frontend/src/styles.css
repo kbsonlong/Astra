@@ -429,6 +429,10 @@ h1 {
   backdrop-filter: blur(18px);
 }
 
+.danger-action {
+  color: #963f4b;
+}
+
 .training-note {
   max-width: 900px;
   margin: 0 0 8px;
