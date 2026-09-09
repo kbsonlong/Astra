@@ -484,6 +484,33 @@ class ResemblyzerDiarizationStage:
                 centroid = np.mean(np.stack(cluster_vectors), axis=0)
                 centroid /= np.linalg.norm(centroid) + 1e-9
                 cluster_matches[cluster_id] = self.profile_store.match(centroid)
+                if cluster_matches[cluster_id] is None:
+                    cluster_indexes = [
+                        index for index, raw_cluster in zip(valid, raw)
+                        if int(raw_cluster) == cluster_id
+                    ]
+                    cluster_duration = sum(
+                        segments[index].end - segments[index].start
+                        for index in cluster_indexes
+                    )
+                    cluster_parts = [
+                        data[max(0, int(segments[index].start * sr)):min(data.shape[0], int(segments[index].end * sr))]
+                        for index in cluster_indexes
+                    ]
+                    cluster_audio = None
+                    if cluster_parts:
+                        buffer = io.BytesIO()
+                        wavfile.write(buffer, sr, np.concatenate(cluster_parts)[: int(sr * 30)])
+                        cluster_audio = buffer.getvalue()
+                    try:
+                        self.profile_store.register_or_append_candidate(
+                            centroid,
+                            duration_s=max(0.8, float(cluster_duration)),
+                            audio=cluster_audio,
+                            filename="meeting-cluster.wav",
+                        )
+                    except Exception as exc:
+                        logger.warning("pending speaker registration failed: %s", exc)
 
         assignments: list[tuple[str, SpeakerMatch | None]] = []
         last = "S1"

@@ -36,8 +36,20 @@ class SpeakerMatch:
     confidence: str
 
 
+@dataclass(frozen=True)
+class SpeakerSample:
+    sample_id: str
+    speaker_id: str
+    duration_s: float
+    speech_duration_s: float
+    quality_score: float | None
+    original_filename: str
+    audio_path: str | None
+    created_at: str
+
+
 class SpeakerProfileStore:
-    """SQLite 存储；只保存 embedding，不保存注册原始音频。"""
+    """SQLite 存储声纹和可供管理员复核的录入样本。"""
 
     def __init__(
         self,
@@ -45,10 +57,14 @@ class SpeakerProfileStore:
         *,
         match_threshold: float = 0.75,
         match_margin: float = 0.05,
+        duplicate_threshold: float = 0.82,
+        sample_dir: str | Path = "~/.astra/speaker_samples",
     ) -> None:
         self.path = Path(path).expanduser()
         self.match_threshold = match_threshold
         self.match_margin = match_margin
+        self.duplicate_threshold = duplicate_threshold
+        self.sample_dir = Path(sample_dir).expanduser()
 
     def _connect(self) -> sqlite3.Connection:
         if str(self.path) != ":memory:":
@@ -74,11 +90,23 @@ class SpeakerProfileStore:
                 duration_s REAL NOT NULL,
                 speech_duration_s REAL NOT NULL,
                 quality_score REAL,
+                original_filename TEXT NOT NULL DEFAULT 'sample.wav',
+                audio_path TEXT,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
             CREATE INDEX IF NOT EXISTS idx_speaker_samples_speaker
                 ON speaker_samples(speaker_id);
             """
+        )
+        connection.execute(
+            """CREATE TABLE IF NOT EXISTS speaker_notifications (
+                notification_id TEXT PRIMARY KEY,
+                speaker_id TEXT NOT NULL REFERENCES speaker_profiles(speaker_id),
+                notification_type TEXT NOT NULL,
+                message TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                resolved_at TEXT
+            )"""
         )
         return connection
 
@@ -107,13 +135,104 @@ class SpeakerProfileStore:
             )
         return self.get(speaker_id)
 
+    def create_pending_candidate(
+        self,
+        embedding: object,
+        *,
+        duration_s: float,
+        quality_score: float = 0.5,
+        audio: bytes | None = None,
+        filename: str = "meeting-cluster.wav",
+    ) -> SpeakerProfile:
+        """Register an unmatched meeting cluster for administrator review."""
+        import numpy as np
+
+        vector = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(vector))
+        if vector.size != 256 or norm == 0:
+            raise SpeakerEnrollmentError("invalid resemblyzer embedding")
+        vector = vector / norm
+        with self._connect() as connection:
+            speaker_id = str(uuid.uuid4())
+            display_name = f"待审核-{speaker_id[:8]}"
+            connection.execute(
+                "INSERT INTO speaker_profiles "
+                "(speaker_id, display_name, status, embedding_model, embedding_dimension) "
+                "VALUES (?, ?, 'pending_review', ?, ?)",
+                (speaker_id, display_name, "resemblyzer", 256),
+            )
+            sample_id = str(uuid.uuid4())
+            audio_path = self._save_audio(speaker_id, sample_id, audio, filename)
+            connection.execute(
+                "INSERT INTO speaker_samples "
+                "(sample_id, speaker_id, embedding, duration_s, speech_duration_s, quality_score, original_filename, audio_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (sample_id, speaker_id, vector.tobytes(), duration_s, duration_s,
+                 quality_score, Path(filename).name, audio_path),
+            )
+            self._notify(
+                connection,
+                speaker_id,
+                "speaker_review",
+                f"{display_name} 已从会议录音中提取，请播放样本、确认身份并改名",
+            )
+        return self.get(speaker_id)
+
+    def register_or_append_candidate(
+        self,
+        embedding: object,
+        *,
+        duration_s: float,
+        quality_score: float = 0.5,
+        audio: bytes | None = None,
+        filename: str = "meeting-cluster.wav",
+    ) -> SpeakerProfile:
+        """Reuse a similar active/pending profile, otherwise create a review candidate."""
+        duplicate = self.find_similar(embedding, threshold=self.duplicate_threshold)
+        if duplicate is not None:
+            self.add_sample(
+                duplicate.speaker_id,
+                embedding,
+                duration_s=duration_s,
+                speech_duration_s=duration_s,
+                quality_score=quality_score,
+                audio=audio,
+                filename=filename,
+            )
+            with self._connect() as connection:
+                self._notify(
+                    connection,
+                    duplicate.speaker_id,
+                    "speaker_sample_supplement",
+                    f"新会议声纹与 {duplicate.display_name} 相似，请播放新样本并补充确认",
+                )
+            return self.get(duplicate.speaker_id)
+        return self.create_pending_candidate(
+            embedding, duration_s=duration_s, quality_score=quality_score,
+            audio=audio, filename=filename,
+        )
+
+    @staticmethod
+    def _notify(connection: sqlite3.Connection, speaker_id: str, notification_type: str, message: str) -> None:
+        exists = connection.execute(
+            "SELECT 1 FROM speaker_notifications WHERE speaker_id = ? "
+            "AND notification_type = ? AND resolved_at IS NULL LIMIT 1",
+            (speaker_id, notification_type),
+        ).fetchone()
+        if exists is None:
+            connection.execute(
+                "INSERT INTO speaker_notifications "
+                "(notification_id, speaker_id, notification_type, message) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), speaker_id, notification_type, message),
+            )
+
     def list(self) -> list[SpeakerProfile]:
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT p.*, COUNT(s.sample_id) AS sample_count "
                 "FROM speaker_profiles p LEFT JOIN speaker_samples s "
                 "ON s.speaker_id = p.speaker_id "
-                "WHERE p.status = 'active' "
+                "WHERE p.status IN ('active', 'pending_review') "
                 "GROUP BY p.speaker_id ORDER BY p.created_at"
             ).fetchall()
         return [self._profile(row) for row in rows]
@@ -142,6 +261,23 @@ class SpeakerProfileStore:
                 raise SpeakerNotFoundError(speaker_id)
         return self.get(speaker_id)
 
+    def approve(self, speaker_id: str) -> SpeakerProfile:
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE speaker_profiles SET status = 'active', "
+                "updated_at = CURRENT_TIMESTAMP WHERE speaker_id = ?",
+                (speaker_id,),
+            )
+            if result.rowcount == 0:
+                raise SpeakerNotFoundError(speaker_id)
+            connection.execute(
+                "UPDATE speaker_notifications SET resolved_at = CURRENT_TIMESTAMP "
+                "WHERE speaker_id = ? AND notification_type = 'speaker_review' "
+                "AND resolved_at IS NULL",
+                (speaker_id,),
+            )
+        return self.get(speaker_id)
+
     def rename(self, speaker_id: str, display_name: str) -> SpeakerProfile:
         name = display_name.strip()
         if not name:
@@ -164,6 +300,8 @@ class SpeakerProfileStore:
         duration_s: float,
         speech_duration_s: float,
         quality_score: float,
+        audio: bytes | None = None,
+        filename: str = "sample.wav",
     ) -> str:
         import numpy as np
 
@@ -173,6 +311,9 @@ class SpeakerProfileStore:
             raise SpeakerEnrollmentError("invalid resemblyzer embedding")
         vector = vector / norm
         sample_id = str(uuid.uuid4())
+        audio_path: str | None = None
+        if audio:
+            audio_path = self._save_audio(speaker_id, sample_id, audio, filename)
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT status FROM speaker_profiles WHERE speaker_id = ?",
@@ -180,12 +321,12 @@ class SpeakerProfileStore:
             ).fetchone()
             if row is None:
                 raise SpeakerNotFoundError(speaker_id)
-            if row["status"] != "active":
+            if row["status"] not in {"active", "pending_review"}:
                 raise SpeakerEnrollmentError("speaker profile is disabled")
             connection.execute(
                 "INSERT INTO speaker_samples "
-                "(sample_id, speaker_id, embedding, duration_s, speech_duration_s, quality_score) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "(sample_id, speaker_id, embedding, duration_s, speech_duration_s, quality_score, original_filename, audio_path) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     sample_id,
                     speaker_id,
@@ -193,6 +334,8 @@ class SpeakerProfileStore:
                     duration_s,
                     speech_duration_s,
                     quality_score,
+                    Path(filename).name,
+                    audio_path,
                 ),
             )
             connection.execute(
@@ -201,6 +344,90 @@ class SpeakerProfileStore:
                 (speaker_id,),
             )
         return sample_id
+
+    def _save_audio(
+        self, speaker_id: str, sample_id: str, audio: bytes | None, filename: str
+    ) -> str | None:
+        if not audio:
+            return None
+        suffix = Path(filename).suffix.lower()
+        if suffix not in {".m4a", ".wav", ".mp3", ".flac", ".aac", ".mov", ".mp4"}:
+            suffix = ".wav"
+        destination = self.sample_dir / speaker_id / f"{sample_id}{suffix}"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(audio)
+        return str(destination)
+
+    def list_samples(self, speaker_id: str) -> list[SpeakerSample]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT sample_id, speaker_id, duration_s, speech_duration_s, quality_score, "
+                "original_filename, audio_path, created_at FROM speaker_samples "
+                "WHERE speaker_id = ? ORDER BY created_at DESC",
+                (speaker_id,),
+            ).fetchall()
+        return [
+            SpeakerSample(
+                row["sample_id"], row["speaker_id"], float(row["duration_s"]),
+                float(row["speech_duration_s"]), row["quality_score"],
+                row["original_filename"], row["audio_path"], row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def sample_audio_path(self, speaker_id: str, sample_id: str) -> Path | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT audio_path FROM speaker_samples WHERE speaker_id = ? AND sample_id = ?",
+                (speaker_id, sample_id),
+            ).fetchone()
+        if row is None:
+            raise SpeakerNotFoundError(sample_id)
+        path = Path(row["audio_path"]) if row["audio_path"] else None
+        return path if path and path.is_file() else None
+
+    def find_similar(self, embedding: object, *, threshold: float | None = None) -> SpeakerMatch | None:
+        import numpy as np
+
+        query = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        query /= np.linalg.norm(query) + 1e-9
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT p.speaker_id, p.display_name, s.embedding FROM speaker_profiles p "
+                "JOIN speaker_samples s ON s.speaker_id = p.speaker_id "
+                "WHERE p.status IN ('active', 'pending_review')"
+            ).fetchall()
+        if not rows:
+            return None
+        candidates = [
+            (float(np.dot(query, np.frombuffer(row["embedding"], dtype=np.float32))), row["speaker_id"], row["display_name"])
+            for row in rows
+        ]
+        score, speaker_id, name = max(candidates)
+        if score < (self.duplicate_threshold if threshold is None else threshold):
+            return None
+        return SpeakerMatch(speaker_id, name, score, "high" if score >= 0.92 else "medium")
+
+    def list_notifications(self) -> list[sqlite3.Row]:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT notification_id, speaker_id, notification_type, message, created_at "
+                "FROM speaker_notifications WHERE resolved_at IS NULL ORDER BY created_at DESC"
+            ).fetchall()
+
+    def resolve_notifications(self, speaker_id: str, notification_type: str | None = None) -> None:
+        with self._connect() as connection:
+            if notification_type:
+                connection.execute(
+                    "UPDATE speaker_notifications SET resolved_at = CURRENT_TIMESTAMP "
+                    "WHERE speaker_id = ? AND notification_type = ? AND resolved_at IS NULL",
+                    (speaker_id, notification_type),
+                )
+            else:
+                connection.execute(
+                    "UPDATE speaker_notifications SET resolved_at = CURRENT_TIMESTAMP "
+                    "WHERE speaker_id = ? AND resolved_at IS NULL", (speaker_id,)
+                )
 
     def match(self, embedding: object) -> SpeakerMatch | None:
         import numpy as np
@@ -304,6 +531,8 @@ class ResemblyzerEnrollmentService:
                 duration_s=duration_s,
                 speech_duration_s=speech_duration_s,
                 quality_score=quality_score,
+                audio=audio,
+                filename=filename,
             )
             return EnrollmentResult(
                 sample_id, duration_s, speech_duration_s, quality_score

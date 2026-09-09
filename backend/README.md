@@ -21,3 +21,5 @@ Silero VAD -> ASR -> punctuation -> speaker diarization -> LLM summary
 ```
 
 四阶段编排位于 `app/core/workflow.py`，每个输出段保留 VAD 的 `start/end` 时间戳。默认 `PUNCTUATION_ENGINE=passthrough` 保持最小依赖；安装 FunASR 后设置 `PUNCTUATION_ENGINE=funasr`，并通过 `PUNCTUATION_MODEL`、`PUNCTUATION_DEVICE` 选择标点模型和设备。当前 SD 实现为 `resemblyzer` + Ward 聚类，可通过相同的 `SpeakerDiarizationStage` 契约替换为 CAM++ 等模型。
+
+声纹档案保存在 `SPEAKER_STORE_PATH` 指定的 SQLite 中。`SPEAKER_MAX_SPEAKERS` 控制单场会议的最大聚类人数，默认 32，可按团队规模调整；未匹配到正式档案的声纹会进入 `pending_review`，管理员在前端站内提醒中改名并点击“审核通过”后，才会参与后续会议匹配。

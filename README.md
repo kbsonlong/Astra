@@ -15,6 +15,7 @@ PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 - [用户使用指引](docs/user-guide.md)：启动服务、上传音频、实时转写、流式修正和会议纪要。
 - [开发指引](docs/development-guide.md)：项目结构、开发环境、测试、模型配置和扩展边界。
 - [部署预检](deploy/README.md)：Mac mini、远端 LLM 和前端 Compose 验收。
+- [Qwen3-ASR 微调接入设计](docs/qwen3-asr-finetuning-design.md)：会议数据闭环、训练参数、CUDA/Mac mini 可行性和模型发布门禁。
 - [AGENT.md](AGENT.md)：代码代理和协作者在本仓库中的操作约定。
 
 ## Compose

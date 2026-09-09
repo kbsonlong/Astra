@@ -1,10 +1,18 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+from typing import Literal
 
 from .api.meeting_routes import router as meeting_router
 from .api.speaker_routes import router as speaker_router
+from .api.notification_routes import router as notification_router
 from .api.ws_session import router as ws_router
 from .api.http_routes import router as http_router
-from .config import Settings
+from .config import (
+    Qwen3TrainingConfig,
+    Settings,
+    load_qwen3_training_config,
+    save_qwen3_training_config,
+)
 from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
@@ -21,6 +29,30 @@ from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
 
 
+class TrainingConfigPayload(BaseModel):
+    model_path: str = Field(min_length=1, max_length=500)
+    train_file: str = Field(min_length=1, max_length=1000)
+    eval_file: str = Field(min_length=1, max_length=1000)
+    output_dir: str = Field(min_length=1, max_length=1000)
+    device: Literal["auto", "cuda", "mps", "cpu"]
+    precision: Literal["bf16", "fp16", "fp32"]
+    batch_size: int = Field(ge=1, le=256)
+    grad_acc: int = Field(ge=1, le=1024)
+    learning_rate: float = Field(gt=0, le=1)
+    epochs: int = Field(ge=1, le=100)
+    save_steps: int = Field(ge=1, le=1_000_000)
+    save_total_limit: int = Field(ge=1, le=100)
+    num_workers: int = Field(ge=0, le=64)
+    pin_memory: bool
+    persistent_workers: bool
+    prefetch_factor: int = Field(ge=1, le=32)
+    resume_from: str = Field(default="", max_length=1000)
+    resume_latest: bool = False
+
+    def to_config(self) -> Qwen3TrainingConfig:
+        return Qwen3TrainingConfig.from_mapping(self.model_dump())
+
+
 def _build_asr_client(current: Settings) -> object:
     engine = (current.asr_engine or "mlx").lower()
     if engine in {"sherpa", "sherpa-sensevoice", "sensevoice", "sense-voice"}:
@@ -29,6 +61,7 @@ def _build_asr_client(current: Settings) -> object:
             language=current.asr_language,
             num_threads=current.sherpa_num_threads,
             provider=current.sherpa_provider,
+
             auto_language=current.sherpa_auto_language,
             use_itn=current.sherpa_use_itn,
             chunk_duration=current.asr_chunk_duration_seconds,
@@ -72,7 +105,9 @@ def _build_meeting_stages(
     if sd_engine in {"", "none", "noop"}:
         diarization = None
     elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
-        diarization = ResemblyzerDiarizationStage(profile_store=speaker_store)
+        diarization = ResemblyzerDiarizationStage(
+            profile_store=speaker_store, max_speakers=current.speaker_max_speakers
+        )
     else:
         raise ValueError(f"unsupported SD engine: {current.sd_engine}")
     return punctuation, diarization
@@ -93,6 +128,8 @@ def create_app(
         current.speaker_store_path,
         match_threshold=current.speaker_match_threshold,
         match_margin=current.speaker_match_margin,
+        duplicate_threshold=current.speaker_duplicate_threshold,
+        sample_dir=current.speaker_sample_dir,
     )
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
@@ -157,6 +194,7 @@ def create_app(
     app.include_router(http_router)
     app.include_router(meeting_router)
     app.include_router(speaker_router)
+    app.include_router(notification_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
@@ -197,6 +235,9 @@ def create_app(
             "speaker_store_path": current.speaker_store_path,
             "speaker_match_threshold": current.speaker_match_threshold,
             "speaker_match_margin": current.speaker_match_margin,
+            "speaker_max_speakers": current.speaker_max_speakers,
+            "speaker_duplicate_threshold": current.speaker_duplicate_threshold,
+            "speaker_sample_dir": current.speaker_sample_dir,
             "sherpa_model_dir": current.sherpa_model_dir,
             "sherpa_num_threads": current.sherpa_num_threads,
             "sherpa_provider": current.sherpa_provider,
@@ -207,7 +248,37 @@ def create_app(
             "zipformer_provider": current.zipformer_provider,
             "zipformer_decoding_method": current.zipformer_decoding_method,
             "tts_model_path": current.tts_model_path,
+            "qwen3_training_config_path": current.qwen3_training_config_path,
             "version": current.version,
+        }
+
+    @app.get("/api/training/config")
+    async def training_config() -> dict[str, object]:
+        try:
+            config = load_qwen3_training_config(
+                app.state.settings.qwen3_training_config_path
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {
+            "config": config.to_dict(),
+            "runtime_applied": False,
+            "note": "参数供离线 Qwen3-ASR SFT 使用；保存后不会在当前 API 进程中启动训练或热切换模型。",
+        }
+
+    @app.put("/api/training/config")
+    async def update_training_config(payload: TrainingConfigPayload) -> dict[str, object]:
+        try:
+            config = save_qwen3_training_config(
+                app.state.settings.qwen3_training_config_path,
+                payload.to_config(),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "config": config.to_dict(),
+            "runtime_applied": False,
+            "note": "训练配置已保存；请由独立训练脚本读取，当前 API 不会启动训练。",
         }
 
     return app

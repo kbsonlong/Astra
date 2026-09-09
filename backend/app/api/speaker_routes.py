@@ -6,6 +6,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 from ..core.speaker_registry import (
     ResemblyzerEnrollmentService,
@@ -73,6 +74,17 @@ async def rename_speaker(
     return _render_profile(profile)
 
 
+@router.post("/{speaker_id}/approve")
+async def approve_speaker(request: Request, speaker_id: UUID) -> dict[str, object]:
+    try:
+        profile = await asyncio.to_thread(
+            request.app.state.speaker_store.approve, str(speaker_id)
+        )
+    except SpeakerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="speaker not found") from exc
+    return _render_profile(profile)
+
+
 @router.delete("/{speaker_id}")
 async def disable_speaker(request: Request, speaker_id: UUID) -> dict[str, object]:
     try:
@@ -109,6 +121,11 @@ async def enroll_speaker_sample(
         raise HTTPException(status_code=404, detail="speaker not found") from exc
     except SpeakerEnrollmentError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await asyncio.to_thread(
+        request.app.state.speaker_store.resolve_notifications,
+        str(speaker_id),
+        "speaker_sample_supplement",
+    )
     return {
         "speaker_id": str(speaker_id),
         "sample_id": result.sample_id,
@@ -119,3 +136,48 @@ async def enroll_speaker_sample(
         "embedding_model": "resemblyzer",
         "embedding_dimension": 256,
     }
+
+
+@router.get("/{speaker_id}/samples")
+async def list_speaker_samples(request: Request, speaker_id: UUID) -> dict[str, object]:
+    try:
+        samples = await asyncio.to_thread(
+            request.app.state.speaker_store.list_samples, str(speaker_id)
+        )
+    except SpeakerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="speaker not found") from exc
+    return {
+        "items": [
+            {
+                "sample_id": sample.sample_id,
+                "duration_s": sample.duration_s,
+                "speech_duration_s": sample.speech_duration_s,
+                "quality_score": sample.quality_score,
+                "original_filename": sample.original_filename,
+                "audio_url": (
+                    f"/api/speakers/{speaker_id}/samples/{sample.sample_id}/audio"
+                    if sample.audio_path
+                    else None
+                ),
+                "created_at": sample.created_at,
+            }
+            for sample in samples
+        ]
+    }
+
+
+@router.get("/{speaker_id}/samples/{sample_id}/audio")
+async def get_speaker_sample_audio(
+    request: Request, speaker_id: UUID, sample_id: UUID
+) -> FileResponse:
+    try:
+        path = await asyncio.to_thread(
+            request.app.state.speaker_store.sample_audio_path,
+            str(speaker_id),
+            str(sample_id),
+        )
+    except SpeakerNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="sample not found") from exc
+    if path is None:
+        raise HTTPException(status_code=404, detail="sample audio not found")
+    return FileResponse(path, filename=path.name)

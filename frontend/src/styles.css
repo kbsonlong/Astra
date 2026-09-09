@@ -87,6 +87,24 @@ button.stop:hover:not(:disabled) {
   align-items: center;
 }
 
+.notification-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(22, 32, 37, 0.1);
+  border-radius: 999px;
+  color: #65747a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.notification-indicator.has-notifications {
+  color: #8a4c18;
+  border-color: rgba(190, 116, 34, 0.35);
+  background: #fff7e8;
+}
+
 .brand {
   gap: 12px;
 }
@@ -400,6 +418,76 @@ h1 {
   padding: 24px;
 }
 
+
+.training-panel {
+  margin-top: 20px;
+  border: 1px solid rgba(22, 32, 37, 0.08);
+  border-radius: 8px;
+  padding: 24px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 18px 44px rgba(34, 49, 52, 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.training-note {
+  max-width: 900px;
+  margin: 0 0 8px;
+  color: #65747a;
+  line-height: 1.6;
+}
+
+.training-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+.training-field {
+  display: grid;
+  gap: 7px;
+  color: #405056;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.training-field-wide {
+  grid-column: span 2;
+}
+
+.training-field input,
+.training-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(22, 32, 37, 0.13);
+  border-radius: 8px;
+  padding: 10px 11px;
+  color: #162025;
+  background: #ffffff;
+  font: inherit;
+}
+
+.training-checks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 18px;
+  grid-column: span 2;
+}
+
+.training-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #405056;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.training-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: #16756d;
+}
 .status-board > span {
   color: #65747a;
   font-size: 13px;
@@ -417,7 +505,8 @@ h1 {
 }
 
 .upload-panel,
-.action-panel {
+.action-panel,
+.speaker-panel {
   padding: 24px;
 }
 
@@ -496,6 +585,183 @@ h1 {
 
 .meeting-btn:hover:not(:disabled) {
   background: #963f4b;
+}
+
+.speaker-panel {
+  margin-top: 20px;
+  border: 1px solid rgba(22, 32, 37, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: 0 18px 44px rgba(34, 49, 52, 0.1);
+  backdrop-filter: blur(18px);
+}
+
+.speaker-panel-head,
+.speaker-create-row,
+.speaker-row,
+.speaker-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.speaker-panel-head {
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.speaker-panel h2 {
+  margin: 0;
+  color: #162025;
+  font-size: 26px;
+  letter-spacing: 0;
+}
+
+.speaker-create-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 10px;
+}
+
+.speaker-create-row input,
+.speaker-row input {
+  min-width: 0;
+  border: 1px solid rgba(22, 32, 37, 0.13);
+  border-radius: 8px;
+  padding: 11px 12px;
+  color: #162025;
+  background: #ffffff;
+  font: inherit;
+}
+
+.speaker-status {
+  margin: 0 0 14px;
+  color: #65747a;
+  line-height: 1.6;
+}
+
+.notification-list {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid #d08b32;
+  color: #704716;
+  background: #fff8eb;
+}
+
+.notification-list p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.speaker-list {
+  display: grid;
+  gap: 10px;
+}
+
+.speaker-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(140px, 0.8fr) auto auto auto;
+  min-height: 64px;
+  border: 1px solid rgba(22, 32, 37, 0.08);
+  border-radius: 8px;
+  padding: 12px;
+  background: rgba(248, 251, 249, 0.82);
+}
+
+.speaker-id-block {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sample-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.sample-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sample-item audio {
+  width: 220px;
+  height: 30px;
+}
+
+.sample-item small,
+.sample-unavailable {
+  overflow: hidden;
+  color: #65747a;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speaker-id-block strong,
+.speaker-id-block small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.speaker-id-block small {
+  color: #65747a;
+}
+
+.speaker-id-block em {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  color: #8a4c18;
+  background: #fff0cf;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.compact-button {
+  min-height: 40px;
+  padding: 9px 12px;
+  white-space: nowrap;
+}
+
+.danger-action {
+  color: #ffffff;
+  background: #b85360;
+  box-shadow: none;
+}
+
+.danger-action:hover:not(:disabled) {
+  background: #963f4b;
+  box-shadow: none;
+}
+
+.sample-upload {
+  position: relative;
+  display: grid;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid rgba(22, 32, 37, 0.13);
+  border-radius: 8px;
+  padding: 9px 12px;
+  color: #162025;
+  background: #ffffff;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sample-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .results-stack {
@@ -655,8 +921,24 @@ summary {
   .hero-panel,
   .workbench-hero,
   .workbench-grid,
-  .conversation-grid {
+  .speaker-row,
+  .conversation-grid,
+  .training-grid {
     grid-template-columns: 1fr;
+  }
+
+  .training-field-wide,
+  .training-checks {
+    grid-column: auto;
+  }
+
+  .sample-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sample-item audio {
+    width: 100%;
   }
 
   .topbar {
@@ -679,12 +961,31 @@ summary {
   .action-panel {
     grid-template-columns: 1fr;
   }
+
+  .speaker-panel-head,
+  .speaker-actions {
+    align-items: stretch;
+  }
+
+  .notification-indicator {
+    justify-content: center;
+  }
+
+  .speaker-panel-head {
+    display: grid;
+  }
+
+  .speaker-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 520px) {
   .hero-copy,
   .upload-panel,
   .action-panel,
+  .speaker-panel,
   .dialog-card,
   .result-card,
   .status-board {
@@ -728,5 +1029,10 @@ summary {
   .timeline-line {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .speaker-create-row,
+  .speaker-actions {
+    grid-template-columns: 1fr;
   }
 }

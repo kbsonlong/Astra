@@ -1,11 +1,11 @@
-"""会议处理 HTTP API —— 独立进程 job 化(2026-09-05 重构)。
+"""会议处理 API —— 独立进程 job 化(2026-09-05 重构)。
 
 背景: 会议整条管线(Qwen3 ASR + 声纹 + LLM 纪要)在 API 进程内跑会独占
 事件循环(MLX 必须主线程), 且 nginx /api/ 默认 60s 读超时会掐断长任务。
-重构为 fire-and-poll:
+重构为 fire-and-subscribe:
   POST /api/meeting/process   multipart: file(录音), topic(可选)
                               -> 202 {task_id, status: "processing"}
-  GET  /api/meeting/{task_id} -> status: processing | done | failed + 摘要
+  WS   /api/meeting/{task_id}/events -> processing | done | failed 事件
 处理在独立子进程(meeting_cli.py)执行, 自带 MLX 上下文, API 事件循环
 零阻塞; 语音会话不受影响。产物: ~/Astra/meetings/<task_id>/
 report.md + transcript.txt + meta.json + status.json + job.log
@@ -22,7 +22,16 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 router = APIRouter(prefix="/api/meeting", tags=["meeting"])
 
@@ -100,6 +109,26 @@ def _job_dir(base: Path, task_id: str) -> Path:
     return out_dir
 
 
+def _status_payload(base: Path, task_id: str) -> dict[str, object]:
+    out_dir = _job_dir(base, task_id)
+    status_path = out_dir / "status.json"
+    if not status_path.exists():
+        raise HTTPException(status_code=404, detail="task not found")
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    result: dict[str, object] = {"type": "meeting_status", "task_id": task_id, **status}
+    report = out_dir / "report.md"
+    if status.get("status") == "done" and report.exists():
+        transcript = out_dir / "transcript.txt"
+        result["report_path"] = str(report)
+        result["summary_preview"] = report.read_text(encoding="utf-8")[:2000]
+        result["transcript_preview"] = "\n".join(
+            transcript.read_text(encoding="utf-8").split("\n")[:10]
+        )
+    elif status.get("status") == "processing":
+        result["elapsed_s"] = _elapsed(status.get("started", ""))
+    return result
+
+
 @router.post("/process")
 async def process_meeting(
     request: Request,
@@ -163,31 +192,37 @@ async def process_meeting(
         "filename": filename,
         "status": "processing",
         "report_path": str(out_dir / "report.md"),
-        "note": "处理在独立进程执行; 用 GET /api/meeting/{task_id} 轮询",
+        "note": "处理在独立进程执行; 用 WebSocket /api/meeting/{task_id}/events 订阅状态",
     }
 
 
-@router.get("/{task_id}")
-async def meeting_status(request: Request, task_id: str) -> dict[str, object]:
-    settings = request.app.state.settings
+@router.websocket("/{task_id}/events")
+async def meeting_events(websocket: WebSocket, task_id: str) -> None:
+    await websocket.accept()
+    settings = websocket.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()
-    out_dir = _job_dir(base, task_id)
-    status_path = out_dir / "status.json"
-    if not status_path.exists():
-        raise HTTPException(status_code=404, detail="task not found")
-    status = json.loads(status_path.read_text(encoding="utf-8"))
-    result: dict[str, object] = {"task_id": task_id, **status}
-    report = out_dir / "report.md"
-    if status.get("status") == "done" and report.exists():
-        transcript = out_dir / "transcript.txt"
-        result["report_path"] = str(report)
-        result["summary_preview"] = report.read_text(encoding="utf-8")[:2000]
-        result["transcript_preview"] = "\n".join(
-            transcript.read_text(encoding="utf-8").split("\n")[:10]
-        )
-    elif status.get("status") == "processing":
-        result["elapsed_s"] = _elapsed(status.get("started", ""))
-    return result
+    try:
+        while True:
+            try:
+                payload = _status_payload(base, task_id)
+            except HTTPException as exc:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "task_id": task_id,
+                        "code": "meeting_status_unavailable",
+                        "message": exc.detail,
+                    }
+                )
+                await websocket.close(code=1008)
+                return
+            await websocket.send_json(payload)
+            if payload.get("status") in {"done", "failed"}:
+                await websocket.close(code=1000)
+                return
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        return
 
 
 def _elapsed(started: str) -> int:

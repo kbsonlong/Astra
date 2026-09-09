@@ -1,5 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, fields
+import json
 import os
+import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -28,6 +31,105 @@ def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
 def _bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     return default if value is None else value.lower() in {"1", "true", "yes", "on"}
+
+
+
+
+@dataclass(frozen=True)
+class Qwen3TrainingConfig:
+    """Offline Qwen3-ASR SFT parameters; separate from runtime inference settings."""
+
+    model_path: str = "Qwen/Qwen3-ASR-0.6B"
+    train_file: str = "~/Astra/data/asr/train.jsonl"
+    eval_file: str = "~/Astra/data/asr/dev.jsonl"
+    output_dir: str = "~/Astra/models/qwen3-asr-meeting"
+    device: str = "cuda"
+    precision: str = "bf16"
+    batch_size: int = 1
+    grad_acc: int = 8
+    learning_rate: float = 2e-5
+    epochs: int = 1
+    save_steps: int = 200
+    save_total_limit: int = 3
+    num_workers: int = 2
+    pin_memory: bool = True
+    persistent_workers: bool = True
+    prefetch_factor: int = 2
+    resume_from: str = ""
+    resume_latest: bool = False
+
+    def validate(self) -> "Qwen3TrainingConfig":
+        if not self.model_path.strip():
+            raise ValueError("model_path must not be empty")
+        for name in ("train_file", "eval_file", "output_dir"):
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} must not be empty")
+        if self.device not in {"auto", "cuda", "mps", "cpu"}:
+            raise ValueError("device must be one of auto, cuda, mps, cpu")
+        if self.precision not in {"bf16", "fp16", "fp32"}:
+            raise ValueError("precision must be one of bf16, fp16, fp32")
+        if not 1 <= self.batch_size <= 256:
+            raise ValueError("batch_size must be between 1 and 256")
+        if not 1 <= self.grad_acc <= 1024:
+            raise ValueError("grad_acc must be between 1 and 1024")
+        if not 0 < self.learning_rate <= 1:
+            raise ValueError("learning_rate must be greater than 0 and at most 1")
+        if not 1 <= self.epochs <= 100:
+            raise ValueError("epochs must be between 1 and 100")
+        if not 1 <= self.save_steps <= 1_000_000:
+            raise ValueError("save_steps must be between 1 and 1000000")
+        if not 1 <= self.save_total_limit <= 100:
+            raise ValueError("save_total_limit must be between 1 and 100")
+        if not 0 <= self.num_workers <= 64:
+            raise ValueError("num_workers must be between 0 and 64")
+        if not 1 <= self.prefetch_factor <= 32:
+            raise ValueError("prefetch_factor must be between 1 and 32")
+        return self
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, object]) -> "Qwen3TrainingConfig":
+        names = {field.name for field in fields(cls)}
+        data = {name: value[name] for name in names if name in value}
+        return cls(**data).validate()  # type: ignore[arg-type]
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
+
+
+def load_qwen3_training_config(path: str | Path) -> Qwen3TrainingConfig:
+    config_path = Path(path).expanduser()
+    if not config_path.is_file():
+        return Qwen3TrainingConfig().validate()
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"cannot read training config: {config_path}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("training config must be a JSON object")
+    return Qwen3TrainingConfig.from_mapping(payload)
+
+
+def save_qwen3_training_config(
+    path: str | Path, config: Qwen3TrainingConfig
+) -> Qwen3TrainingConfig:
+    config.validate()
+    config_path = Path(path).expanduser()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{config_path.name}.", suffix=".tmp", dir=config_path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(config.to_dict(), handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+        os.replace(temporary, config_path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
+    return config
 
 
 def _project_path(value: str) -> str:
@@ -86,6 +188,9 @@ class Settings:
     speaker_store_path: str = "~/.astra/speakers.sqlite3"
     speaker_match_threshold: float = 0.75
     speaker_match_margin: float = 0.05
+    speaker_max_speakers: int = 32
+    speaker_duplicate_threshold: float = 0.82
+    speaker_sample_dir: str = "~/.astra/speaker_samples"
     sherpa_model_dir: str = "models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17"
     sherpa_num_threads: int = 2
     sherpa_provider: str = "cpu"
@@ -97,6 +202,7 @@ class Settings:
     zipformer_decoding_method: str = "greedy_search"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     meeting_output_dir: str = "~/Astra/meetings"
+    qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     version: str = "mvp"
 
     @classmethod
@@ -181,6 +287,13 @@ class Settings:
             speaker_match_margin=_float_env(
                 "SPEAKER_MATCH_MARGIN", cls.speaker_match_margin
             ),
+            speaker_max_speakers=_int_env(
+                "SPEAKER_MAX_SPEAKERS", cls.speaker_max_speakers
+            ),
+            speaker_duplicate_threshold=_float_env(
+                "SPEAKER_DUPLICATE_THRESHOLD", cls.speaker_duplicate_threshold
+            ),
+            speaker_sample_dir=os.getenv("SPEAKER_SAMPLE_DIR", cls.speaker_sample_dir),
             sherpa_model_dir=os.getenv("SHERPA_MODEL_DIR", cls.sherpa_model_dir),
             sherpa_num_threads=_int_env("SHERPA_NUM_THREADS", cls.sherpa_num_threads),
             sherpa_provider=os.getenv("SHERPA_PROVIDER", cls.sherpa_provider),
@@ -194,6 +307,9 @@ class Settings:
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
+            qwen3_training_config_path=os.getenv(
+                "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path
+            ),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )
 

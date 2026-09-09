@@ -84,11 +84,15 @@ def _build_pipeline():
         s.speaker_store_path,
         match_threshold=s.speaker_match_threshold,
         match_margin=s.speaker_match_margin,
+        duplicate_threshold=s.speaker_duplicate_threshold,
+        sample_dir=s.speaker_sample_dir,
     )
     if sd_engine in {"", "none", "noop"}:
         diarization = None
     elif sd_engine in {"resemblyzer", "resemblyzer-ward"}:
-        diarization = ResemblyzerDiarizationStage(profile_store=speaker_store)
+        diarization = ResemblyzerDiarizationStage(
+            profile_store=speaker_store, max_speakers=s.speaker_max_speakers
+        )
     else:
         raise ValueError(f"unsupported SD engine: {s.sd_engine}")
     return MeetingPipeline(

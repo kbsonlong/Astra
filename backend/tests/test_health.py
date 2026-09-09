@@ -107,3 +107,43 @@ async def test_collects_dependency_health(settings: Settings, monkeypatch: pytes
     assert result["llm"]["models_ok"] is True
     assert result["asr"]["ok"] is True
     assert result["tts"]["ok"] is True
+
+
+def test_training_config_can_be_read_and_saved(tmp_path) -> None:
+    settings = Settings(
+        qwen3_training_config_path=str(tmp_path / "qwen3-training.json")
+    )
+    client = TestClient(
+        create_app(settings, enable_pipeline=False, enable_meeting=False)
+    )
+
+    initial = client.get("/api/training/config")
+    assert initial.status_code == 200
+    payload = initial.json()["config"]
+    assert payload["model_path"] == "Qwen/Qwen3-ASR-0.6B"
+    payload["device"] = "mps"
+    payload["batch_size"] = 2
+    payload["learning_rate"] = 1e-5
+
+    saved = client.put("/api/training/config", json=payload)
+    assert saved.status_code == 200
+    assert saved.json()["config"]["device"] == "mps"
+    assert saved.json()["runtime_applied"] is False
+
+    loaded = client.get("/api/training/config")
+    assert loaded.json()["config"]["batch_size"] == 2
+    assert loaded.json()["config"]["learning_rate"] == 1e-5
+
+
+def test_training_config_rejects_unsupported_device(tmp_path) -> None:
+    settings = Settings(
+        qwen3_training_config_path=str(tmp_path / "qwen3-training.json")
+    )
+    client = TestClient(
+        create_app(settings, enable_pipeline=False, enable_meeting=False)
+    )
+    response = client.put(
+        "/api/training/config",
+        json={"device": "metal", "batch_size": 1},
+    )
+    assert response.status_code == 422
