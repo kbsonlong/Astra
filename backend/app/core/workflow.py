@@ -47,6 +47,9 @@ class Segment:
     speaker_name: str = ""
     speaker_similarity: float | None = None
     speaker_confidence: str = ""
+    # 保留 VAD 产出的原始片段，供会议审校和 ASR 训练数据导出使用。
+    audio: bytes | None = None
+    raw_text: str = ""
 
     @property
     def duration(self) -> float:
@@ -142,7 +145,15 @@ class AsrWorkflowStage:
             )
             text = (raw_text or "").strip()
             if text:
-                context.segments.append(Segment(chunk.start, chunk.end, text))
+                context.segments.append(
+                    Segment(
+                        chunk.start,
+                        chunk.end,
+                        text,
+                        audio=chunk.audio,
+                        raw_text=text,
+                    )
+                )
 
     def is_ready(self) -> bool:
         ready = getattr(self.asr, "is_ready", None)

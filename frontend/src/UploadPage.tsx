@@ -117,6 +117,12 @@ type MeetingResult = {
   report_path: string;
   summary: string;
   timeline_preview: string;
+  training_artifacts?: {
+    clips_dir?: string;
+    transcript_segments?: string;
+    training_candidates?: string;
+    candidate_segments?: number;
+  };
 };
 
 type MeetingStatus = {
@@ -132,6 +138,7 @@ type MeetingStatus = {
   elapsed_s?: number;
   error?: string;
   message?: string;
+  training_artifacts?: MeetingResult["training_artifacts"];
 };
 
 const meetingEventUrl = (taskId: string) => {
@@ -457,6 +464,7 @@ export default function UploadPage() {
           report_path: current.report_path ?? reportPath,
           summary: current.summary_preview ?? "",
           timeline_preview: current.transcript_preview ?? "",
+          training_artifacts: current.training_artifacts,
         });
       };
 
@@ -867,6 +875,14 @@ export default function UploadPage() {
               </details>
             )}
             <p className="result-meta">完整报告: {meeting.report_path}</p>
+            {meeting.training_artifacts && (
+              <div className="result-meta">
+                <strong>ASR 训练候选数据:</strong>{" "}
+                {meeting.training_artifacts.candidate_segments ?? 0} 段，JSONL: {meeting.training_artifacts.training_candidates}
+                <br />逐字稿审校: {meeting.training_artifacts.transcript_segments}
+                <br />音频片段: {meeting.training_artifacts.clips_dir}
+              </div>
+            )}
           </article>
         )}
         {result && (

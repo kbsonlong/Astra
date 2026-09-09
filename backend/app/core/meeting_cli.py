@@ -111,6 +111,59 @@ def _write_status(out_dir: Path, payload: dict) -> None:
     )
 
 
+def _write_training_artifacts(out_dir: Path, result: object) -> dict[str, str | int]:
+    """Export reviewable segment WAVs and Qwen3-ASR JSONL candidates."""
+    clips_dir = out_dir / "asr_clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
+    transcript_path = out_dir / "transcript_segments.jsonl"
+    training_path = out_dir / "qwen3-asr-candidates.jsonl"
+    transcript_lines: list[str] = []
+    training_lines: list[str] = []
+
+    for index, segment in enumerate(result.segments, 1):  # type: ignore[attr-defined]
+        if not segment.audio:
+            continue
+        clip_path = clips_dir / f"seg-{index:06d}.wav"
+        clip_path.write_bytes(segment.audio)
+        raw_text = segment.raw_text or segment.text
+        row = {
+            "segment_id": f"seg-{index:06d}",
+            "start": segment.start,
+            "end": segment.end,
+            "speaker_id": segment.speaker_id,
+            "speaker_name": segment.speaker_name,
+            "speaker_confidence": segment.speaker_confidence,
+            "raw_text": raw_text,
+            "corrected_text": segment.text,
+            "correction_source": "asr_or_rules",
+            "review_status": "pending",
+            "term_candidates": [],
+            "audio": str(clip_path.resolve()),
+            "text": segment.text,
+        }
+        transcript_lines.append(json.dumps(row, ensure_ascii=False))
+        training_lines.append(
+            json.dumps(
+                {
+                    "audio": row["audio"],
+                    "text": row["text"],
+                    "segment_id": row["segment_id"],
+                    "review_status": row["review_status"],
+                },
+                ensure_ascii=False,
+            )
+        )
+
+    transcript_path.write_text("\n".join(transcript_lines) + ("\n" if transcript_lines else ""), encoding="utf-8")
+    training_path.write_text("\n".join(training_lines) + ("\n" if training_lines else ""), encoding="utf-8")
+    return {
+        "clips_dir": str(clips_dir.resolve()),
+        "transcript_segments": str(transcript_path.resolve()),
+        "training_candidates": str(training_path.resolve()),
+        "candidate_segments": len(training_lines),
+    }
+
+
 async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translate: bool) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_status(out_dir, {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")})
@@ -143,8 +196,9 @@ async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translat
     }
     (out_dir / "report.md").write_text(_render_markdown(result, meta), encoding="utf-8")
     (out_dir / "transcript.txt").write_text(result.timeline_text(), encoding="utf-8")
+    artifacts = _write_training_artifacts(out_dir, result)
     (out_dir / "meta.json").write_text(
-        json.dumps({"task_id": out_dir.name, **meta}, ensure_ascii=False, indent=2),
+        json.dumps({"task_id": out_dir.name, **meta, "training_artifacts": artifacts}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     _write_status(out_dir, {
@@ -152,6 +206,7 @@ async def _run(audio: Path, out_dir: Path, topic: str, summarize: bool, translat
         "duration_s": round(result.duration_s, 1),
         "segments": len(result.segments),
         "speakers": sorted({s.speaker for s in result.segments if s.speaker}),
+        "training_artifacts": artifacts,
         "elapsed_s": round(time.time() - t0, 1),
     })
     print(json.dumps({

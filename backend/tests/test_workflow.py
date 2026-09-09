@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+import json
 from pathlib import Path
 
 import numpy as np
@@ -66,6 +67,31 @@ async def test_audio_workflow_runs_stages_in_order_and_preserves_boundaries() ->
         (1.25, 2.0, "one。", "S1"),
         (3.0, 4.5, "two。", "S2"),
     ]
+    assert [s.audio for s in result.segments] == [b"one", b"two"]
+    assert [s.raw_text for s in result.segments] == ["one", "two"]
+
+
+def test_meeting_worker_exports_reviewable_qwen_jsonl(tmp_path) -> None:
+    from app.core.meeting import MeetingResult
+    from app.core.meeting_cli import _write_training_artifacts
+
+    result = MeetingResult(
+        filename="meeting.wav",
+        duration_s=2.0,
+        language="zh",
+        segments=[Segment(0.0, 1.0, "云资源中心。", speaker="S1", audio=b"RIFF", raw_text="冷资源中心")],
+    )
+
+    artifacts = _write_training_artifacts(tmp_path, result)
+    assert artifacts["candidate_segments"] == 1
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / "qwen3-asr-candidates.jsonl").read_text().splitlines()
+    ]
+    assert rows[0]["audio"].endswith("asr_clips/seg-000001.wav")
+    assert rows[0]["text"] == "云资源中心。"
+    assert rows[0]["review_status"] == "pending"
+    assert (tmp_path / "asr_clips/seg-000001.wav").read_bytes() == b"RIFF"
 
 
 @pytest.mark.anyio

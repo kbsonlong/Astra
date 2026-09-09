@@ -20,6 +20,9 @@ def load_dataset(path: str) -> list[dict[str, object]]:
         if not line.strip():
             continue
         item = json.loads(line)
+        # 会议处理导出的候选集必须先人工审校；兼容没有该字段的旧版人工数据集。
+        if item.get("review_status") not in (None, "approved"):
+            continue
         audio_path = Path(str(item["audio"])).expanduser()
         text = str(item["text"]).strip()
         if not audio_path.is_file() or not text:

@@ -98,6 +98,17 @@ POST /api/meeting/process
 
 建议统一文本规范：专业名词、英文和数字保持稳定写法；如果标点由后置模型负责，训练集要保持一致的标点策略。
 
+会议点击“生成会议纪要”完成后，worker 会在该任务目录生成以下训练候选产物：
+
+```text
+<meeting_output_dir>/<task_id>/
+  asr_clips/seg-000001.wav
+  transcript_segments.jsonl       # 时间戳、说话人、raw/corrected 双轨详情
+  qwen3-asr-candidates.jsonl      # audio/text 训练候选，默认 review_status=pending
+```
+
+`qwen3-asr-candidates.jsonl` 已符合 Qwen3-ASR 的 `audio`/`text` 输入结构，但候选样本必须经过人工审校并改为 `review_status=approved` 后才能训练。训练脚本会跳过 `pending` 样本；没有 `review_status` 字段的旧版人工数据仍兼容读取。
+
 ### 3.3 数据集拆分
 
 必须按会议拆分，而不是随机按片段拆分：
@@ -198,18 +209,20 @@ Mac mini 适合完成：
 - 生成 CER、术语召回率和说话人指标；
 - 运行转换后的 MLX 推理模型。
 
-### 6.2 不建议直接完成的工作
+### 6.2 当前可选的训练路径
 
-当前不建议把 Mac mini 作为 Qwen3-ASR 正式微调机，原因是：
+`mlx-tune` 已提供基于 MLX 的 Qwen3-ASR LoRA 微调实现，可以在 Apple Silicon 上训练音频编码器和 Qwen3 解码器；当前公开示例使用 `mlx-community/Qwen3-ASR-1.7B-8bit`。因此 Mac mini 可以作为实验和小规模领域适配环境，但 `Qwen3-ASR-0.6B-4bit` 仍需在本机先做加载、反向传播和导出验证，不能仅凭推理成功认定训练链路可用。
+
+正式训练仍建议保留 CUDA 路径，原因是：
 
 1. 官方微调代码以 PyTorch 和 `torchrun` 为主，推荐 CUDA/FlashAttention 2；
-2. `mlx-community/Qwen3-ASR-0.6B-4bit` 是推理量化权重，不是当前官方 SFT 的直接训练输入；
+2. `mlx-community/Qwen3-ASR-0.6B-4bit` 是量化权重，是否能在当前 `mlx-tune` 版本上直接挂载 LoRA，需要以实际 smoke test 为准；
 3. 训练需要梯度、优化器状态和激活内存，远高于 4bit 推理；
 4. Apple MPS 可能能运行部分普通 PyTorch 算子，但不等于官方 Qwen3-ASR SFT 脚本可运行；
-5. 0.6B ASR 不只有文本 decoder，还包含音频 encoder、projector、数据整理和长音频处理，不能简单套用通用 MLX-LM 微调；
-6. 当前项目没有针对 Apple MPS 的 Qwen3-ASR 训练适配、断点恢复和精度回归验证。
+5. 0.6B ASR 不只有文本 decoder，还包含音频 encoder、projector、数据整理和长音频处理；
+6. 当前项目尚未完成 0.6B-4bit 在 Apple Silicon 上的断点恢复和精度回归验证。
 
-因此，16GB Mac mini 上即使能够启动某些自定义训练实验，也不能把它作为稳定、可复现的训练方案。更现实的路径是：Mac mini 负责数据和评估，NVIDIA GPU 机器负责训练。
+因此，16GB Mac mini 上可以先完成小规模 LoRA 实验，但在通过固定会议测试集、长音频和断点恢复验证前，不把它作为唯一生产训练方案。Mac mini 负责数据和评估，NVIDIA GPU 机器作为稳定训练回退路径。
 
 ### 6.3 是否“一定”依赖 CUDA
 
@@ -223,10 +236,10 @@ Mac mini 适合完成：
 
 准确表述是：**CUDA 不是数学意义上的绝对必要条件，但对当前官方 Qwen3-ASR 微调流程而言，CUDA 是应当依赖的生产环境。Mac mini 不需要 CUDA 来做推理，但不能把 MPS 微调当成已验证能力。**
 
-如果未来确实要在 Mac mini 尝试，需要单独完成：
+如果要在 Mac mini 上把 `Qwen3-ASR-0.6B-4bit` 作为正式训练路径，需要单独完成：
 
-- 使用非量化可训练 checkpoint，而不是直接训练 4bit MLX 权重；
-- 将官方训练脚本及数据 collator 适配到 MPS；
+- 确认 `mlx-tune` 对目标 4bit checkpoint 的加载、LoRA 注入和保存行为；
+- 确认量化权重上的 LoRA 训练不会破坏推理导出；必要时切换到 8bit 或 bf16 基座；
 - 确认 audio encoder、projector、decoder 的算子均支持 MPS；
 - 使用短音频、小 batch、梯度累积和 checkpoint 断点恢复；
 - 对比 CPU/MPS/CUDA 的 loss、速度和验证集 CER；
