@@ -10,6 +10,7 @@ from fastapi.responses import StreamingResponse
 from ..core.meeting import MeetingPipeline
 from ..models.asr_client import ASRClientError
 from ..models.llm_client import LLMClientError
+from .upload_limits import UploadTooLargeError, read_upload_limited
 
 router = APIRouter(prefix="/api")
 
@@ -18,9 +19,25 @@ def _sse(payload: dict[str, object]) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _too_large_response(max_bytes: int) -> HTTPException:
+    return HTTPException(
+        status_code=413,
+        detail=f"audio file too large (max {max_bytes} bytes)",
+    )
+
+
+async def _read_transcribe_upload(request: Request, file: UploadFile) -> bytes:
+    try:
+        return await read_upload_limited(
+            file, request.app.state.settings.transcribe_max_upload_bytes
+        )
+    except UploadTooLargeError as exc:
+        raise _too_large_response(exc.max_bytes) from exc
+
+
 @router.post("/transcribe")
 async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> dict[str, object]:
-    audio = await file.read()
+    audio = await _read_transcribe_upload(request, file)
     if not audio:
         raise HTTPException(status_code=400, detail="audio file is empty")
 
@@ -40,7 +57,7 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> di
 async def transcribe_and_correct(
     request: Request, file: UploadFile = File(...)
 ) -> StreamingResponse:
-    audio = await file.read()
+    audio = await _read_transcribe_upload(request, file)
     if not audio:
         raise HTTPException(status_code=400, detail="audio file is empty")
 

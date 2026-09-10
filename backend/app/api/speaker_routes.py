@@ -15,6 +15,7 @@ from ..core.speaker_registry import (
     SpeakerProfile,
 )
 from ..schemas.speaker import SpeakerCreateRequest, SpeakerUpdateRequest
+from .upload_limits import UploadTooLargeError, read_upload_limited
 
 router = APIRouter(prefix="/api/speakers", tags=["speakers"])
 ALLOWED_SUFFIX = {".m4a", ".wav", ".mp3", ".flac", ".aac", ".mov", ".mp4"}
@@ -103,11 +104,12 @@ async def enroll_speaker_sample(
     filename = file.filename or "sample.wav"
     if Path(filename).suffix.lower() not in ALLOWED_SUFFIX:
         raise HTTPException(status_code=400, detail="unsupported audio type")
-    audio = await file.read()
+    try:
+        audio = await read_upload_limited(file, MAX_SAMPLE_BYTES)
+    except UploadTooLargeError as exc:
+        raise HTTPException(status_code=413, detail="audio sample is too large") from exc
     if not audio:
         raise HTTPException(status_code=400, detail="audio file is empty")
-    if len(audio) > MAX_SAMPLE_BYTES:
-        raise HTTPException(status_code=413, detail="audio sample is too large")
     service = ResemblyzerEnrollmentService(request.app.state.settings.vad_model)
     try:
         result = await asyncio.to_thread(

@@ -21,6 +21,13 @@ def _int_env(name: str, default: int) -> int:
     return default if value is None else int(value)
 
 
+def _positive_int_env(name: str, default: int) -> int:
+    value = _int_env(name, default)
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return value
+
+
 def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     value = os.getenv(name)
     if value is None:
@@ -197,6 +204,9 @@ class Settings:
     meeting_prompt_templates_path: str = "~/.astra/meeting-prompt-templates.json"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     meeting_output_dir: str = "~/Astra/meetings"
+    transcribe_max_upload_bytes: int = 25 * 1024 * 1024
+    meeting_max_upload_bytes: int = 500 * 1024 * 1024
+    ws_max_audio_bytes: int = 25 * 1024 * 1024
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     version: str = "mvp"
 
@@ -290,6 +300,15 @@ class Settings:
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
+            transcribe_max_upload_bytes=_positive_int_env(
+                "TRANSCRIBE_MAX_UPLOAD_BYTES", cls.transcribe_max_upload_bytes
+            ),
+            meeting_max_upload_bytes=_positive_int_env(
+                "MEETING_MAX_UPLOAD_BYTES", cls.meeting_max_upload_bytes
+            ),
+            ws_max_audio_bytes=_positive_int_env(
+                "WS_MAX_AUDIO_BYTES", cls.ws_max_audio_bytes
+            ),
             qwen3_training_config_path=os.getenv(
                 "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path
             ),

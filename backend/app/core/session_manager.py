@@ -13,13 +13,20 @@ class Session:
     cancelled_generations: set[int] = field(default_factory=set)
     audio_buffer: bytearray = field(default_factory=bytearray)
     history: list[dict[str, str]] = field(default_factory=list)
+    max_audio_bytes: int = 25 * 1024 * 1024
 
     def start(self) -> None:
         self.state = "LISTENING"
 
-    def append_audio(self, chunk: bytes) -> None:
-        if self.state == "LISTENING":
-            self.audio_buffer.extend(chunk)
+    def append_audio(self, chunk: bytes) -> bool:
+        """Append one audio frame, rejecting an utterance that exceeds its budget."""
+        if self.state != "LISTENING":
+            return True
+        if len(chunk) > self.max_audio_bytes - len(self.audio_buffer):
+            self.audio_buffer.clear()
+            return False
+        self.audio_buffer.extend(chunk)
+        return True
 
     def take_audio(self) -> bytes:
         audio = bytes(self.audio_buffer)

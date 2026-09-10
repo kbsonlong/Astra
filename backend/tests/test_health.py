@@ -98,14 +98,18 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     for key in (
         "ASR_MODEL", "ASR_LANGUAGE", "ASR_MAX_TOKENS", "ASR_REPETITION_PENALTY",
         "ASR_REPETITION_CONTEXT_SIZE", "ASR_HOTWORDS", "ASR_SYSTEM_PROMPT",
-        "TTS_MODEL_PATH", "LLM_MODELS_PATH",
+        "TTS_MODEL_PATH", "LLM_MODELS_PATH", "TRANSCRIBE_MAX_UPLOAD_BYTES",
+        "MEETING_MAX_UPLOAD_BYTES", "WS_MAX_AUDIO_BYTES",
     ):
         monkeypatch.delenv(key, raising=False)
     (tmp_path / ".env").write_text(
         "ASR_MODEL=/models/whisper\nASR_LANGUAGE=en\nASR_MAX_TOKENS=256\n"
         "ASR_REPETITION_PENALTY=1.12\nASR_HOTWORDS=host,大佬\n"
         "ASR_SYSTEM_PROMPT=只输出实际说出的内容。\n"
-        "TTS_MODEL_PATH=/models/piper.onnx\n",
+        "TTS_MODEL_PATH=/models/piper.onnx\n"
+        "TRANSCRIBE_MAX_UPLOAD_BYTES=123\n"
+        "MEETING_MAX_UPLOAD_BYTES=456\n"
+        "WS_MAX_AUDIO_BYTES=789\n",
         encoding="utf-8",
     )
 
@@ -120,6 +124,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.asr_hotwords == ("host", "大佬")
     assert loaded.asr_system_prompt == "只输出实际说出的内容。"
     assert loaded.tts_model_path == "/models/piper.onnx"
+    assert loaded.transcribe_max_upload_bytes == 123
+    assert loaded.meeting_max_upload_bytes == 456
+    assert loaded.ws_max_audio_bytes == 789
 
 
 def test_settings_resolves_relative_vad_model_from_project_root(

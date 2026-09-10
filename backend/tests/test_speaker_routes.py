@@ -138,3 +138,21 @@ def test_speaker_sample_audio_can_be_listed_and_played(tmp_path) -> None:
     audio = client.get(f"/api/speakers/{profile.speaker_id}/samples/{sample_id}/audio")
     assert audio.status_code == 200
     assert audio.content == b"RIFFsample"
+
+
+def test_speaker_sample_rejects_oversized_audio_before_enrollment(tmp_path, monkeypatch) -> None:
+    from app.api import speaker_routes
+
+    monkeypatch.setattr(speaker_routes, "MAX_SAMPLE_BYTES", 3)
+    client = _client(tmp_path)
+    speaker_id = client.post(
+        "/api/speakers", json={"display_name": "参会人"}
+    ).json()["speaker_id"]
+
+    response = client.post(
+        f"/api/speakers/{speaker_id}/samples",
+        files={"file": ("sample.wav", b"four", "audio/wav")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "audio sample is too large"

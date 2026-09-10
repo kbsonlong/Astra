@@ -2,6 +2,7 @@ from collections.abc import Mapping, Sequence
 
 from fastapi.testclient import TestClient
 
+from app.config import Settings
 from app.main import create_app
 from app.models.asr_client import ASRClientError
 
@@ -94,3 +95,20 @@ def test_transcribe_route_returns_service_unavailable_for_sdk_error() -> None:
 
     assert response.status_code == 503
     assert response.json()["detail"] == "mlx-audio model is not available locally"
+
+
+def test_transcribe_routes_reject_oversized_audio() -> None:
+    client = TestClient(
+        create_app(
+            settings=Settings(transcribe_max_upload_bytes=4),
+            pipeline=FakePipeline(),
+        )
+    )
+
+    for endpoint in ("/api/transcribe", "/api/transcribe/stream"):
+        response = client.post(
+            endpoint,
+            files={"file": ("test.wav", b"oversized", "audio/wav")},
+        )
+        assert response.status_code == 413
+        assert response.json()["detail"] == "audio file too large (max 4 bytes)"

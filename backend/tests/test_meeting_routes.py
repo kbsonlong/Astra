@@ -67,6 +67,26 @@ def test_custom_prompt_template_store_round_trip(tmp_path) -> None:
         store.get(created.id)
 
 
+def test_process_rejects_oversized_upload_without_creating_task(tmp_path) -> None:
+    from app.main import create_app
+
+    app = create_app(
+        settings=Settings(
+            meeting_output_dir=str(tmp_path), meeting_max_upload_bytes=3
+        ),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+    response = TestClient(app).post(
+        "/api/meeting/process",
+        files={"file": ("meeting.wav", b"four", "audio/wav")},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "file too large (max 3 bytes)"
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_custom_prompt_template_api_crud_and_builtin_is_read_only(tmp_path) -> None:
     from app.main import create_app
 

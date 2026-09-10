@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from ..config import llm_environment_values
+from .upload_limits import UploadTooLargeError, save_upload_limited
 from ..core.meeting_prompts import (
     DEFAULT_MEETING_PROMPT_ID,
     MeetingPromptTemplateStore,
@@ -405,18 +406,26 @@ async def process_meeting(
     if suffix not in ALLOWED_SUFFIX:
         raise HTTPException(status_code=400, detail=f"unsupported audio type: {suffix}")
 
-    audio = await file.read()
-    if not audio:
-        raise HTTPException(status_code=400, detail="file is empty")
-    if len(audio) > 500 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="file too large (max 500MB)")
-
-    # 落盘输入 + 建 job 目录, 立刻返回 task_id(处理在独立进程, 见 meeting_cli)
+    # 落盘输入 + 建 job 目录, 立刻返回 task_id(处理在独立进程, 见 meeting_cli)。
+    # 会议录音可达数百 MiB，必须分块写入，不能整体驻留在 API 进程内存中。
     task_id = _new_task_id()
     out_dir = base / task_id
     out_dir.mkdir(parents=True, exist_ok=False)
     in_path = out_dir / f"input{suffix}"
-    in_path.write_bytes(audio)
+    try:
+        uploaded_bytes = await save_upload_limited(
+            file, in_path, settings.meeting_max_upload_bytes
+        )
+    except UploadTooLargeError as exc:
+        out_dir.rmdir()
+        raise HTTPException(
+            status_code=413,
+            detail=f"file too large (max {exc.max_bytes} bytes)",
+        ) from exc
+    if not uploaded_bytes:
+        in_path.unlink(missing_ok=True)
+        out_dir.rmdir()
+        raise HTTPException(status_code=400, detail="file is empty")
     (out_dir / "status.json").write_text(
         json.dumps(
             {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")},

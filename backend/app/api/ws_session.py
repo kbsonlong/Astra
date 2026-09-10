@@ -64,7 +64,7 @@ async def run_generation(
 @router.websocket("/ws")
 async def session_websocket(websocket: WebSocket) -> None:
     await websocket.accept()
-    session = Session()
+    session = Session(max_audio_bytes=websocket.app.state.settings.ws_max_audio_bytes)
     pipeline: VoicePipeline | None = getattr(websocket.app.state, "pipeline", None)
     generation_task: asyncio.Task[None] | None = None
     try:
@@ -73,7 +73,16 @@ async def session_websocket(websocket: WebSocket) -> None:
             if message["type"] == "websocket.disconnect":
                 break
             if message.get("bytes") is not None:
-                session.append_audio(message["bytes"])
+                if not session.append_audio(message["bytes"]):
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "audio_too_large",
+                            "max_bytes": session.max_audio_bytes,
+                        }
+                    )
+                    await websocket.close(code=1009)
+                    return
                 continue
             if message.get("text") is None:
                 continue

@@ -1,8 +1,11 @@
 import asyncio
 from collections.abc import Mapping, Sequence
 
+import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
+from app.config import Settings
 from app.main import create_app
 
 
@@ -107,3 +110,23 @@ def test_interrupt_cancels_running_pipeline_without_stale_events() -> None:
             "state": "IDLE",
             "generation_id": 1,
         }
+
+
+def test_websocket_rejects_audio_over_session_limit() -> None:
+    client = TestClient(
+        create_app(
+            settings=Settings(ws_max_audio_bytes=3), enable_pipeline=False
+        )
+    )
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "start_session"})
+        websocket.receive_json()
+        websocket.send_bytes(b"four")
+        assert websocket.receive_json() == {
+            "type": "error",
+            "code": "audio_too_large",
+            "max_bytes": 3,
+        }
+        with pytest.raises(WebSocketDisconnect):
+            websocket.receive_json()
