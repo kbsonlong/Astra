@@ -1,6 +1,6 @@
 # Astra 语音增强模型栈设计
 
-> 状态：Phase B 已接入 ZipEnhancer 离线链路；模型默认关闭，尚未设为生产默认
+> 状态：Phase B 已接入 ZipEnhancer 离线链路，Phase C 已接入 JAEC reference 契约和原生模型适配；模型默认关闭，尚未设为生产默认
 >
 > 日期：2026-09-11
 >
@@ -295,6 +295,31 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 - 接 JAEC 16K，暴露 TDE/LP 诊断信息；
 - 以 DFSMN AEC 16K 作为可切换基线，不做静默双 AEC 串联；
 - 验证无 reference、双讲、延迟漂移、扬声器非线性失真。
+
+当前实现：
+
+- `backend/app/core/jaec.py` 通过 ModelScope 原生 pipeline 延迟加载
+  `iic/speech_jaec_aec_16k`，要求本地权重目录和 `trust_native_code=true`；不会在请求路径自动下载模型。
+- `AUDIO_AEC_MODEL=jaec_16k` 且 `AUDIO_ENHANCEMENT_ENABLED=true` 时，VoicePipeline 会在 ASR 前运行 JAEC；没有 reference、采样率/声道不匹配或近端/远端长度不一致时明确回退或报错，不伪造 AEC 成功。
+- WebSocket 使用 `{"type":"audio_channel","channel":"reference"}` 切换后续二进制帧到远端参考缓冲，再用 `speech_end` 将近端和参考一起交给 pipeline；近端与参考共享同一个会话大小上限。
+- `enhancement_status` 事件记录 `applied`/`not_applicable`、模型 ID、160 sample 处理帧、22 ms 算法延迟和当前可见诊断字段。当前 native pipeline 不返回 TDE/LP 中间张量，因此记录为不可用，而不是虚构内部结果。
+- 真实 10 秒 ModelScope 样本 smoke 已在目标 Mac mini CPU 上通过，推理耗时约 3.18 秒；这不是连续实时 5 分钟稳定性或通话质量验收。
+- 当前浏览器前端仍未采集并发送实际扬声器播放的 16 kHz mono PCM reference，因此产品实时 AEC 尚未默认启用；下一步仍需补前端/播放层 reference 采集和双讲、延迟漂移测试。
+
+真实模型复测命令（不会自动下载权重）：
+
+```bash
+.venv/bin/pip install -r backend/requirements-audio-enhancement.txt
+.venv/bin/modelscope download iic/speech_jaec_aec_16k \
+  --local-dir ~/.astra/models/audio-enhancement/jaec_16k
+PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
+  --model-dir ~/.astra/models/audio-enhancement/jaec_16k \
+  --microphone /path/to/nearend_mic.wav \
+  --reference /path/to/farend_speech.wav
+```
+
+输入必须是等长的 16 kHz mono PCM16 WAV；脚本输出 `/tmp/astra-jaec-smoke.wav`，并报告
+总耗时、RTF 和 stage diagnostics。
 
 ### Phase D：按需 Separation
 

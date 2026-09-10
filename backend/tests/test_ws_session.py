@@ -23,6 +23,20 @@ class FakePipeline:
         return "用户说的", "好的"
 
 
+class ReferencePipeline:
+    async def run(
+        self,
+        audio: bytes,
+        messages: Sequence[Mapping[str, str]],
+        generation_id: int,
+        emit,
+        reference: bytes | None = None,
+    ) -> tuple[str, str]:
+        assert audio == b"mic"
+        assert reference == b"ref"
+        return "用户说的", "好的"
+
+
 def app_without_pipeline():
     return create_app(enable_pipeline=False)
 
@@ -75,6 +89,32 @@ def test_websocket_runs_injected_pipeline_and_returns_to_listening() -> None:
         assert websocket.receive_json()["type"] == "state_change"
         assert websocket.receive_json()["type"] == "tts_start"
         assert websocket.receive_json()["type"] == "tts_end"
+        assert websocket.receive_json() == {
+            "type": "state_change",
+            "state": "LISTENING",
+            "generation_id": 1,
+        }
+
+
+def test_websocket_forwards_far_end_reference_channel() -> None:
+    client = TestClient(create_app(pipeline=ReferencePipeline()))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "start_session"})
+        websocket.receive_json()
+        websocket.send_bytes(b"mic")
+        websocket.send_json({"type": "audio_channel", "channel": "reference"})
+        websocket.receive_json()
+        websocket.send_bytes(b"ref")
+        websocket.send_json({"type": "audio_channel", "channel": "microphone"})
+        websocket.receive_json()
+        websocket.send_json({"type": "speech_end"})
+
+        assert websocket.receive_json() == {
+            "type": "state_change",
+            "state": "REASONING",
+            "generation_id": 1,
+        }
         assert websocket.receive_json() == {
             "type": "state_change",
             "state": "LISTENING",

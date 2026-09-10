@@ -1,9 +1,12 @@
 import base64
+import asyncio
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 from typing import Protocol
 
+from .audio_adapter import audio_buffer_to_wav_bytes, decode_audio_bytes
+from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
 from ..models.llm_client import OpenAICompatLLMClient
 from ..models.tts_client import PiperSdkTtsClient
 
@@ -22,10 +25,12 @@ class VoicePipeline:
         asr: ASRClient,
         llm: OpenAICompatLLMClient,
         tts: PiperSdkTtsClient,
+        enhancement: AudioEnhancementPipeline | None = None,
     ) -> None:
         self.asr = asr
         self.llm = llm
         self.tts = tts
+        self.enhancement = enhancement
 
     async def run(
         self,
@@ -33,6 +38,7 @@ class VoicePipeline:
         messages: Sequence[Mapping[str, str]],
         generation_id: int,
         emit: Emit,
+        reference: bytes | None = None,
     ) -> tuple[str, str]:
         """一轮语音对话。返回 (user_asr_text, assistant_reply)。
 
@@ -40,6 +46,35 @@ class VoicePipeline:
         在成功后把 user/assistant 两条追加进会话历史；失败/打断的轮次
         不应写入，避免上下文被半截回复污染。
         """
+        if self.enhancement is not None:
+            microphone = await asyncio.to_thread(
+                decode_audio_bytes, audio, filename="microphone.wav", source="microphone"
+            )
+            far_end = None
+            if reference:
+                far_end = await asyncio.to_thread(
+                    decode_audio_bytes,
+                    reference,
+                    filename="far-end-reference.wav",
+                    source="reference",
+                )
+            microphone, enhancement_metrics = await self.enhancement.process(
+                microphone,
+                EnhancementContext(
+                    reference=far_end,
+                    realtime=True,
+                ),
+            )
+            await emit(
+                {
+                    "type": "enhancement_status",
+                    "stages": [item.to_dict() for item in enhancement_metrics],
+                    "generation_id": generation_id,
+                }
+            )
+            if any(item.status == "applied" for item in enhancement_metrics):
+                audio = audio_buffer_to_wav_bytes(microphone)
+
         text = await self.asr.transcribe(audio)
         await emit({"type": "asr_final", "text": text, "generation_id": generation_id})
 

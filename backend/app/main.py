@@ -112,6 +112,7 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_max_concurrent_per_ip": current.audio_max_concurrent_per_ip,
         "audio_enhancement_enabled": current.audio_enhancement_enabled,
         "audio_ans_model": current.audio_ans_model,
+        "audio_aec_model": current.audio_aec_model,
         "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
         "version": current.version,
     }
@@ -206,6 +207,8 @@ def create_app(
     app.state.asr_worker = None
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
+        from .core.jaec import build_audio_aec_pipeline
+
         realtime_asr = MlxAudioAsrClient(
             current.asr_model,
             current.asr_language,
@@ -236,6 +239,11 @@ def create_app(
                 models_path=current.llm_models_path,
             ),
             PiperSdkTtsClient(current.tts_model_path),
+            enhancement=build_audio_aec_pipeline(
+                enabled=current.audio_enhancement_enabled,
+                aec_model=current.audio_aec_model,
+                model_dir=current.audio_enhancement_model_dir,
+            ),
         )
     app.state.meeting_pipeline = meeting_pipeline
     if enable_meeting and meeting_pipeline is None:

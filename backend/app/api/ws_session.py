@@ -25,6 +25,7 @@ async def run_generation(
     session: Session,
     pipeline: VoicePipeline,
     audio: bytes,
+    reference: bytes | None,
     generation_id: int,
 ) -> None:
     async def emit(event: dict[str, object]) -> None:
@@ -39,7 +40,12 @@ async def run_generation(
         # 历史上下文最多保留最近 20 条消息(10 轮), 本轮 user/assistant
         # 成功后追加; 失败/打断不写入, 避免半截回复污染上下文。
         context = session.history[-20:]
-        user_text, reply_text = await pipeline.run(audio, context, generation_id, emit)
+        if reference is None:
+            user_text, reply_text = await pipeline.run(audio, context, generation_id, emit)
+        else:
+            user_text, reply_text = await pipeline.run(
+                audio, context, generation_id, emit, reference=reference
+            )
         if session.accepts(generation_id):
             session.history.append({"role": "user", "content": user_text})
             if reply_text:
@@ -79,13 +85,14 @@ async def session_websocket(websocket: WebSocket) -> None:
     session = Session(max_audio_bytes=websocket.app.state.settings.ws_max_audio_bytes)
     pipeline: VoicePipeline | None = getattr(websocket.app.state, "pipeline", None)
     generation_task: asyncio.Task[None] | None = None
+    audio_channel = "microphone"
     try:
         while True:
             message = await websocket.receive()
             if message["type"] == "websocket.disconnect":
                 break
             if message.get("bytes") is not None:
-                if not session.append_audio(message["bytes"]):
+                if not session.append_audio(message["bytes"], source=audio_channel):
                     await websocket.send_json(
                         {
                             "type": "error",
@@ -106,12 +113,28 @@ async def session_websocket(websocket: WebSocket) -> None:
 
             if command.type == "start_session":
                 session.start()
+                audio_channel = "microphone"
+            elif command.type == "audio_channel":
+                if command.channel is None:
+                    await websocket.send_json(
+                        {"type": "error", "code": "invalid_audio_channel"}
+                    )
+                    continue
+                audio_channel = command.channel
             elif command.type == "speech_end":
                 audio = session.take_audio()
+                reference = session.take_reference()
                 generation_id = session.speech_end()
                 if pipeline is not None:
                     generation_task = asyncio.create_task(
-                        run_generation(websocket, session, pipeline, audio, generation_id)
+                        run_generation(
+                            websocket,
+                            session,
+                            pipeline,
+                            audio,
+                            reference,
+                            generation_id,
+                        )
                     )
             elif command.type == "interrupt":
                 if session.interrupt(command.generation_id, command.reason or "manual"):

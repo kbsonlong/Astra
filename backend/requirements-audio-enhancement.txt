@@ -1,6 +1,7 @@
-# Optional Phase B backend for the offline ZipEnhancer 16 kHz ANS stage.
-# Install this after backend/requirements.txt; enabling remains opt-in via .env.
-modelscope==1.39.1
+# Optional Phase B/C backends; install after backend/requirements.txt.
+# JAEC is not registered in the latest PyPI release yet, so pin the ModelScope
+# source snapshot that contains the trusted native-code JAEC pipeline.
+modelscope @ https://github.com/modelscope/modelscope/archive/98eb22c66ac2601cff24f58ab83fcf4ed6aecf8a.zip
 addict==2.4.0
 simplejson==3.20.1
 sortedcontainers==2.4.0

@@ -250,6 +250,7 @@ class Settings:
     audio_max_concurrent_per_ip: int = 4
     audio_enhancement_enabled: bool = False
     audio_ans_model: str = "none"
+    audio_aec_model: str = "none"
     audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
@@ -410,6 +411,7 @@ class Settings:
                 "AUDIO_ENHANCEMENT_ENABLED", cls.audio_enhancement_enabled
             ),
             audio_ans_model=os.getenv("AUDIO_ANS_MODEL", cls.audio_ans_model),
+            audio_aec_model=os.getenv("AUDIO_AEC_MODEL", cls.audio_aec_model),
             audio_enhancement_model_dir=os.getenv(
                 "AUDIO_ENHANCEMENT_MODEL_DIR", cls.audio_enhancement_model_dir
             ),
