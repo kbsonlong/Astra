@@ -49,5 +49,23 @@ SSH 源或预先构建的本地 wheel：
 Node 依赖使用 `frontend/package-lock.json`，前端安装使用 `npm ci`，不要使用无锁定的
 `npm install` 更新依赖。
 
+## ZipEnhancer 真实模型 smoke test
+
+ZipEnhancer 是可选的会议离线降噪阶段。先安装 `backend/requirements-audio-enhancement.txt`，
+再把 ModelScope 权重放到本地目录；smoke 脚本不会自动下载权重：
+
+```bash
+.venv/bin/pip install -r backend/requirements-audio-enhancement.txt
+.venv/bin/modelscope download iic/speech_zipenhancer_ans_multiloss_16k_base \
+  --local-dir ~/.astra/models/audio-enhancement/zipenhancer_16k
+PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_zipenhancer.py \
+  --model-dir ~/.astra/models/audio-enhancement/zipenhancer_16k
+```
+
+脚本默认使用模型仓库内的 `examples/speech_with_noise.wav`，输出写入
+`/tmp/astra-zipenhancer-smoke.wav`，并报告 `real_time_factor`。2026-09-11 在目标 Mac mini
+上 CPU smoke 成功：2.398 秒音频耗时 37.925 秒，RTF 15.817；这证明本地模型链路可用，
+但不构成实时性能通过，也未替代真实会议录音的 ASR A/B 和人工听感验证。
+
 训练 JSONL 每行需要 `audio` 和 `text` 字段，音频路径支持 `~`。任务状态可通过
 `GET /api/training/status` 查询，停止使用 `POST /api/training/stop`。
