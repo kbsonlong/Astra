@@ -4,18 +4,19 @@
   - Workflow: Silero VAD → 配置的 ASR → 标点恢复 → resemblyzer SD
   - 纪要: OpenAICompatLLMClient -> omlx (Qwen3-8B / Hy-MT2)
 """
+
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
-import subprocess
 import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
+from .audio_adapter import audio_buffer_to_wav_bytes, decode_audio_file
 from .workflow import (
     AudioWorkflow,
     PassthroughPunctuation,
@@ -158,27 +159,13 @@ class MeetingPipeline:
     # ------------------------------------------------------------------ #
     @staticmethod
     def decode_to_wav(src: str | Path) -> tuple[str, float]:
-        """m4a/mp3/wav -> 16k mono PCM16 wav (afconvert, 无 ffmpeg 依赖)。
-
-        afconvert 产出 WAVE_FORMAT_EXTENSIBLE, 本项目统一走 scipy 读取。
-        """
+        """Decode any supported input to a 16k mono PCM16 WAV."""
         src = Path(src)
+        audio = decode_audio_file(src, target_sample_rate=16_000)
         wav = Path(tempfile.mkdtemp(prefix="astra_meet_")) / f"{src.stem}.wav"
-        subprocess.run(
-            [
-                "/usr/bin/afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1",
-                str(src), str(wav),
-            ],
-            check=True, capture_output=True,
-        )
-        # 时长: 用 wave/scipy 读帧数换算
-        import numpy as np
-        from scipy.io import wavfile
-        sr, data = wavfile.read(wav)
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-        dur = data.shape[0] / sr
-        return str(wav), float(dur)
+        wav.write_bytes(audio_buffer_to_wav_bytes(audio))
+        duration = len(audio.samples) / audio.sample_rate
+        return str(wav), float(duration)
 
     # ------------------------------------------------------------------ #
     # 2. VAD 切段 + Qwen3 逐段转写 (方案A: 时间戳来自 Silero VAD)
