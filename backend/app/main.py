@@ -37,6 +37,7 @@ from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
 from .core.training import TrainingManager
 from .core.task_store import TaskStore
+from .core.artifact_retention import clean_meeting_artifacts
 
 
 def _reconfigure_llm_client(client: object | None, settings: Settings, *, meeting: bool = False) -> None:
@@ -106,6 +107,8 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "training_max_concurrent_jobs": current.training_max_concurrent_jobs,
         "meeting_task_timeout_seconds": current.meeting_task_timeout_seconds,
         "training_task_timeout_seconds": current.training_task_timeout_seconds,
+        "meeting_artifact_retention_days": current.meeting_artifact_retention_days,
+        "meeting_artifact_max_bytes": current.meeting_artifact_max_bytes,
         "version": current.version,
     }
 
@@ -139,6 +142,12 @@ async def app_lifespan(app: FastAPI):
     })
     for record in records:
         app.state.training_manager.restore(record)
+    clean_meeting_artifacts(
+        base_dir=app.state.settings.meeting_output_dir,
+        task_store=app.state.task_store,
+        retention_days=app.state.settings.meeting_artifact_retention_days,
+        max_bytes=app.state.settings.meeting_artifact_max_bytes,
+    )
     yield
     worker = getattr(app.state, "asr_worker", None)
     if worker is not None:

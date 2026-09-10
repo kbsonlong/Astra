@@ -224,6 +224,8 @@ class Settings:
     training_max_concurrent_jobs: int = 1
     meeting_task_timeout_seconds: float = 2 * 60 * 60
     training_task_timeout_seconds: float = 12 * 60 * 60
+    meeting_artifact_retention_days: int = 30
+    meeting_artifact_max_bytes: int = 20 * 1024 * 1024 * 1024
     transcribe_max_upload_bytes: int = 25 * 1024 * 1024
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
     ws_max_audio_bytes: int = 25 * 1024 * 1024
@@ -353,6 +355,12 @@ class Settings:
             ),
             training_task_timeout_seconds=_positive_float_env(
                 "TRAINING_TASK_TIMEOUT_SECONDS", cls.training_task_timeout_seconds
+            ),
+            meeting_artifact_retention_days=_positive_int_env(
+                "MEETING_ARTIFACT_RETENTION_DAYS", cls.meeting_artifact_retention_days
+            ),
+            meeting_artifact_max_bytes=_positive_int_env(
+                "MEETING_ARTIFACT_MAX_BYTES", cls.meeting_artifact_max_bytes
             ),
             transcribe_max_upload_bytes=_positive_int_env(
                 "TRANSCRIBE_MAX_UPLOAD_BYTES", cls.transcribe_max_upload_bytes

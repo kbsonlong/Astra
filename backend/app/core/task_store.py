@@ -51,6 +51,16 @@ class TaskStore:
             );
             CREATE INDEX IF NOT EXISTS idx_tasks_kind_status
                 ON tasks(kind, status);
+            CREATE TABLE IF NOT EXISTS artifact_cleanup_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                output_dir TEXT NOT NULL,
+                bytes_reclaimed INTEGER NOT NULL,
+                reason TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_artifact_cleanup_events_created
+                ON artifact_cleanup_events(created_at DESC);
             """
         )
         return connection
@@ -190,6 +200,39 @@ class TaskStore:
         with self._connect() as connection:
             row = connection.execute(query, params).fetchone()
         return self._record(row) if row is not None else None
+
+    def terminal_tasks(self, kind: str) -> list[TaskRecord]:
+        if kind not in {"meeting", "training"}:
+            raise ValueError("unsupported task kind")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE kind = ? "
+                "AND status IN ('done', 'failed', 'stopped') "
+                "ORDER BY COALESCE(finished_at, started_at), rowid",
+                (kind,),
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
+    def record_artifact_cleanup(
+        self, *, task_id: str, output_dir: str, bytes_reclaimed: int, reason: str
+    ) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO artifact_cleanup_events "
+                "(task_id, output_dir, bytes_reclaimed, reason) VALUES (?, ?, ?, ?)",
+                (task_id, output_dir, bytes_reclaimed, reason),
+            )
+
+    def artifact_cleanup_events(self, *, limit: int = 100) -> list[dict[str, object]]:
+        if limit < 1:
+            raise ValueError("limit must be at least 1")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT task_id, output_dir, bytes_reclaimed, reason, created_at "
+                "FROM artifact_cleanup_events ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     @staticmethod
     def pid_alive(pid: int | None) -> bool:
