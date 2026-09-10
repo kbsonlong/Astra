@@ -131,7 +131,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "TRANSCRIBE_MAX_DURATION_SECONDS", "MEETING_MAX_UPLOAD_BYTES",
         "MEETING_MAX_DURATION_SECONDS", "WS_MAX_AUDIO_BYTES",
         "AUDIO_MAX_CONCURRENT_PER_IP", "AUDIO_ENHANCEMENT_ENABLED",
-        "AUDIO_ANS_MODEL", "AUDIO_AEC_MODEL", "AUDIO_ENHANCEMENT_MODEL_DIR",
+        "AUDIO_ANS_MODEL", "AUDIO_AEC_MODEL", "AUDIO_SEPARATION_MODEL",
+        "AUDIO_SEPARATION_TRIGGER", "AUDIO_SEPARATION_WINDOW_SECONDS",
+        "AUDIO_ENHANCEMENT_MODEL_DIR",
         "MEETING_MAX_CONCURRENT_JOBS", "TRAINING_MAX_CONCURRENT_JOBS",
         "MEETING_TASK_TIMEOUT_SECONDS", "TRAINING_TASK_TIMEOUT_SECONDS",
         "MEETING_ARTIFACT_RETENTION_DAYS",
@@ -152,6 +154,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "AUDIO_ENHANCEMENT_ENABLED=true\n"
         "AUDIO_ANS_MODEL=zipenhancer_16k\n"
         "AUDIO_AEC_MODEL=jaec_16k\n"
+        "AUDIO_SEPARATION_MODEL=flasepformer_8k\n"
+        "AUDIO_SEPARATION_TRIGGER=always\n"
+        "AUDIO_SEPARATION_WINDOW_SECONDS=12.5\n"
         "AUDIO_ENHANCEMENT_MODEL_DIR=/models/audio\n"
         "MEETING_MAX_CONCURRENT_JOBS=2\n"
         "TRAINING_MAX_CONCURRENT_JOBS=3\n"
@@ -182,6 +187,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.audio_enhancement_enabled is True
     assert loaded.audio_ans_model == "zipenhancer_16k"
     assert loaded.audio_aec_model == "jaec_16k"
+    assert loaded.audio_separation_model == "flasepformer_8k"
+    assert loaded.audio_separation_trigger == "always"
+    assert loaded.audio_separation_window_seconds == 12.5
     assert loaded.audio_enhancement_model_dir == "/models/audio"
     assert loaded.meeting_max_concurrent_jobs == 2
     assert loaded.training_max_concurrent_jobs == 3

@@ -50,6 +50,7 @@ def _build_pipeline(prompt_templates_path: str = ""):
     from app.config import Settings
     from app.core.meeting import MeetingPipeline
     from app.core.zipenhancer import build_audio_enhancement_pipeline
+    from app.core.audio_separation import build_audio_separation_stage
     from app.models.asr_client import MlxAudioAsrClient
     from app.models.llm_client import OpenAICompatLLMClient
 
@@ -116,6 +117,13 @@ def _build_pipeline(prompt_templates_path: str = ""):
             ans_model=s.audio_ans_model,
             model_dir=s.audio_enhancement_model_dir,
         ),
+        separation=build_audio_separation_stage(
+            enabled=s.audio_enhancement_enabled,
+            separation_model=s.audio_separation_model,
+            model_dir=s.audio_enhancement_model_dir,
+            window_seconds=s.audio_separation_window_seconds,
+        ),
+        separation_trigger=s.audio_separation_trigger,
     )
 
 
@@ -239,6 +247,7 @@ async def _run(
     topic: str,
     summarize: bool,
     translate: bool,
+    separate: bool,
     prompt_template_id: str,
     prompt_templates_path: str,
 ) -> int:
@@ -258,6 +267,8 @@ async def _run(
             do_translate=translate,
             topic=topic,
             prompt_template_id=prompt_template.id,
+            separate=separate,
+            separation_artifact_dir=out_dir / "separated",
         )
     except Exception:
         traceback.print_exc()
@@ -281,6 +292,11 @@ async def _run(
             "enabled": bool(result.enhancement_metrics),
             "stages": result.enhancement_metrics,
         },
+        "separation": {
+            "enabled": bool(result.separation_metrics),
+            "stages": result.separation_metrics,
+            "artifacts": result.separation_artifacts,
+        },
     }
     (out_dir / "report.md").write_text(_render_markdown(result, meta), encoding="utf-8")
     (out_dir / "transcript.txt").write_text(result.timeline_text(), encoding="utf-8")
@@ -298,6 +314,8 @@ async def _run(
         "speakers": sorted({s.speaker for s in result.segments if s.speaker}),
         "training_artifacts": artifacts,
         "enhancement": result.enhancement_metrics,
+        "separation": result.separation_metrics,
+        "separation_artifacts": result.separation_artifacts,
         "elapsed_s": round(time.time() - t0, 1),
     })
     print(json.dumps({
@@ -327,6 +345,11 @@ def main() -> int:
     )
     parser.add_argument("--no-summarize", action="store_true", help="跳过 LLM 纪要")
     parser.add_argument("--no-translate", action="store_true", help="跳过翻译")
+    parser.add_argument(
+        "--separate",
+        action="store_true",
+        help="离线启用 FLASepformer 双说话人分离",
+    )
     args = parser.parse_args()
     from app.config import Settings
 
@@ -338,6 +361,7 @@ def main() -> int:
             args.topic,
             summarize=not args.no_summarize,
             translate=not args.no_translate,
+            separate=args.separate,
             prompt_template_id=args.prompt_template,
             prompt_templates_path=prompt_templates_path,
         )

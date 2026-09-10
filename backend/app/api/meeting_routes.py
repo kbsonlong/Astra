@@ -414,6 +414,7 @@ async def process_meeting(
     file: UploadFile = File(...),
     topic: str = Form(default=""),
     prompt_template: str = Form(default=DEFAULT_MEETING_PROMPT_ID),
+    separate: bool = Form(default=False),
 ) -> dict[str, object]:
     settings = request.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()
@@ -496,6 +497,8 @@ async def process_meeting(
     ]
     if topic:
         argv += ["--topic", topic]
+    if separate:
+        argv += ["--separate"]
     argv += [
         "--prompt-template", selected_template.id,
         "--prompt-templates-path", settings.meeting_prompt_templates_path,
@@ -523,7 +526,11 @@ async def process_meeting(
             pgid=pgid,
             output_dir=str(out_dir),
             log_path=str(log_path),
-            detail={"filename": filename, "prompt_template": selected_template.id},
+            detail={
+                "filename": filename,
+                "prompt_template": selected_template.id,
+                "separate": separate,
+            },
         )
     except Exception as exc:
         failure = {"status": "failed", "error": f"spawn failed: {exc}"}
@@ -547,6 +554,7 @@ async def process_meeting(
         "filename": filename,
         "status": "processing",
         "prompt_template": selected_template.id,
+        "separate": separate,
         "report_path": str(out_dir / "report.md"),
         "note": "处理在独立进程执行; 用 WebSocket /api/meeting/{task_id}/events 订阅状态",
     }

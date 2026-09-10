@@ -113,6 +113,9 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_enhancement_enabled": current.audio_enhancement_enabled,
         "audio_ans_model": current.audio_ans_model,
         "audio_aec_model": current.audio_aec_model,
+        "audio_separation_model": current.audio_separation_model,
+        "audio_separation_trigger": current.audio_separation_trigger,
+        "audio_separation_window_seconds": current.audio_separation_window_seconds,
         "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
         "version": current.version,
     }
@@ -248,6 +251,7 @@ def create_app(
     app.state.meeting_pipeline = meeting_pipeline
     if enable_meeting and meeting_pipeline is None:
         from .core.meeting import MeetingPipeline
+        from .core.audio_separation import build_audio_separation_stage
 
         # 会议转写要忠实输出: 不复用带 hotwords/system_prompt 的语音
         # 对话 client(热词会诱导模型复读注入)。用干净配置的 MlxAudio
@@ -292,6 +296,13 @@ def create_app(
             diarization=diarization,
             correction_stage=correction_stage,
             prompt_templates_path=current.meeting_prompt_templates_path,
+            separation=build_audio_separation_stage(
+                enabled=current.audio_enhancement_enabled,
+                separation_model=current.audio_separation_model,
+                model_dir=current.audio_enhancement_model_dir,
+                window_seconds=current.audio_separation_window_seconds,
+            ),
+            separation_trigger=current.audio_separation_trigger,
         )
     app.include_router(auth_router)
     app.include_router(ws_router)

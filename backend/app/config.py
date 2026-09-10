@@ -251,6 +251,9 @@ class Settings:
     audio_enhancement_enabled: bool = False
     audio_ans_model: str = "none"
     audio_aec_model: str = "none"
+    audio_separation_model: str = "none"
+    audio_separation_trigger: str = "manual"
+    audio_separation_window_seconds: float = 30.0
     audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
@@ -412,6 +415,15 @@ class Settings:
             ),
             audio_ans_model=os.getenv("AUDIO_ANS_MODEL", cls.audio_ans_model),
             audio_aec_model=os.getenv("AUDIO_AEC_MODEL", cls.audio_aec_model),
+            audio_separation_model=os.getenv(
+                "AUDIO_SEPARATION_MODEL", cls.audio_separation_model
+            ),
+            audio_separation_trigger=os.getenv(
+                "AUDIO_SEPARATION_TRIGGER", cls.audio_separation_trigger
+            ),
+            audio_separation_window_seconds=_positive_float_env(
+                "AUDIO_SEPARATION_WINDOW_SECONDS", cls.audio_separation_window_seconds
+            ),
             audio_enhancement_model_dir=os.getenv(
                 "AUDIO_ENHANCEMENT_MODEL_DIR", cls.audio_enhancement_model_dir
             ),

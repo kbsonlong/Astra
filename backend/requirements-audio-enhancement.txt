@@ -1,4 +1,4 @@
-# Optional Phase B/C backends; install after backend/requirements.txt.
+# Optional Phase B/C/D backends; install after backend/requirements.txt.
 # JAEC is not registered in the latest PyPI release yet, so pin the ModelScope
 # source snapshot that contains the trusted native-code JAEC pipeline.
 modelscope @ https://github.com/modelscope/modelscope/archive/98eb22c66ac2601cff24f58ab83fcf4ed6aecf8a.zip

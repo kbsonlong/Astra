@@ -16,8 +16,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, Sequence
 
-from .audio_adapter import audio_buffer_to_wav_bytes, decode_audio_file
+from .audio_adapter import (
+    audio_buffer_to_wav_bytes,
+    decode_audio_file,
+    resample_audio_buffer,
+)
 from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
+from .audio_separation import AudioSeparationStage
 from .workflow import (
     AudioWorkflow,
     PassthroughPunctuation,
@@ -44,6 +49,8 @@ class MeetingResult:
     summary: str = ""
     translation: str = ""
     enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
+    separation_metrics: list[dict[str, object]] = field(default_factory=list)
+    separation_artifacts: list[str] = field(default_factory=list)
 
     def timeline_text(self) -> str:
         """时间轴逐字稿 (每行: [mm:ss] S# 文本)。"""
@@ -125,6 +132,8 @@ class MeetingPipeline:
         text_cleanup: WorkflowStage | None = None,
         prompt_templates_path: str | Path | None = None,
         enhancement: AudioEnhancementPipeline | None = None,
+        separation: AudioSeparationStage | None = None,
+        separation_trigger: str = "manual",
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
@@ -146,11 +155,22 @@ class MeetingPipeline:
         self.correction_stage = correction_stage or text_cleanup
         self.prompt_templates_path = prompt_templates_path
         self.enhancement = enhancement
+        if separation_trigger not in {"manual", "overlap", "always"}:
+            raise ValueError(f"unsupported separation trigger: {separation_trigger}")
+        self.separation = separation
+        self.separation_trigger = separation_trigger
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
             self.punctuation,
             self.diarization,
+            correction=self.correction_stage,
+        )
+        self.separated_workflow = AudioWorkflow(
+            self.vad,
+            self.asr,
+            self.punctuation,
+            None,
             correction=self.correction_stage,
         )
         self.summary_stage = summary_stage or SummaryStage(self._generate_summary)
@@ -185,6 +205,58 @@ class MeetingPipeline:
     async def diarize(self, wav: str, segments: list[Segment]) -> None:
         """兼容旧调用方；新的 transcribe() 已在 Workflow 内完成 SD。"""
         await self.diarization.assign(wav, segments)
+
+    async def _transcribe_separated(
+        self,
+        audio_buffer: Any,
+        *,
+        artifact_dir: str | Path | None = None,
+    ) -> tuple[str, list[Segment], dict[str, object], list[str]]:
+        if self.separation is None:
+            raise RuntimeError("separation stage is not configured")
+        separated_input = await asyncio.to_thread(
+            resample_audio_buffer, audio_buffer, self.separation.input_sample_rate
+        )
+        tracks, metrics = await self.separation.process(
+            separated_input,
+            EnhancementContext(realtime=False),
+        )
+        metric_dict = metrics.to_dict()
+        if metrics.status != "applied" or not tracks:
+            return "zh", [], metric_dict, []
+
+        output_dir = Path(artifact_dir).expanduser() if artifact_dir else None
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+        artifacts: list[str] = []
+        segments: list[Segment] = []
+        language = "zh"
+        with tempfile.TemporaryDirectory(prefix="astra_separated_") as directory:
+            for source_index, track in enumerate(tracks):
+                track_for_asr = await asyncio.to_thread(
+                    resample_audio_buffer, track, 16_000
+                )
+                track_wav = audio_buffer_to_wav_bytes(track_for_asr)
+                if output_dir is not None:
+                    artifact = output_dir / f"source-{source_index}.wav"
+                    artifact.write_bytes(track_wav)
+                    artifacts.append(str(artifact.resolve()))
+                track_path = Path(directory) / f"source-{source_index}.wav"
+                track_path.write_bytes(track_wav)
+                result = await self.separated_workflow.run(
+                    track_path,
+                    filename=track_path.name,
+                )
+                language = result.language
+                for segment in result.segments:
+                    segment.speaker = f"S{source_index + 1}"
+                    segment.speaker_id = None
+                    segment.speaker_name = ""
+                    segment.speaker_similarity = None
+                    segment.speaker_confidence = "separated"
+                    segments.append(segment)
+        segments.sort(key=lambda item: (item.start, item.speaker, item.end))
+        return language, segments, metric_dict, artifacts
 
     # ------------------------------------------------------------------ #
     # 4. LLM 纪要 (摘要 + 翻译)
@@ -336,6 +408,8 @@ class MeetingPipeline:
         topic: str = "",
         prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
         progress: Any = None,
+        separate: bool = False,
+        separation_artifact_dir: str | Path | None = None,
     ) -> MeetingResult:
         t0 = time.time()
         tmp_parent: Path | None = None
@@ -353,8 +427,15 @@ class MeetingPipeline:
 
         try:
             enhancement_metrics: list[dict[str, object]] = []
-            if self.enhancement is not None:
+            separation_metrics: list[dict[str, object]] = []
+            separation_artifacts: list[str] = []
+            use_separation = self.separation is not None and (
+                separate or self.separation_trigger == "always"
+            )
+            audio_buffer = None
+            if self.enhancement is not None or use_separation:
                 audio_buffer = await asyncio.to_thread(decode_audio_file, wav)
+            if self.enhancement is not None and audio_buffer is not None:
                 audio_buffer, metrics = await self.enhancement.process(
                     audio_buffer,
                     EnhancementContext(realtime=False),
@@ -362,11 +443,35 @@ class MeetingPipeline:
                 enhancement_metrics = [item.to_dict() for item in metrics]
                 if any(item["status"] == "applied" for item in enhancement_metrics):
                     Path(wav).write_bytes(audio_buffer_to_wav_bytes(audio_buffer))
-            lang, segs = await self.transcribe(wav, progress=progress)
+            if use_separation:
+                try:
+                    if audio_buffer is None:
+                        raise RuntimeError("separation input was not decoded")
+                    lang, segs, metrics, separation_artifacts = (
+                        await self._transcribe_separated(
+                            audio_buffer,
+                            artifact_dir=separation_artifact_dir,
+                        )
+                    )
+                    separation_metrics = [metrics]
+                    if metrics.get("status") != "applied":
+                        lang, segs = await self.transcribe(wav, progress=progress)
+                except Exception as exc:
+                    logger.warning("separation failed, keep mixed audio: %s", exc)
+                    separation_metrics = [{
+                        "stage_name": getattr(self.separation, "name", "separation"),
+                        "status": "failed",
+                        "fallback_reason": str(exc),
+                    }]
+                    lang, segs = await self.transcribe(wav, progress=progress)
+            else:
+                lang, segs = await self.transcribe(wav, progress=progress)
             result = MeetingResult(
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,
                 enhancement_metrics=enhancement_metrics,
+                separation_metrics=separation_metrics,
+                separation_artifacts=separation_artifacts,
             )
             if summarize:
                 result.summary, result.translation = await self.summarize(

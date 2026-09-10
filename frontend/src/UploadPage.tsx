@@ -182,6 +182,7 @@ export default function UploadPage() {
   const [status, setStatus] = useState("选择一个音频文件开始测试");
   const [busy, setBusy] = useState(false);
   const [topic, setTopic] = useState("");
+  const [separateSpeakers, setSeparateSpeakers] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<MeetingPromptTemplate[]>([]);
   const [promptTemplate, setPromptTemplate] = useState("standard");
   const [promptEditor, setPromptEditor] = useState<PromptEditorState | null>(null);
@@ -471,6 +472,7 @@ export default function UploadPage() {
     form.append("file", file);
     form.append("topic", topic);
     form.append("prompt_template", promptTemplate);
+    if (separateSpeakers) form.append("separate", "true");
     let taskId: string | null = null;
     try {
       const response = await fetch("/api/meeting/process", { method: "POST", body: form });
@@ -728,6 +730,21 @@ export default function UploadPage() {
               )}
             </span>
           </label>
+
+          <div className="field field-checkbox">
+            <span>多人重叠语音</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={separateSpeakers}
+                onChange={(event) => setSeparateSpeakers(event.target.checked)}
+              />
+              <span>启用 FLASepformer 双说话人分离（离线、8 kHz、约 30 秒窗口）</span>
+            </label>
+            <small className="field-hint">
+              仅会议纪要按钮生效；模型未配置时会保持原始混合音频流程。
+            </small>
+          </div>
         </section>
 
         <section className="action-panel">

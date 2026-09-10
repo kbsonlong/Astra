@@ -154,3 +154,23 @@ def audio_buffer_to_wav_bytes(audio: AudioBuffer) -> bytes:
         return output.getvalue()
     except Exception as exc:
         raise AudioFormatError("cannot encode audio as WAV") from exc
+
+
+def resample_audio_buffer(audio: AudioBuffer, target_sample_rate: int) -> AudioBuffer:
+    """Resample a mono AudioBuffer while preserving its source and timeline."""
+    _validate_target_rate(target_sample_rate)
+    if audio.channels != 1:
+        raise AudioFormatError("resampling currently requires mono audio")
+    if audio.sample_rate == target_sample_rate:
+        return audio
+    samples = np.asarray(audio.samples, dtype=np.float32)
+    normalized = resample_poly(samples, target_sample_rate, audio.sample_rate).astype(
+        np.float32, copy=False
+    )
+    return AudioBuffer(
+        samples=normalized,
+        sample_rate=target_sample_rate,
+        channels=1,
+        start_time=audio.start_time,
+        source=audio.source,
+    )

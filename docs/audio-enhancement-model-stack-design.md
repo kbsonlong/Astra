@@ -1,6 +1,6 @@
 # Astra 语音增强模型栈设计
 
-> 状态：Phase B 已接入 ZipEnhancer 离线链路，Phase C 已接入 JAEC reference 契约和原生模型适配；模型默认关闭，尚未设为生产默认
+> 状态：Phase B 已接入 ZipEnhancer 离线链路，Phase C 已接入 JAEC reference 契约，Phase D 已接入 FLASepformer 离线分离链路；模型默认关闭，尚未设为生产默认
 >
 > 日期：2026-09-11
 >
@@ -169,12 +169,12 @@ AUDIO_ENHANCEMENT_ENABLED=false
 AUDIO_ANS_MODEL=none                  # none|zipenhancer_16k|frcrn_16k|dfsmn_ans_48k
 AUDIO_AEC_MODEL=none                  # none|jaec_16k|dfsmn_aec_16k
 AUDIO_SEPARATION_MODEL=none           # none|flasepformer_8k|mossformer2_8k
+AUDIO_SEPARATION_TRIGGER=manual       # manual|overlap|always
+AUDIO_SEPARATION_WINDOW_SECONDS=30
 AUDIO_ENHANCEMENT_DEVICE=auto         # auto|cpu|mps|cuda
 AUDIO_ENHANCEMENT_MODEL_DIR=~/.astra/models/audio-enhancement
 AUDIO_ENHANCEMENT_MAX_QUEUE=2
 AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS=80
-AUDIO_SEPARATION_MAX_SPEAKERS=2
-AUDIO_SEPARATION_TRIGGER=manual       # manual|overlap|always
 ```
 
 配置约束：
@@ -328,6 +328,28 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
 - 以 MossFormer2 8K 做效果/资源对照；
 - 每路输出独立 VAD/ASR，并保持原始混合流；
 - 仅将人工确认的分离结果纳入声纹和训练数据流程。
+
+当前实现：
+
+- `backend/app/core/audio_separation.py` 接入 `iic/speech_flatsepreformer_separation_temporal_8k_base_libri2mix100`，要求本地权重目录，不在请求路径自动下载。
+- 输入先显式重采样为 8 kHz mono，按 `AUDIO_SEPARATION_WINDOW_SECONDS`（默认 30 秒）切窗，输出两路 8 kHz PCM；会议 worker 再将每路重采样到 16 kHz，分别执行 VAD/ASR，并标记为 `S1`/`S2`。
+- 会议 API 增加 `separate=true` 表单字段，前端会议工作台提供“启用 FLASepformer 双说话人分离”选项；产物写入 `separated/source-0.wav`、`source-1.wav`，原始混合音频仍保留。
+- `AUDIO_SEPARATION_TRIGGER=manual` 时只在请求显式 `separate=true` 执行；`always` 对每个离线会议执行；`overlap` 当前仅保留配置位，尚未接入独立重叠检测器，不会隐式启动高成本分离。
+- 分离失败会回退到原始混合音频 VAD/ASR，并在 `meta.json`/`status.json` 记录失败原因；实时 WebSocket 不启用该 stage。
+- 当前模型卡声明该 checkpoint 面向干净条件下的 Libri2Mix 双说话人、固定输出两路，并采用 CC BY-NC 4.0；不能据此宣称中文、任意人数、噪声/混响会议的通用效果。
+
+真实模型复测命令（不会自动下载权重）：
+
+```bash
+.venv/bin/pip install -r backend/requirements-audio-enhancement.txt
+PYTHONPATH=backend .venv/bin/python -c \
+  'import os; from modelscope import snapshot_download; snapshot_download("iic/speech_flatsepreformer_separation_temporal_8k_base_libri2mix100", local_dir=os.path.expanduser("~/.astra/models/audio-enhancement/flasepformer_8k"), allow_patterns=["configuration.json", "pytorch_model.pt"])'
+PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_flasepformer.py \
+  --model-dir ~/.astra/models/audio-enhancement/flasepformer_8k \
+  --input /path/to/8k-mono-mix.wav
+```
+
+脚本输出两路 `/tmp/astra-flasepformer-smoke/source-*.wav`，并报告窗口数、总耗时和 RTF。
 
 ### Phase E：产品化选择器
 
