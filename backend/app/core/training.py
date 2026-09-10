@@ -41,9 +41,17 @@ def _training_worker(config_data: dict[str, object], log_path: str) -> None:
 class TrainingManager:
     """每个 API 进程最多运行一个训练子进程，并持久化其控制视图。"""
 
-    def __init__(self, task_store: TaskStore | None = None) -> None:
+    def __init__(
+        self,
+        task_store: TaskStore | None = None,
+        *,
+        max_concurrent_jobs: int = 1,
+        task_timeout_seconds: float = 12 * 60 * 60,
+    ) -> None:
         self._job: TrainingJob | None = None
         self._task_store = task_store
+        self._max_concurrent_jobs = max_concurrent_jobs
+        self._task_timeout_seconds = task_timeout_seconds
         self._lock = asyncio.Lock()
 
     @staticmethod
@@ -80,11 +88,26 @@ class TrainingManager:
             output_dir.mkdir(parents=True, exist_ok=True)
             task_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
             log_path = output_dir / f"training-{task_id}.log"
+            if self._task_store is not None and not self._task_store.reserve(
+                task_id=task_id,
+                kind="training",
+                max_concurrent=self._max_concurrent_jobs,
+                output_dir=str(output_dir),
+                log_path=str(log_path),
+            ):
+                raise RuntimeError("training concurrency limit reached")
             process = get_context("spawn").Process(
                 target=_training_worker,
                 args=(config.to_dict(), str(log_path)),
             )
-            process.start()
+            try:
+                process.start()
+            except Exception:
+                if self._task_store is not None:
+                    self._task_store.update(
+                        task_id, status="failed", detail={"error": "training process failed to start"}
+                    )
+                raise
             pid = process.pid
             self._job = TrainingJob(
                 task_id=task_id,
@@ -119,15 +142,22 @@ class TrainingManager:
         async with self._lock:
             if not self._running() or not self._job or not self._job.pid:
                 raise RuntimeError("当前没有运行中的训练任务")
-            os.kill(self._job.pid, signal.SIGTERM)
             if self._task_store is not None:
-                self._task_store.update(self._job.task_id, status="stopped")
+                self._task_store.terminate(
+                    self._job.task_id, reason="cancelled by administrator"
+                )
+            else:
+                os.kill(self._job.pid, signal.SIGTERM)
             return self.status()
 
     def status(self) -> dict[str, object]:
         if not self._job:
             return {"status": "idle"}
-        record = self._task_store.get(self._job.task_id) if self._task_store else None
+        record = None
+        if self._task_store is not None:
+            record = self._task_store.reconcile_task(
+                self._job.task_id, timeout_seconds=self._task_timeout_seconds
+            )
         process = self._job.process
         code = process.exitcode if process is not None else None  # type: ignore[attr-defined]
         state = record.status if record is not None else (

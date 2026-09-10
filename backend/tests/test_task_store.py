@@ -124,3 +124,58 @@ async def test_training_manager_persists_start_reap_and_stop(tmp_path, monkeypat
     stopped = await manager.stop()
     assert stopped["status"] == "stopped"
     assert store.get("training-stop").status == "stopped"
+
+
+def test_task_store_reserves_kind_slots_atomically(tmp_path) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+
+    assert store.reserve(
+        task_id="meeting-1", kind="meeting", max_concurrent=1,
+        output_dir=str(tmp_path / "meeting-1"),
+    )
+    assert not store.reserve(
+        task_id="meeting-2", kind="meeting", max_concurrent=1,
+        output_dir=str(tmp_path / "meeting-2"),
+    )
+    assert store.reserve(
+        task_id="training-1", kind="training", max_concurrent=1,
+        output_dir=str(tmp_path / "training-1"),
+    )
+
+
+def test_task_store_terminates_meeting_process_group(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id="meeting-1", kind="meeting", status="processing", pid=123,
+        pgid=456, output_dir=str(tmp_path), log_path="job.log",
+    )
+    calls: list[tuple[int, object]] = []
+    monkeypatch.setattr("app.core.task_store.os.killpg", lambda pgid, sig: calls.append((pgid, sig)))
+
+    record = store.terminate("meeting-1", reason="cancelled by administrator")
+
+    assert calls and calls[0][0] == 456
+    assert record.status == "stopped"
+    assert record.detail["error"] == "cancelled by administrator"
+
+
+def test_task_store_times_out_live_task(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id="meeting-1", kind="meeting", status="processing", pid=123,
+        pgid=456, output_dir=str(tmp_path), log_path="job.log",
+    )
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE tasks SET started_at = '2000-01-01 00:00:00' WHERE task_id = ?",
+            ("meeting-1",),
+        )
+    monkeypatch.setattr(TaskStore, "pid_alive", staticmethod(lambda pid: True))
+    calls: list[int] = []
+    monkeypatch.setattr("app.core.task_store.os.killpg", lambda pgid, sig: calls.append(pgid))
+
+    record = store.reconcile_task("meeting-1", timeout_seconds=1)
+
+    assert calls == [456]
+    assert record.status == "failed"
+    assert record.detail["error"] == "task timed out after 1s"

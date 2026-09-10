@@ -11,6 +11,7 @@ from app.api.meeting_routes import (
     _new_task_id,
     _render_markdown,
 )
+from app.core.task_store import TaskStore
 from app.config import Settings
 from app.core.meeting import MeetingResult, Segment
 
@@ -378,3 +379,64 @@ def test_training_review_paginates_and_batch_updates_segments(tmp_path) -> None:
         assert saved[0]["text"] == "确认一"
         assert saved[1]["text"] == "确认二"
         assert all(row["review_status"] == ("approved" if row["segment_id"] != "seg-000003" else "pending") for row in saved)
+
+
+def test_process_rejects_when_meeting_concurrency_limit_is_reached(tmp_path) -> None:
+    from app.main import create_app
+
+    task_store_path = tmp_path / "tasks.sqlite3"
+    store = TaskStore(task_store_path)
+    store.register(
+        task_id="existing-meeting", kind="meeting", status="processing", pid=None,
+        pgid=None, output_dir=str(tmp_path / "existing"), log_path="",
+    )
+    app = create_app(
+        settings=Settings(
+            meeting_output_dir=str(tmp_path / "meetings"),
+            task_store_path=str(task_store_path),
+            meeting_max_concurrent_jobs=1,
+        ),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+
+    response = TestClient(app).post(
+        "/api/meeting/process",
+        files={"file": ("meeting.wav", b"audio", "audio/wav")},
+    )
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "meeting concurrency limit reached"
+    meetings_dir = tmp_path / "meetings"
+    assert not meetings_dir.exists() or list(meetings_dir.iterdir()) == []
+
+
+def test_cancel_meeting_stops_process_group_and_updates_status(tmp_path, monkeypatch) -> None:
+    from app.main import create_app
+
+    task_id = "20260905-123456-1a2b3c4d"
+    out_dir = tmp_path / task_id
+    out_dir.mkdir()
+    (out_dir / "status.json").write_text('{"status":"processing"}', encoding="utf-8")
+    task_store_path = tmp_path / "tasks.sqlite3"
+    store = TaskStore(task_store_path)
+    store.register(
+        task_id=task_id, kind="meeting", status="processing", pid=123,
+        pgid=456, output_dir=str(out_dir), log_path=str(out_dir / "job.log"),
+    )
+    calls: list[int] = []
+    monkeypatch.setattr("app.core.task_store.os.killpg", lambda pgid, sig: calls.append(pgid))
+    app = create_app(
+        settings=Settings(meeting_output_dir=str(tmp_path), task_store_path=str(task_store_path)),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+
+    response = TestClient(app).delete(f"/api/meeting/{task_id}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "stopped"
+    assert calls == [456]
+    status = json.loads((out_dir / "status.json").read_text(encoding="utf-8"))
+    assert status["status"] == "stopped"
+    assert status["error"] == "cancelled by administrator"

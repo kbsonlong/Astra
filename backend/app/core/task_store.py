@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import sqlite3
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -106,6 +108,43 @@ class TaskStore:
             )
         return self.get(task_id)  # type: ignore[return-value]
 
+    def reserve(
+        self,
+        *,
+        task_id: str,
+        kind: str,
+        max_concurrent: int,
+        output_dir: str,
+        log_path: str = "",
+        detail: dict[str, Any] | None = None,
+    ) -> bool:
+        """Atomically reserve one processing slot before spawning a child."""
+        if max_concurrent < 1:
+            raise ValueError("max_concurrent must be at least 1")
+        if kind not in {"meeting", "training"}:
+            raise ValueError("unsupported task kind")
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            active = connection.execute(
+                "SELECT COUNT(*) FROM tasks WHERE kind = ? AND status = 'processing'",
+                (kind,),
+            ).fetchone()[0]
+            if active >= max_concurrent:
+                return False
+            connection.execute(
+                "INSERT INTO tasks(task_id, kind, status, output_dir, log_path, detail) "
+                "VALUES (?, ?, 'processing', ?, ?, ?)",
+                (task_id, kind, output_dir, log_path, json.dumps(detail or {}, ensure_ascii=False)),
+            )
+        return True
+
+    def active_count(self, kind: str) -> int:
+        with self._connect() as connection:
+            return int(connection.execute(
+                "SELECT COUNT(*) FROM tasks WHERE kind = ? AND status = 'processing'",
+                (kind,),
+            ).fetchone()[0])
+
     def update(
         self,
         task_id: str,
@@ -164,19 +203,59 @@ class TaskStore:
             return True
         return True
 
-    def reconcile(self) -> list[TaskRecord]:
+    @staticmethod
+    def _elapsed_seconds(started_at: str) -> float:
+        try:
+            started = datetime.fromisoformat(started_at).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return 0.0
+        return max(0.0, (datetime.now(timezone.utc) - started).total_seconds())
+
+    def terminate(self, task_id: str, *, status: str = "stopped", reason: str) -> TaskRecord:
+        record = self.get(task_id)
+        if record is None:
+            raise KeyError(task_id)
+        if record.status != "processing":
+            return record
+        try:
+            if record.kind == "meeting" and record.pgid:
+                os.killpg(record.pgid, signal.SIGTERM)
+            elif record.pid:
+                os.kill(record.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        return self.update(task_id, status=status, detail={"error": reason})
+
+    def reconcile(self, timeouts: dict[str, float] | None = None) -> list[TaskRecord]:
         """Converge stale processing entries after API restart or child exit."""
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT * FROM tasks WHERE status = 'processing'"
             ).fetchall()
-        return [self.reconcile_task(row["task_id"]) for row in rows]
+        return [
+            self.reconcile_task(row["task_id"], timeout_seconds=(timeouts or {}).get(row["kind"]))
+            for row in rows
+        ]
 
-    def reconcile_task(self, task_id: str) -> TaskRecord:
+    def reconcile_task(
+        self, task_id: str, *, timeout_seconds: float | None = None
+    ) -> TaskRecord:
         record = self.get(task_id)
         if record is None:
             raise KeyError(task_id)
-        if record.status != "processing" or self.pid_alive(record.pid):
+        if record.status != "processing":
+            return record
+        if (
+            timeout_seconds is not None
+            and record.pid is not None
+            and self._elapsed_seconds(record.started_at) >= timeout_seconds
+        ):
+            return self.terminate(
+                task_id,
+                status="failed",
+                reason=f"task timed out after {timeout_seconds:g}s",
+            )
+        if self.pid_alive(record.pid):
             return record
         status, detail = self._terminal_status(record)
         return self.update(record.task_id, status=status, detail=detail)

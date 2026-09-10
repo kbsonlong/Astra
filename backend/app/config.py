@@ -220,6 +220,10 @@ class Settings:
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     meeting_output_dir: str = "~/Astra/meetings"
     task_store_path: str = "~/.astra/tasks.sqlite3"
+    meeting_max_concurrent_jobs: int = 1
+    training_max_concurrent_jobs: int = 1
+    meeting_task_timeout_seconds: float = 2 * 60 * 60
+    training_task_timeout_seconds: float = 12 * 60 * 60
     transcribe_max_upload_bytes: int = 25 * 1024 * 1024
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
     ws_max_audio_bytes: int = 25 * 1024 * 1024
@@ -338,6 +342,18 @@ class Settings:
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
             task_store_path=os.getenv("TASK_STORE_PATH", cls.task_store_path),
+            meeting_max_concurrent_jobs=_positive_int_env(
+                "MEETING_MAX_CONCURRENT_JOBS", cls.meeting_max_concurrent_jobs
+            ),
+            training_max_concurrent_jobs=_positive_int_env(
+                "TRAINING_MAX_CONCURRENT_JOBS", cls.training_max_concurrent_jobs
+            ),
+            meeting_task_timeout_seconds=_positive_float_env(
+                "MEETING_TASK_TIMEOUT_SECONDS", cls.meeting_task_timeout_seconds
+            ),
+            training_task_timeout_seconds=_positive_float_env(
+                "TRAINING_TASK_TIMEOUT_SECONDS", cls.training_task_timeout_seconds
+            ),
             transcribe_max_upload_bytes=_positive_int_env(
                 "TRANSCRIBE_MAX_UPLOAD_BYTES", cls.transcribe_max_upload_bytes
             ),

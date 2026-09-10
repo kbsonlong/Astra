@@ -3,6 +3,7 @@ import json
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.core.task_store import TaskStore
 from app.main import create_app
 
 
@@ -36,3 +37,25 @@ def test_training_datasets_returns_only_meetings_with_approved_rows(tmp_path) ->
         "total_count": 2,
         "updated_at": response.json()["items"][0]["updated_at"],
     }]
+
+
+def test_training_start_rejects_persisted_concurrency_limit(tmp_path) -> None:
+    task_store_path = tmp_path / "tasks.sqlite3"
+    store = TaskStore(task_store_path)
+    store.reserve(
+        task_id="existing-training", kind="training", max_concurrent=1,
+        output_dir=str(tmp_path / "model"),
+    )
+    app = create_app(
+        settings=Settings(
+            task_store_path=str(task_store_path),
+            training_max_concurrent_jobs=1,
+        ),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+
+    response = TestClient(app).post("/api/training/start")
+
+    assert response.status_code == 429
+    assert response.json()["detail"] == "training concurrency limit reached"

@@ -120,7 +120,7 @@ type MeetingResult = {
 type MeetingStatus = {
   type?: string;
   task_id: string;
-  status: "processing" | "done" | "failed";
+  status: "processing" | "done" | "failed" | "stopped";
   duration_s?: number;
   segments?: number;
   speakers?: string[];
@@ -187,6 +187,7 @@ export default function UploadPage() {
   const [promptEditor, setPromptEditor] = useState<PromptEditorState | null>(null);
   const [promptEditorStatus, setPromptEditorStatus] = useState("");
   const [meeting, setMeeting] = useState<MeetingResult | null>(null);
+  const [activeMeetingTask, setActiveMeetingTask] = useState<string | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerProfile[]>([]);
   const [speakerName, setSpeakerName] = useState("");
   const [speakerStatus, setSpeakerStatus] = useState("声纹档案未加载");
@@ -194,6 +195,7 @@ export default function UploadPage() {
   const [speakerNotifications, setSpeakerNotifications] = useState<SpeakerNotification[]>([]);
   const [speakerSamples, setSpeakerSamples] = useState<Record<string, SpeakerSample[]>>({});
   const meetingSocket = useRef<WebSocket | null>(null);
+  const cancelledMeetingTask = useRef<string | null>(null);
   const notificationSocket = useRef<WebSocket | null>(null);
 
   useEffect(() => {
@@ -302,6 +304,8 @@ export default function UploadPage() {
     setCorrection("");
     setCorrectionTimeline([]);
     setMeeting(null);
+    setActiveMeetingTask(null);
+    cancelledMeetingTask.current = null;
     meetingSocket.current?.close();
     meetingSocket.current = null;
     setStatus(event.target.files?.[0]?.name ?? "选择一个音频文件开始测试");
@@ -334,10 +338,10 @@ export default function UploadPage() {
           setStatus(`会议处理中 ${current.elapsed_s ?? 0}s`);
           return;
         }
-        if (current.status === "failed") {
+        if (current.status === "failed" || current.status === "stopped") {
           finished = true;
           connection.close();
-          reject(new Error(current.error ?? "会议处理失败，请查看服务端日志"));
+          reject(new Error(current.error ?? (current.status === "stopped" ? "会议已取消" : "会议处理失败，请查看服务端日志")));
           return;
         }
         finished = true;
@@ -364,7 +368,12 @@ export default function UploadPage() {
       };
       connection.onclose = () => {
         if (meetingSocket.current === connection) meetingSocket.current = null;
-        if (!finished) reject(new Error("会议状态 WebSocket 已断开"));
+        if (!finished) {
+          finished = true;
+          reject(new Error(
+            cancelledMeetingTask.current === taskId ? "会议已取消" : "会议状态 WebSocket 已断开",
+          ));
+        }
       };
     });
   }
@@ -462,11 +471,15 @@ export default function UploadPage() {
     form.append("file", file);
     form.append("topic", topic);
     form.append("prompt_template", promptTemplate);
+    let taskId: string | null = null;
     try {
       const response = await fetch("/api/meeting/process", { method: "POST", body: form });
       const payload = await response.json() as MeetingResult | { detail?: string };
       if (!response.ok) throw new Error("detail" in payload ? payload.detail : "会议处理失败");
       const job = payload as { task_id: string; report_path?: string };
+      taskId = job.task_id;
+      cancelledMeetingTask.current = null;
+      setActiveMeetingTask(taskId);
       setStatus("会议处理中，请稍候...");
       const completed = await waitForMeeting(job.task_id, job.report_path ?? "", file.name);
       setMeeting(completed);
@@ -476,6 +489,25 @@ export default function UploadPage() {
       setStatus(error instanceof Error ? error.message : "会议处理失败");
     } finally {
       setBusy(false);
+      if (taskId) setActiveMeetingTask((current) => current === taskId ? null : current);
+    }
+  }
+
+  async function cancelMeeting() {
+    if (!activeMeetingTask) return;
+    const taskId = activeMeetingTask;
+    try {
+      const response = await fetch(`/api/meeting/${encodeURIComponent(taskId)}`, { method: "DELETE" });
+      const payload = await response.json() as { detail?: string; status?: string };
+      if (!response.ok) throw new Error(payload.detail ?? "取消会议处理失败");
+      cancelledMeetingTask.current = taskId;
+      meetingSocket.current?.close();
+      meetingSocket.current = null;
+      setActiveMeetingTask(null);
+      setBusy(false);
+      setStatus(payload.status === "stopped" ? "会议已取消" : "会议任务已结束");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "取消会议处理失败");
     }
   }
 
@@ -704,6 +736,11 @@ export default function UploadPage() {
           <button type="button" className="meeting-btn" disabled={busy || !file} onClick={runMeeting}>
             {busy ? "处理中..." : "生成会议纪要"}
           </button>
+          {activeMeetingTask && (
+            <button type="button" className="danger-action" onClick={cancelMeeting}>
+              取消会议处理
+            </button>
+          )}
         </section>
       </form>
 

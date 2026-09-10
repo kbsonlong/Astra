@@ -53,6 +53,8 @@ async def start_training(request: Request, payload: TrainingConfigPayload | None
         config = payload.to_config() if payload else request.app.state.training_config_loader()
         return await manager.start(config)
     except (RuntimeError, ValueError, OSError) as exc:
+        if isinstance(exc, RuntimeError) and "concurrency limit reached" in str(exc):
+            raise HTTPException(status_code=429, detail=str(exc)) from exc
         raise HTTPException(status_code=409 if isinstance(exc, RuntimeError) else 422, detail=str(exc)) from exc
 
 

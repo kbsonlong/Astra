@@ -16,6 +16,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import sys
 import time
 import uuid
@@ -164,7 +165,11 @@ def _job_dir(base: Path, task_id: str) -> Path:
 
 
 def _status_payload(
-    base: Path, task_id: str, task_store: object | None = None
+    base: Path,
+    task_id: str,
+    task_store: object | None = None,
+    *,
+    timeout_seconds: float | None = None,
 ) -> dict[str, object]:
     out_dir = _job_dir(base, task_id)
     status_path = out_dir / "status.json"
@@ -173,7 +178,9 @@ def _status_payload(
     status = json.loads(status_path.read_text(encoding="utf-8"))
     if task_store is not None and status.get("status") == "processing":
         try:
-            record = task_store.reconcile_task(task_id)  # type: ignore[attr-defined]
+            record = task_store.reconcile_task(  # type: ignore[attr-defined]
+                task_id, timeout_seconds=timeout_seconds
+            )
         except KeyError:
             record = None
         if record is not None and record.status != "processing":
@@ -447,6 +454,19 @@ async def process_meeting(
         encoding="utf-8",
     )
 
+    task_store = request.app.state.task_store
+    log_path = out_dir / "job.log"
+    if not task_store.reserve(
+        task_id=task_id,
+        kind="meeting",
+        max_concurrent=settings.meeting_max_concurrent_jobs,
+        output_dir=str(out_dir),
+        log_path=str(log_path),
+        detail={"filename": filename, "prompt_template": selected_template.id},
+    ):
+        shutil.rmtree(out_dir)
+        raise HTTPException(status_code=429, detail="meeting concurrency limit reached")
+
     argv = [
         sys.executable, "-m", "app.core.meeting_cli",
         "--audio", str(in_path),
@@ -461,7 +481,6 @@ async def process_meeting(
     env = dict(os.environ)
     env.update(llm_environment_values(settings))
     env["PYTHONPATH"] = str(_REPO_ROOT / "backend")
-    log_path = out_dir / "job.log"
     try:
         with log_path.open("wb") as log:
             # start_new_session: 脱离进程组, uvicorn 退出/重启不杀会议任务
@@ -511,6 +530,28 @@ async def process_meeting(
     }
 
 
+@router.delete("/{task_id}")
+async def cancel_meeting(task_id: str, request: Request) -> dict[str, object]:
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    status_path = out_dir / "status.json"
+    if not status_path.is_file():
+        raise HTTPException(status_code=404, detail="task not found")
+    try:
+        record = request.app.state.task_store.terminate(
+            task_id, reason="cancelled by administrator"
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="task not found") from exc
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        status = {}
+    status.update({"status": record.status, **record.detail})
+    status_path.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+    return {"task_id": task_id, "status": record.status, **record.detail}
+
+
 @router.websocket("/{task_id}/events")
 async def meeting_events(websocket: WebSocket, task_id: str) -> None:
     if not await authorize_websocket(websocket):
@@ -522,7 +563,10 @@ async def meeting_events(websocket: WebSocket, task_id: str) -> None:
         while True:
             try:
                 payload = _status_payload(
-                    base, task_id, websocket.app.state.task_store
+                    base,
+                    task_id,
+                    websocket.app.state.task_store,
+                    timeout_seconds=settings.meeting_task_timeout_seconds,
                 )
             except HTTPException as exc:
                 await websocket.send_json(
@@ -536,7 +580,7 @@ async def meeting_events(websocket: WebSocket, task_id: str) -> None:
                 await websocket.close(code=1008)
                 return
             await websocket.send_json(payload)
-            if payload.get("status") in {"done", "failed"}:
+            if payload.get("status") in {"done", "failed", "stopped"}:
                 await websocket.close(code=1000)
                 return
             await asyncio.sleep(1)

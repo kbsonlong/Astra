@@ -102,6 +102,10 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "tts_model_path": current.tts_model_path,
         "qwen3_training_config_path": current.qwen3_training_config_path,
         "task_store_path": current.task_store_path,
+        "meeting_max_concurrent_jobs": current.meeting_max_concurrent_jobs,
+        "training_max_concurrent_jobs": current.training_max_concurrent_jobs,
+        "meeting_task_timeout_seconds": current.meeting_task_timeout_seconds,
+        "training_task_timeout_seconds": current.training_task_timeout_seconds,
         "version": current.version,
     }
 
@@ -129,7 +133,10 @@ def _build_meeting_stages(
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    records = app.state.task_store.reconcile()
+    records = app.state.task_store.reconcile({
+        "meeting": app.state.settings.meeting_task_timeout_seconds,
+        "training": app.state.settings.training_task_timeout_seconds,
+    })
     for record in records:
         app.state.training_manager.restore(record)
     yield
@@ -164,7 +171,11 @@ def create_app(
         return await call_next(request)
 
     app.state.task_store = TaskStore(current.task_store_path)
-    app.state.training_manager = TrainingManager(app.state.task_store)
+    app.state.training_manager = TrainingManager(
+        app.state.task_store,
+        max_concurrent_jobs=current.training_max_concurrent_jobs,
+        task_timeout_seconds=current.training_task_timeout_seconds,
+    )
     app.state.training_config_loader = lambda: load_qwen3_training_config(
         current.qwen3_training_config_path
     )
