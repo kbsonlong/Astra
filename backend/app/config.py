@@ -28,6 +28,13 @@ def _positive_int_env(name: str, default: int) -> int:
     return value
 
 
+def _positive_float_env(name: str, default: float) -> float:
+    value = _float_env(name, default)
+    if value <= 0:
+        raise ValueError(f"{name} must be greater than 0")
+    return value
+
+
 def _csv_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
     value = os.getenv(name)
     if value is None:
@@ -191,6 +198,9 @@ class Settings:
     asr_repetition_context_size: int = 100
     asr_chunk_duration_seconds: float = 30.0
     asr_long_audio_threshold_seconds: float = 60.0
+    asr_worker_queue_size: int = 8
+    asr_worker_request_timeout_seconds: float = 120.0
+    asr_worker_shutdown_timeout_seconds: float = 5.0
     asr_hotwords: tuple[str, ...] = ()
     asr_system_prompt: str = ""
     # 离线会议 Workflow: VAD -> ASR -> punctuation -> speaker diarization
@@ -279,6 +289,17 @@ class Settings:
             asr_long_audio_threshold_seconds=_float_env(
                 "ASR_LONG_AUDIO_THRESHOLD_SECONDS",
                 cls.asr_long_audio_threshold_seconds,
+            ),
+            asr_worker_queue_size=_positive_int_env(
+                "ASR_WORKER_QUEUE_SIZE", cls.asr_worker_queue_size
+            ),
+            asr_worker_request_timeout_seconds=_positive_float_env(
+                "ASR_WORKER_REQUEST_TIMEOUT_SECONDS",
+                cls.asr_worker_request_timeout_seconds,
+            ),
+            asr_worker_shutdown_timeout_seconds=_positive_float_env(
+                "ASR_WORKER_SHUTDOWN_TIMEOUT_SECONDS",
+                cls.asr_worker_shutdown_timeout_seconds,
             ),
             asr_hotwords=_csv_env("ASR_HOTWORDS", cls.asr_hotwords),
             asr_system_prompt=os.getenv("ASR_SYSTEM_PROMPT", cls.asr_system_prompt),

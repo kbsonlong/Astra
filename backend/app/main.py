@@ -1,3 +1,4 @@
+from contextlib import asynccontextmanager
 from dataclasses import replace
 
 from fastapi import FastAPI, HTTPException, Request
@@ -27,6 +28,7 @@ from .core.pipeline import VoicePipeline
 from .core.correction import parse_correction_rules
 from .core.workflow import CorrectionStage, ResemblyzerDiarizationStage
 from .models.asr_client import MlxAudioAsrClient
+from .models.asr_worker import AsrWorkerClient
 from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
@@ -79,6 +81,9 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "asr_repetition_context_size": current.asr_repetition_context_size,
         "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
         "asr_long_audio_threshold_seconds": current.asr_long_audio_threshold_seconds,
+        "asr_worker_queue_size": current.asr_worker_queue_size,
+        "asr_worker_request_timeout_seconds": current.asr_worker_request_timeout_seconds,
+        "asr_worker_shutdown_timeout_seconds": current.asr_worker_shutdown_timeout_seconds,
         "asr_hotwords": list(current.asr_hotwords),
         "asr_system_prompt_configured": bool(current.asr_system_prompt),
         "vad_model": current.vad_model,
@@ -120,6 +125,14 @@ def _build_meeting_stages(
     return punctuation, diarization
 
 
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    yield
+    worker = getattr(app.state, "asr_worker", None)
+    if worker is not None:
+        await worker.aclose()
+
+
 def create_app(
     settings: Settings | None = None,
     pipeline: VoicePipeline | None = None,
@@ -128,7 +141,7 @@ def create_app(
     enable_pipeline: bool = True,
     enable_meeting: bool = True,
 ) -> FastAPI:
-    app = FastAPI(title="Astra API", version="0.1.0")
+    app = FastAPI(title="Astra API", version="0.1.0", lifespan=app_lifespan)
     current = settings or Settings.from_env()
     app.state.settings = current
 
@@ -156,20 +169,28 @@ def create_app(
         duplicate_threshold=current.speaker_duplicate_threshold,
         sample_dir=current.speaker_sample_dir,
     )
+    app.state.asr_worker = None
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
+        realtime_asr = MlxAudioAsrClient(
+            current.asr_model,
+            current.asr_language,
+            max_tokens=current.asr_max_tokens,
+            repetition_penalty=current.asr_repetition_penalty,
+            repetition_context_size=current.asr_repetition_context_size,
+            chunk_duration=current.asr_chunk_duration_seconds,
+            long_audio_threshold=current.asr_long_audio_threshold_seconds,
+            hotwords=current.asr_hotwords,
+            system_prompt=current.asr_system_prompt,
+        )
+        app.state.asr_worker = AsrWorkerClient(
+            realtime_asr,
+            max_queue=current.asr_worker_queue_size,
+            request_timeout_seconds=current.asr_worker_request_timeout_seconds,
+            shutdown_timeout_seconds=current.asr_worker_shutdown_timeout_seconds,
+        )
         app.state.pipeline = VoicePipeline(
-            MlxAudioAsrClient(
-                current.asr_model,
-                current.asr_language,
-                max_tokens=current.asr_max_tokens,
-                repetition_penalty=current.asr_repetition_penalty,
-                repetition_context_size=current.asr_repetition_context_size,
-                chunk_duration=current.asr_chunk_duration_seconds,
-                long_audio_threshold=current.asr_long_audio_threshold_seconds,
-                hotwords=current.asr_hotwords,
-                system_prompt=current.asr_system_prompt,
-            ),
+            app.state.asr_worker,
             OpenAICompatLLMClient(
                 current.llm_base_url,
                 current.llm_model,

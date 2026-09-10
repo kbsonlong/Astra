@@ -2,9 +2,14 @@ import base64
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
-from ..models.asr_client import MlxAudioAsrClient
+from typing import Protocol
+
 from ..models.llm_client import OpenAICompatLLMClient
 from ..models.tts_client import PiperSdkTtsClient
+
+
+class ASRClient(Protocol):
+    async def transcribe(self, audio: bytes, filename: str = "speech.wav") -> str: ...
 
 
 Emit = Callable[[dict[str, object]], Awaitable[None]]
@@ -14,7 +19,7 @@ _SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 class VoicePipeline:
     def __init__(
         self,
-        asr: MlxAudioAsrClient,
+        asr: ASRClient,
         llm: OpenAICompatLLMClient,
         tts: PiperSdkTtsClient,
     ) -> None:
