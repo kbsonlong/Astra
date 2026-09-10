@@ -297,3 +297,63 @@ def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
     audio = client.get(f"/api/meeting/{task_id}/training-data/seg-000001/audio")
     assert audio.status_code == 200
     assert audio.content == b"RIFF"
+
+
+def test_training_review_paginates_and_batch_updates_segments(tmp_path) -> None:
+    task_id = "20260905-123456-1a2b3c4d"
+    out_dir = tmp_path / task_id
+    out_dir.mkdir()
+    rows = [
+        {
+            "segment_id": f"seg-{index:06d}",
+            "start": float(index),
+            "end": float(index + 1),
+            "raw_text": f"原始 {index}",
+            "corrected_text": f"原始 {index}",
+            "text": f"原始 {index}",
+            "review_status": "pending",
+        }
+        for index in range(1, 4)
+    ]
+    for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
+        (out_dir / name).write_text(
+            "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n",
+            encoding="utf-8",
+        )
+
+    from app.main import create_app
+
+    app = create_app(settings=Settings(meeting_output_dir=str(tmp_path)), enable_pipeline=False, enable_meeting=False)
+    client = TestClient(app)
+
+    page = client.get(f"/api/meeting/{task_id}/training-data?page=2&page_size=2")
+    assert page.status_code == 200
+    assert page.json()["pagination"] == {
+        "page": 2,
+        "page_size": 2,
+        "total": 3,
+        "total_pages": 2,
+        "has_next": False,
+        "has_prev": True,
+    }
+    assert [item["segment_id"] for item in page.json()["items"]] == ["seg-000003"]
+
+    batch = client.post(
+        f"/api/meeting/{task_id}/training-data/batch-review",
+        json={
+            "review_status": "approved",
+            "items": [
+                {"segment_id": "seg-000001", "corrected_text": "确认一"},
+                {"segment_id": "seg-000002", "corrected_text": "确认二"},
+            ],
+        },
+    )
+    assert batch.status_code == 200
+    assert batch.json()["updated_count"] == 2
+    assert batch.json()["counts"] == {"pending": 1, "approved": 2, "rejected": 0}
+
+    for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
+        saved = [json.loads(line) for line in (out_dir / name).read_text(encoding="utf-8").splitlines()]
+        assert saved[0]["text"] == "确认一"
+        assert saved[1]["text"] == "确认二"
+        assert all(row["review_status"] == ("approved" if row["segment_id"] != "seg-000003" else "pending") for row in saved)

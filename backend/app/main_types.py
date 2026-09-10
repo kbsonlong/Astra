@@ -27,3 +27,21 @@ class TrainingConfigPayload(BaseModel):
 
     def to_config(self) -> Qwen3TrainingConfig:
         return Qwen3TrainingConfig.from_mapping(self.model_dump())
+
+
+class LLMSettingsPayload(BaseModel):
+    """LLM settings accepted by the management page; omitted fields are preserved."""
+
+    llm_base_url: str | None = Field(default=None, min_length=1, max_length=500)
+    llm_chat_path: str | None = Field(default=None, min_length=1, max_length=200)
+    llm_models_path: str | None = Field(default=None, min_length=1, max_length=200)
+    llm_model: str | None = Field(default=None, max_length=500)
+    llm_api_key: str | None = Field(default=None, max_length=1000)
+    llm_request_timeout_seconds: float | None = Field(default=None, gt=0, le=3600)
+    llm_connect_timeout_seconds: float | None = Field(default=None, gt=0, le=300)
+    llm_stream_idle_timeout_seconds: float | None = Field(default=None, gt=0, le=3600)
+    llm_correction_enabled: bool | None = None
+    llm_correction_max_tokens: int | None = Field(default=None, ge=1, le=8192)
+    llm_correction_system_prompt: str | None = Field(default=None, max_length=20000)
+    meeting_llm_correction_enabled: bool | None = None
+    meeting_llm_correction_candidates: list[str] | None = Field(default=None, max_length=200)

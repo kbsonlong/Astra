@@ -176,6 +176,7 @@ export default function TrainingPage() {
           <a className="nav-link" href="/">实时通话</a>
           <a className="nav-link" href="/upload">会议工作台</a>
           <a className="nav-link active" href="/training">训练设置</a>
+          <a className="nav-link" href="/settings">管理设置</a>
         </nav>
       </header>
       <section className="page-heading">

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import UploadPage from "./UploadPage";
 import ReviewPage from "./ReviewPage";
 import TrainingPage from "./TrainingPage";
+import SettingsPage from "./SettingsPage";
 
 type ServerEvent = {
   type: string;
@@ -38,6 +39,7 @@ export default function App() {
   if (location.pathname === "/upload") return <UploadPage />;
   if (location.pathname === "/review") return <ReviewPage />;
   if (location.pathname === "/training") return <TrainingPage />;
+  if (location.pathname === "/settings") return <SettingsPage />;
 
   const socket = useRef<WebSocket | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
@@ -221,6 +223,7 @@ export default function App() {
           <a className="nav-link" href="/upload">会议工作台</a>
           <a className="nav-link" href="/review">逐段审校</a>
           <a className="nav-link" href="/training">训练设置</a>
+          <a className="nav-link" href="/settings">管理设置</a>
         </nav>
       </header>
 

@@ -28,6 +28,68 @@ def test_config_masks_api_key(settings: Settings) -> None:
     assert "secret" not in response.text
 
 
+def test_llm_config_can_be_saved_and_preserves_masked_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    settings = Settings(
+        llm_base_url="http://old.test/v1",
+        llm_chat_path="/chat/completions",
+        llm_models_path="/models",
+        llm_model="old-model",
+        llm_api_key="sk-existing-secret",
+    )
+    client = TestClient(
+        create_app(settings, enable_pipeline=False, enable_meeting=False)
+    )
+    for key in (
+        "LLM_BASE_URL",
+        "LLM_CHAT_PATH",
+        "LLM_MODELS_PATH",
+        "LLM_MODEL",
+        "LLM_API_KEY",
+        "LLM_REQUEST_TIMEOUT_SECONDS",
+        "LLM_CONNECT_TIMEOUT_SECONDS",
+        "LLM_STREAM_IDLE_TIMEOUT_SECONDS",
+        "LLM_CORRECTION_ENABLED",
+        "LLM_CORRECTION_MAX_TOKENS",
+        "LLM_CORRECTION_SYSTEM_PROMPT",
+        "MEETING_LLM_CORRECTION_ENABLED",
+        "MEETING_LLM_CORRECTION_CANDIDATES",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    payload = {
+        "llm_base_url": "http://new.test/v1/",
+        "llm_chat_path": "/v1/chat/completions",
+        "llm_models_path": "/v1/models",
+        "llm_model": "new-model",
+        "llm_api_key": None,
+        "llm_request_timeout_seconds": 90,
+        "llm_connect_timeout_seconds": 4,
+        "llm_stream_idle_timeout_seconds": 20,
+        "llm_correction_enabled": True,
+        "llm_correction_max_tokens": 128,
+        "llm_correction_system_prompt": "只修正明显错误。",
+        "meeting_llm_correction_enabled": False,
+        "meeting_llm_correction_candidates": ["术语A->术语B"],
+    }
+
+    response = client.put("/api/config", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["llm_base_url"] == "http://new.test/v1"
+    assert response.json()["llm_api_key"] == "sk-e...cret"
+    assert response.json()["runtime_applied"] is True
+    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    assert "LLM_BASE_URL='http://new.test/v1'" in env_text
+    assert "LLM_MODEL='new-model'" in env_text
+    assert "LLM_API_KEY='sk-existing-secret'" in env_text
+
+    saved = client.get("/api/config").json()
+    assert saved["llm_model"] == "new-model"
+    assert saved["meeting_llm_correction_candidates"] == ["术语A->术语B"]
+
+
 def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.chdir(tmp_path)
     # load_dotenv 默认不覆盖已存在的环境变量: 若同进程内先前测试在项目根

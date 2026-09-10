@@ -636,6 +636,7 @@ export default function UploadPage() {
           <a className="nav-link active" href="/upload">会议工作台</a>
           <a className="nav-link" href="/review">逐段审校</a>
           <a className="nav-link" href="/training">训练设置</a>
+          <a className="nav-link" href="/settings">管理设置</a>
           <span className={`notification-indicator${speakerNotifications.length > 0 ? " has-notifications" : ""}`} title="声纹审核提醒">
             {speakerNotifications.length > 0 ? `待审核 ${speakerNotifications.length}` : "无新提醒"}
           </span>

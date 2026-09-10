@@ -459,7 +459,8 @@ h1 {
 }
 
 .training-field input,
-.training-field select {
+.training-field select,
+.training-field textarea {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(22, 32, 37, 0.13);
@@ -468,6 +469,38 @@ h1 {
   color: #162025;
   background: #ffffff;
   font: inherit;
+}
+
+.settings-panel {
+  margin-top: 0;
+}
+
+.settings-grid {
+  margin-bottom: 24px;
+}
+
+.settings-field-wide {
+  grid-column: span 2;
+}
+
+.settings-field textarea {
+  min-height: 140px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.settings-section-title {
+  margin: 24px 0 12px;
+  border-top: 1px solid rgba(22, 32, 37, 0.1);
+  padding-top: 22px;
+  color: #162025;
+  font-size: 18px;
+  font-weight: 850;
+}
+
+.settings-key-action {
+  align-self: end;
+  min-height: 44px;
 }
 
 .training-checks {
@@ -906,6 +939,40 @@ h1 {
   font-size: 13px;
 }
 
+.review-batch-toolbar,
+.review-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.review-batch-toolbar {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(22, 32, 37, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.review-batch-toolbar > span,
+.review-pagination > span {
+  color: #65747a;
+  font-size: 13px;
+}
+
+.review-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #2f3f44;
+  font-weight: 750;
+}
+
+.review-select input {
+  accent-color: #16756d;
+}
+
 .review-link {
   color: #16756d;
   font-weight: 750;
@@ -1067,6 +1134,11 @@ h1 {
   font-size: 13px;
 }
 
+.review-pagination {
+  justify-content: center;
+  margin-top: 20px;
+}
+
 .markdown-content {
   margin-top: 18px;
   color: #2f3f44;
@@ -1216,6 +1288,7 @@ summary {
   }
 
   .training-field-wide,
+  .settings-field-wide,
   .training-checks {
     grid-column: auto;
   }

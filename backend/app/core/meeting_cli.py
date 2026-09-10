@@ -69,6 +69,8 @@ def _build_pipeline(prompt_templates_path: str = ""):
         request_timeout_seconds=600.0,
         connect_timeout_seconds=5.0,
         stream_idle_timeout_seconds=120.0,
+        chat_path=s.llm_chat_path,
+        models_path=s.llm_models_path,
     )
     correction_stage = CorrectionStage(
         llm,

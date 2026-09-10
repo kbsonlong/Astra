@@ -19,9 +19,14 @@ class OpenAICompatLLMClient:
         connect_timeout_seconds: float = 3.0,
         stream_idle_timeout_seconds: float = 15.0,
         http_client: httpx.AsyncClient | None = None,
+        *,
+        chat_path: str = "/chat/completions",
+        models_path: str = "/models",
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.chat_path = self._normalize_path(chat_path, "/chat/completions")
+        self.models_path = self._normalize_path(models_path, "/models")
         self.request_timeout = httpx.Timeout(
             request_timeout_seconds,
             connect=connect_timeout_seconds,
@@ -31,13 +36,45 @@ class OpenAICompatLLMClient:
         self._owns_client = http_client is None
         self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
 
+    @staticmethod
+    def _normalize_path(value: str, default: str) -> str:
+        value = (value or default).strip()
+        return "/" + value.strip("/") if value.strip("/") else default
+
+    def reconfigure(
+        self,
+        base_url: str,
+        model: str,
+        api_key: str,
+        request_timeout_seconds: float,
+        connect_timeout_seconds: float,
+        stream_idle_timeout_seconds: float,
+        *,
+        chat_path: str = "/chat/completions",
+        models_path: str = "/models",
+    ) -> None:
+        """Apply settings without replacing the long-lived HTTP client."""
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.chat_path = self._normalize_path(chat_path, "/chat/completions")
+        self.models_path = self._normalize_path(models_path, "/models")
+        self.request_timeout = httpx.Timeout(
+            request_timeout_seconds,
+            connect=connect_timeout_seconds,
+            read=stream_idle_timeout_seconds,
+        )
+        self._client.timeout = self.request_timeout
+        self._headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
 
     async def list_models(self) -> Mapping[str, Any]:
         try:
-            response = await self._client.get(f"{self.base_url}/models", headers=self._headers)
+            response = await self._client.get(
+                f"{self.base_url}{self.models_path}", headers=self._headers
+            )
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -71,7 +108,7 @@ class OpenAICompatLLMClient:
         try:
             async with self._client.stream(
                 "POST",
-                f"{self.base_url}/chat/completions",
+                f"{self.base_url}{self.chat_path}",
                 headers=self._headers,
                 json=payload,
             ) as response:

@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -141,6 +141,14 @@ def _normalize_base_url(value: str) -> str:
     parsed = urlsplit(value.strip())
     path = "/" + "/".join(part for part in parsed.path.split("/") if part)
     return urlunsplit((parsed.scheme, parsed.netloc, path.rstrip("/"), "", ""))
+
+
+def persist_llm_environment(values: Mapping[str, str], path: str | Path | None = None) -> None:
+    """Persist managed LLM variables and make them visible to child workers."""
+    env_path = Path(path or (Path.cwd() / ".env")).expanduser()
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    for key, value in values.items():
+        set_key(str(env_path), key, value, quote_mode="auto")
 
 
 @dataclass(frozen=True)
@@ -295,3 +303,26 @@ class Settings:
         if len(self.llm_api_key) <= 8:
             return "********"
         return f"{self.llm_api_key[:4]}...{self.llm_api_key[-4:]}"
+
+
+def llm_environment_values(settings: Settings) -> dict[str, str]:
+    """Build LLM environment values for a newly spawned worker."""
+    return {
+        "LLM_BASE_URL": settings.llm_base_url,
+        "LLM_CHAT_PATH": settings.llm_chat_path,
+        "LLM_MODELS_PATH": settings.llm_models_path,
+        "LLM_MODEL": settings.llm_model,
+        "LLM_API_KEY": settings.llm_api_key,
+        "LLM_REQUEST_TIMEOUT_SECONDS": str(settings.llm_request_timeout_seconds),
+        "LLM_CONNECT_TIMEOUT_SECONDS": str(settings.llm_connect_timeout_seconds),
+        "LLM_STREAM_IDLE_TIMEOUT_SECONDS": str(settings.llm_stream_idle_timeout_seconds),
+        "LLM_CORRECTION_ENABLED": str(settings.llm_correction_enabled).lower(),
+        "LLM_CORRECTION_MAX_TOKENS": str(settings.llm_correction_max_tokens),
+        "LLM_CORRECTION_SYSTEM_PROMPT": settings.llm_correction_system_prompt,
+        "MEETING_LLM_CORRECTION_ENABLED": str(
+            settings.meeting_llm_correction_enabled
+        ).lower(),
+        "MEETING_LLM_CORRECTION_CANDIDATES": ",".join(
+            settings.meeting_llm_correction_candidates
+        ),
+    }

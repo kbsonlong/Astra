@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from fastapi import FastAPI, HTTPException
 from .api.meeting_routes import router as meeting_router
 from .api.speaker_routes import router as speaker_router
@@ -7,7 +9,10 @@ from .api.http_routes import router as http_router
 from .config import (
     Qwen3TrainingConfig,
     Settings,
+    _normalize_base_url,
     load_qwen3_training_config,
+    llm_environment_values,
+    persist_llm_environment,
     save_qwen3_training_config,
 )
 from .core.meeting import MeetingPipeline
@@ -20,9 +25,72 @@ from .models.llm_client import OpenAICompatLLMClient
 from .models.tts_client import PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
-from .main_types import TrainingConfigPayload
+from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
 from .core.training import TrainingManager
+
+
+def _reconfigure_llm_client(client: object | None, settings: Settings, *, meeting: bool = False) -> None:
+    if not isinstance(client, OpenAICompatLLMClient):
+        return
+    client.reconfigure(
+        settings.llm_base_url,
+        settings.llm_model,
+        settings.llm_api_key,
+        600.0 if meeting else settings.llm_request_timeout_seconds,
+        5.0 if meeting else settings.llm_connect_timeout_seconds,
+        120.0 if meeting else settings.llm_stream_idle_timeout_seconds,
+        chat_path=settings.llm_chat_path,
+        models_path=settings.llm_models_path,
+    )
+
+
+def _llm_config_response(current: Settings) -> dict[str, object]:
+    return {
+        "llm_base_url": current.llm_base_url,
+        "llm_chat_path": current.llm_chat_path,
+        "llm_models_path": current.llm_models_path,
+        "llm_model": current.llm_model,
+        "llm_api_key": current.llm_api_key_masked,
+        "llm_api_key_configured": bool(current.llm_api_key),
+        "llm_correction_enabled": current.llm_correction_enabled,
+        "llm_correction_max_tokens": current.llm_correction_max_tokens,
+        "llm_correction_system_prompt": current.llm_correction_system_prompt,
+        "meeting_llm_correction_enabled": current.meeting_llm_correction_enabled,
+        "meeting_llm_correction_candidates": list(
+            current.meeting_llm_correction_candidates
+        ),
+    }
+
+
+def _runtime_config_response(current: Settings) -> dict[str, object]:
+    return {
+        "meeting_rule_correction_enabled": current.meeting_rule_correction_enabled,
+        "asr_model": current.asr_model,
+        "asr_language": current.asr_language,
+        "asr_max_tokens": current.asr_max_tokens,
+        "asr_repetition_penalty": current.asr_repetition_penalty,
+        "asr_repetition_context_size": current.asr_repetition_context_size,
+        "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
+        "asr_long_audio_threshold_seconds": current.asr_long_audio_threshold_seconds,
+        "asr_hotwords": list(current.asr_hotwords),
+        "asr_system_prompt_configured": bool(current.asr_system_prompt),
+        "vad_model": current.vad_model,
+        "punctuation_enabled": current.punctuation_enabled,
+        "punctuation_engine": current.punctuation_engine,
+        "punctuation_model": current.punctuation_model,
+        "punctuation_device": current.punctuation_device,
+        "sd_engine": current.sd_engine,
+        "speaker_store_path": current.speaker_store_path,
+        "speaker_match_threshold": current.speaker_match_threshold,
+        "speaker_match_margin": current.speaker_match_margin,
+        "speaker_max_speakers": current.speaker_max_speakers,
+        "speaker_duplicate_threshold": current.speaker_duplicate_threshold,
+        "speaker_sample_dir": current.speaker_sample_dir,
+        "tts_model_path": current.tts_model_path,
+        "qwen3_training_config_path": current.qwen3_training_config_path,
+        "version": current.version,
+    }
 
 
 def _build_meeting_stages(
@@ -89,6 +157,8 @@ def create_app(
                 current.llm_request_timeout_seconds,
                 current.llm_connect_timeout_seconds,
                 current.llm_stream_idle_timeout_seconds,
+                chat_path=current.llm_chat_path,
+                models_path=current.llm_models_path,
             ),
             PiperSdkTtsClient(current.tts_model_path),
         )
@@ -118,6 +188,8 @@ def create_app(
             request_timeout_seconds=600.0,
             connect_timeout_seconds=5.0,
             stream_idle_timeout_seconds=120.0,
+            chat_path=current.llm_chat_path,
+            models_path=current.llm_models_path,
         )
         correction_stage = CorrectionStage(
             meeting_llm,
@@ -154,42 +226,103 @@ def create_app(
     @app.get("/api/config")
     async def config() -> dict[str, object]:
         current = app.state.settings
-        return {
-            "llm_base_url": current.llm_base_url,
-            "llm_model": current.llm_model,
-            "llm_api_key": current.llm_api_key_masked,
-            "llm_correction_enabled": current.llm_correction_enabled,
-            "llm_correction_max_tokens": current.llm_correction_max_tokens,
-            "meeting_rule_correction_enabled": current.meeting_rule_correction_enabled,
-            "meeting_llm_correction_enabled": current.meeting_llm_correction_enabled,
-            "meeting_llm_correction_candidates": list(
-                current.meeting_llm_correction_candidates
+        return {**_llm_config_response(current), **_runtime_config_response(current)}
+
+    @app.put("/api/config")
+    async def update_config(payload: LLMSettingsPayload) -> dict[str, object]:
+        current = app.state.settings
+        api_key = current.llm_api_key if payload.llm_api_key is None else payload.llm_api_key
+        updated = replace(
+            current,
+            llm_base_url=(
+                _normalize_base_url(payload.llm_base_url)
+                if payload.llm_base_url is not None
+                else current.llm_base_url
             ),
-            "asr_model": current.asr_model,
-            "asr_language": current.asr_language,
-            "asr_max_tokens": current.asr_max_tokens,
-            "asr_repetition_penalty": current.asr_repetition_penalty,
-            "asr_repetition_context_size": current.asr_repetition_context_size,
-            "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
-            "asr_long_audio_threshold_seconds": current.asr_long_audio_threshold_seconds,
-            "asr_hotwords": list(current.asr_hotwords),
-            "asr_system_prompt_configured": bool(current.asr_system_prompt),
-            "vad_model": current.vad_model,
-            "punctuation_enabled": current.punctuation_enabled,
-            "punctuation_engine": current.punctuation_engine,
-            "punctuation_model": current.punctuation_model,
-            "punctuation_device": current.punctuation_device,
-            "sd_engine": current.sd_engine,
-            "speaker_store_path": current.speaker_store_path,
-            "speaker_match_threshold": current.speaker_match_threshold,
-            "speaker_match_margin": current.speaker_match_margin,
-            "speaker_max_speakers": current.speaker_max_speakers,
-            "speaker_duplicate_threshold": current.speaker_duplicate_threshold,
-            "speaker_sample_dir": current.speaker_sample_dir,
-            "tts_model_path": current.tts_model_path,
-            "qwen3_training_config_path": current.qwen3_training_config_path,
-            "version": current.version,
-        }
+            llm_chat_path=(
+                payload.llm_chat_path.strip()
+                if payload.llm_chat_path is not None
+                else current.llm_chat_path
+            ),
+            llm_models_path=(
+                payload.llm_models_path.strip()
+                if payload.llm_models_path is not None
+                else current.llm_models_path
+            ),
+            llm_model=(
+                payload.llm_model.strip()
+                if payload.llm_model is not None
+                else current.llm_model
+            ),
+            llm_api_key=api_key,
+            llm_request_timeout_seconds=(
+                payload.llm_request_timeout_seconds
+                if payload.llm_request_timeout_seconds is not None
+                else current.llm_request_timeout_seconds
+            ),
+            llm_connect_timeout_seconds=(
+                payload.llm_connect_timeout_seconds
+                if payload.llm_connect_timeout_seconds is not None
+                else current.llm_connect_timeout_seconds
+            ),
+            llm_stream_idle_timeout_seconds=(
+                payload.llm_stream_idle_timeout_seconds
+                if payload.llm_stream_idle_timeout_seconds is not None
+                else current.llm_stream_idle_timeout_seconds
+            ),
+            llm_correction_enabled=(
+                payload.llm_correction_enabled
+                if payload.llm_correction_enabled is not None
+                else current.llm_correction_enabled
+            ),
+            llm_correction_max_tokens=(
+                payload.llm_correction_max_tokens
+                if payload.llm_correction_max_tokens is not None
+                else current.llm_correction_max_tokens
+            ),
+            llm_correction_system_prompt=(
+                payload.llm_correction_system_prompt
+                if payload.llm_correction_system_prompt is not None
+                else current.llm_correction_system_prompt
+            ),
+            meeting_llm_correction_enabled=(
+                payload.meeting_llm_correction_enabled
+                if payload.meeting_llm_correction_enabled is not None
+                else current.meeting_llm_correction_enabled
+            ),
+            meeting_llm_correction_candidates=(
+                tuple(item.strip() for item in payload.meeting_llm_correction_candidates if item.strip())
+                if payload.meeting_llm_correction_candidates is not None
+                else current.meeting_llm_correction_candidates
+            ),
+        )
+        try:
+            persist_llm_environment(llm_environment_values(updated))
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail=f"无法保存 LLM 配置: {exc}") from exc
+
+        app.state.settings = updated
+        _reconfigure_llm_client(
+            getattr(app.state.pipeline, "llm", None), updated
+        )
+        _reconfigure_llm_client(
+            getattr(app.state.meeting_pipeline, "llm", None), updated, meeting=True
+        )
+        _reconfigure_llm_client(
+            getattr(app.state.meeting_pipeline, "mt_llm", None), updated, meeting=True
+        )
+        correction = getattr(app.state.meeting_pipeline, "correction_stage", None)
+        if correction is not None:
+            correction.llm_enabled = updated.meeting_llm_correction_enabled
+            correction.candidate_rules = parse_correction_rules(
+                updated.meeting_llm_correction_candidates
+            )
+            correction.system_prompt = updated.llm_correction_system_prompt
+            correction.max_tokens = updated.llm_correction_max_tokens
+            correction.engine_name = (
+                "rules+llm" if correction.llm_enabled else "rules"
+            )
+        return {**_llm_config_response(updated), "saved": True, "runtime_applied": True}
 
     @app.get("/api/training/config")
     async def training_config() -> dict[str, object]:

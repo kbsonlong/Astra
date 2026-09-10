@@ -27,6 +27,7 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
     Request,
     UploadFile,
     WebSocket,
@@ -36,6 +37,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from typing import Literal
 
+from ..config import llm_environment_values
 from ..core.meeting_prompts import (
     DEFAULT_MEETING_PROMPT_ID,
     MeetingPromptTemplateStore,
@@ -61,6 +63,16 @@ _SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
 class TrainingReviewPayload(BaseModel):
     review_status: Literal["pending", "approved", "rejected"]
     corrected_text: str = Field(min_length=1, max_length=20_000)
+
+
+class BatchTrainingReviewItem(BaseModel):
+    segment_id: str = Field(min_length=1, max_length=32)
+    corrected_text: str = Field(min_length=1, max_length=20_000)
+
+
+class BatchTrainingReviewPayload(BaseModel):
+    review_status: Literal["pending", "approved", "rejected"]
+    items: list[BatchTrainingReviewItem] = Field(min_length=1, max_length=500)
 
 
 class MeetingPromptTemplatePayload(BaseModel):
@@ -197,12 +209,33 @@ def _review_rows(out_dir: Path, task_id: str) -> list[dict[str, object]]:
 
 
 @router.get("/{task_id}/training-data")
-async def training_data(task_id: str, request: Request) -> dict[str, object]:
+async def training_data(
+    task_id: str,
+    request: Request,
+    page: int = Query(default=1, ge=1, le=100_000),
+    page_size: int = Query(default=20, ge=1, le=100),
+) -> dict[str, object]:
     base = Path(request.app.state.settings.meeting_output_dir).expanduser()
     out_dir = _job_dir(base, task_id)
     rows = _review_rows(out_dir, task_id)
     counts = {status: sum(row.get("review_status") == status for row in rows) for status in ("pending", "approved", "rejected")}
-    return {"task_id": task_id, "items": rows, "counts": counts}
+    total = len(rows)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    current_page = min(page, total_pages)
+    start = (current_page - 1) * page_size
+    return {
+        "task_id": task_id,
+        "items": rows[start : start + page_size],
+        "counts": counts,
+        "pagination": {
+            "page": current_page,
+            "page_size": page_size,
+            "total": total,
+            "total_pages": total_pages,
+            "has_next": current_page < total_pages,
+            "has_prev": current_page > 1,
+        },
+    }
 
 
 @router.get("/prompt-templates")
@@ -252,6 +285,60 @@ async def delete_meeting_prompt_template(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"id": template_id, "status": "deleted"}
+
+
+@router.post("/{task_id}/training-data/batch-review")
+async def batch_review_training_data(
+    task_id: str,
+    payload: BatchTrainingReviewPayload,
+    request: Request,
+) -> dict[str, object]:
+    segment_ids = [item.segment_id for item in payload.items]
+    if any(not _SEGMENT_ID_RE.match(segment_id) for segment_id in segment_ids):
+        raise HTTPException(status_code=400, detail="invalid segment_id format")
+    if len(set(segment_ids)) != len(segment_ids):
+        raise HTTPException(status_code=400, detail="duplicate segment_id")
+
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
+    rows_by_id = {str(row.get("segment_id", "")): row for row in rows}
+    missing = [segment_id for segment_id in segment_ids if segment_id not in rows_by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"segment not found: {missing[0]}")
+
+    for item in payload.items:
+        corrected_text = item.corrected_text.strip()
+        if not corrected_text:
+            raise HTTPException(status_code=400, detail="corrected_text cannot be empty")
+        row = rows_by_id[item.segment_id]
+        row["corrected_text"] = corrected_text
+        row["text"] = corrected_text
+        row["review_status"] = payload.review_status
+        row["correction_source"] = "human"
+    _write_jsonl(out_dir / "transcript_segments.jsonl", rows)
+
+    candidate_path = out_dir / "qwen3-asr-candidates.jsonl"
+    if candidate_path.is_file():
+        candidates = _jsonl_rows(candidate_path)
+        candidates_by_id = {str(row.get("segment_id", "")): row for row in candidates}
+        for item in payload.items:
+            candidate = candidates_by_id.get(item.segment_id)
+            if candidate is not None:
+                candidate["text"] = item.corrected_text.strip()
+                candidate["review_status"] = payload.review_status
+        _write_jsonl(candidate_path, candidates)
+
+    counts = {
+        status: sum(row.get("review_status") == status for row in rows)
+        for status in ("pending", "approved", "rejected")
+    }
+    return {
+        "task_id": task_id,
+        "updated": segment_ids,
+        "updated_count": len(segment_ids),
+        "counts": counts,
+    }
 
 
 @router.patch("/{task_id}/training-data/{segment_id}")
@@ -350,6 +437,7 @@ async def process_meeting(
         "--prompt-templates-path", settings.meeting_prompt_templates_path,
     ]
     env = dict(os.environ)
+    env.update(llm_environment_values(settings))
     env["PYTHONPATH"] = str(_REPO_ROOT / "backend")
     log_path = out_dir / "job.log"
     try:
