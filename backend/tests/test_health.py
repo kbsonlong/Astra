@@ -128,7 +128,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "ASR_MODEL", "ASR_LANGUAGE", "ASR_MAX_TOKENS", "ASR_REPETITION_PENALTY",
         "ASR_REPETITION_CONTEXT_SIZE", "ASR_HOTWORDS", "ASR_SYSTEM_PROMPT",
         "TTS_MODEL_PATH", "LLM_MODELS_PATH", "TRANSCRIBE_MAX_UPLOAD_BYTES",
-        "MEETING_MAX_UPLOAD_BYTES", "WS_MAX_AUDIO_BYTES", "MEETING_MAX_CONCURRENT_JOBS",
+        "TRANSCRIBE_MAX_DURATION_SECONDS", "MEETING_MAX_UPLOAD_BYTES",
+        "MEETING_MAX_DURATION_SECONDS", "WS_MAX_AUDIO_BYTES",
+        "AUDIO_MAX_CONCURRENT_PER_IP", "MEETING_MAX_CONCURRENT_JOBS",
         "TRAINING_MAX_CONCURRENT_JOBS", "MEETING_TASK_TIMEOUT_SECONDS",
         "TRAINING_TASK_TIMEOUT_SECONDS", "MEETING_ARTIFACT_RETENTION_DAYS",
         "MEETING_ARTIFACT_MAX_BYTES",
@@ -140,8 +142,11 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "ASR_SYSTEM_PROMPT=只输出实际说出的内容。\n"
         "TTS_MODEL_PATH=/models/piper.onnx\n"
         "TRANSCRIBE_MAX_UPLOAD_BYTES=123\n"
+        "TRANSCRIBE_MAX_DURATION_SECONDS=12.5\n"
         "MEETING_MAX_UPLOAD_BYTES=456\n"
+        "MEETING_MAX_DURATION_SECONDS=34.5\n"
         "WS_MAX_AUDIO_BYTES=789\n"
+        "AUDIO_MAX_CONCURRENT_PER_IP=5\n"
         "MEETING_MAX_CONCURRENT_JOBS=2\n"
         "TRAINING_MAX_CONCURRENT_JOBS=3\n"
         "MEETING_TASK_TIMEOUT_SECONDS=12.5\n"
@@ -163,8 +168,11 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.asr_system_prompt == "只输出实际说出的内容。"
     assert loaded.tts_model_path == "/models/piper.onnx"
     assert loaded.transcribe_max_upload_bytes == 123
+    assert loaded.transcribe_max_duration_seconds == 12.5
     assert loaded.meeting_max_upload_bytes == 456
+    assert loaded.meeting_max_duration_seconds == 34.5
     assert loaded.ws_max_audio_bytes == 789
+    assert loaded.audio_max_concurrent_per_ip == 5
     assert loaded.meeting_max_concurrent_jobs == 2
     assert loaded.training_max_concurrent_jobs == 3
     assert loaded.meeting_task_timeout_seconds == 12.5

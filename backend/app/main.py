@@ -35,6 +35,7 @@ from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
 from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
+from .api.upload_limits import AudioIPConcurrencyLimiter
 from .core.training import TrainingManager
 from .core.task_store import TaskStore
 from .core.review_store import ReviewStore
@@ -103,6 +104,12 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "training_task_timeout_seconds": current.training_task_timeout_seconds,
         "meeting_artifact_retention_days": current.meeting_artifact_retention_days,
         "meeting_artifact_max_bytes": current.meeting_artifact_max_bytes,
+        "transcribe_max_upload_bytes": current.transcribe_max_upload_bytes,
+        "transcribe_max_duration_seconds": current.transcribe_max_duration_seconds,
+        "meeting_max_upload_bytes": current.meeting_max_upload_bytes,
+        "meeting_max_duration_seconds": current.meeting_max_duration_seconds,
+        "ws_max_audio_bytes": current.ws_max_audio_bytes,
+        "audio_max_concurrent_per_ip": current.audio_max_concurrent_per_ip,
         "version": current.version,
     }
 
@@ -159,6 +166,9 @@ def create_app(
     app = FastAPI(title="Astra API", version="0.1.0", lifespan=app_lifespan)
     current = settings or Settings.from_env()
     app.state.settings = current
+    app.state.audio_ip_limiter = AudioIPConcurrencyLimiter(
+        current.audio_max_concurrent_per_ip
+    )
 
     @app.middleware("http")
     async def require_admin_session(request: Request, call_next):

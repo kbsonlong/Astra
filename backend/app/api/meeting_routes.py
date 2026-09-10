@@ -41,7 +41,12 @@ from typing import Literal
 from ..config import llm_environment_values
 from ..core.review_store import ReviewConflictError
 from .auth import authorize_websocket
-from .upload_limits import UploadTooLargeError, save_upload_limited
+from .upload_limits import (
+    AudioTooLongError,
+    UploadTooLargeError,
+    save_upload_limited,
+    validate_audio_file_duration,
+)
 from ..core.meeting_prompts import (
     DEFAULT_MEETING_PROMPT_ID,
     MeetingPromptTemplateStore,
@@ -431,16 +436,34 @@ async def process_meeting(
     out_dir = base / task_id
     out_dir.mkdir(parents=True, exist_ok=False)
     in_path = out_dir / f"input{suffix}"
-    try:
-        uploaded_bytes = await save_upload_limited(
-            file, in_path, settings.meeting_max_upload_bytes
-        )
-    except UploadTooLargeError as exc:
+    limiter = request.app.state.audio_ip_limiter
+    client_ip = request.client.host if request.client is not None else "unknown"
+    if not await limiter.try_acquire(client_ip):
         out_dir.rmdir()
-        raise HTTPException(
-            status_code=413,
-            detail=f"file too large (max {exc.max_bytes} bytes)",
-        ) from exc
+        raise HTTPException(status_code=429, detail="audio concurrency limit reached")
+    try:
+        try:
+            uploaded_bytes = await save_upload_limited(
+                file, in_path, settings.meeting_max_upload_bytes
+            )
+            await validate_audio_file_duration(
+                in_path, settings.meeting_max_duration_seconds
+            )
+        except UploadTooLargeError as exc:
+            out_dir.rmdir()
+            raise HTTPException(
+                status_code=413,
+                detail=f"file too large (max {exc.max_bytes} bytes)",
+            ) from exc
+        except AudioTooLongError as exc:
+            in_path.unlink(missing_ok=True)
+            out_dir.rmdir()
+            raise HTTPException(
+                status_code=413,
+                detail=f"audio duration too long (max {exc.max_seconds:g} seconds)",
+            ) from exc
+    finally:
+        await limiter.release(client_ip)
     if not uploaded_bytes:
         in_path.unlink(missing_ok=True)
         out_dir.rmdir()

@@ -66,6 +66,15 @@ async def run_generation(
 async def session_websocket(websocket: WebSocket) -> None:
     if not await authorize_websocket(websocket):
         return
+    limiter = websocket.app.state.audio_ip_limiter
+    client_ip = websocket.client.host if websocket.client is not None else "unknown"
+    if not await limiter.try_acquire(client_ip):
+        await websocket.accept()
+        await websocket.send_json(
+            {"type": "error", "code": "concurrency_limit"}
+        )
+        await websocket.close(code=1013, reason="audio concurrency limit reached")
+        return
     await websocket.accept()
     session = Session(max_audio_bytes=websocket.app.state.settings.ws_max_audio_bytes)
     pipeline: VoicePipeline | None = getattr(websocket.app.state, "pipeline", None)
@@ -122,3 +131,5 @@ async def session_websocket(websocket: WebSocket) -> None:
         if generation_task is not None:
             generation_task.cancel()
             await asyncio.gather(generation_task, return_exceptions=True)
+    finally:
+        await limiter.release(client_ip)

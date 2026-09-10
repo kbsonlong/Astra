@@ -243,8 +243,11 @@ class Settings:
     meeting_artifact_retention_days: int = 30
     meeting_artifact_max_bytes: int = 20 * 1024 * 1024 * 1024
     transcribe_max_upload_bytes: int = 25 * 1024 * 1024
+    transcribe_max_duration_seconds: float = 60 * 60
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
+    meeting_max_duration_seconds: float = 4 * 60 * 60
     ws_max_audio_bytes: int = 25 * 1024 * 1024
+    audio_max_concurrent_per_ip: int = 4
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
     version: str = "mvp"
@@ -385,11 +388,20 @@ class Settings:
             transcribe_max_upload_bytes=_positive_int_env(
                 "TRANSCRIBE_MAX_UPLOAD_BYTES", cls.transcribe_max_upload_bytes
             ),
+            transcribe_max_duration_seconds=_positive_float_env(
+                "TRANSCRIBE_MAX_DURATION_SECONDS", cls.transcribe_max_duration_seconds
+            ),
             meeting_max_upload_bytes=_positive_int_env(
                 "MEETING_MAX_UPLOAD_BYTES", cls.meeting_max_upload_bytes
             ),
+            meeting_max_duration_seconds=_positive_float_env(
+                "MEETING_MAX_DURATION_SECONDS", cls.meeting_max_duration_seconds
+            ),
             ws_max_audio_bytes=_positive_int_env(
                 "WS_MAX_AUDIO_BYTES", cls.ws_max_audio_bytes
+            ),
+            audio_max_concurrent_per_ip=_positive_int_env(
+                "AUDIO_MAX_CONCURRENT_PER_IP", cls.audio_max_concurrent_per_ip
             ),
             qwen3_training_config_path=os.getenv(
                 "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path
