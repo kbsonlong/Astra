@@ -165,6 +165,11 @@ class Settings:
     llm_models_path: str = "/models"
     llm_model: str = ""
     llm_api_key: str = ""
+    # 留空时保持兼容模式；对局域网开放前必须设置 ADMIN_TOKEN。
+    admin_token: str = ""
+    admin_session_secret: str = ""
+    admin_session_ttl_seconds: int = 12 * 60 * 60
+    auth_cookie_secure: bool = False
     llm_request_timeout_seconds: float = 120.0
     llm_connect_timeout_seconds: float = 3.0
     llm_stream_idle_timeout_seconds: float = 15.0
@@ -221,6 +226,16 @@ class Settings:
             llm_models_path=os.getenv("LLM_MODELS_PATH", cls.llm_models_path),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
             llm_api_key=os.getenv("LLM_API_KEY", cls.llm_api_key),
+            admin_token=os.getenv("ADMIN_TOKEN", cls.admin_token),
+            admin_session_secret=os.getenv(
+                "ADMIN_SESSION_SECRET", cls.admin_session_secret
+            ),
+            admin_session_ttl_seconds=_positive_int_env(
+                "ADMIN_SESSION_TTL_SECONDS", cls.admin_session_ttl_seconds
+            ),
+            auth_cookie_secure=_bool_env(
+                "AUTH_COOKIE_SECURE", cls.auth_cookie_secure
+            ),
             llm_request_timeout_seconds=_float_env(
                 "LLM_REQUEST_TIMEOUT_SECONDS", cls.llm_request_timeout_seconds
             ),

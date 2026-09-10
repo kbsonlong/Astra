@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from ..config import llm_environment_values
+from .auth import authorize_websocket
 from .upload_limits import UploadTooLargeError, save_upload_limited
 from ..core.meeting_prompts import (
     DEFAULT_MEETING_PROMPT_ID,
@@ -475,6 +476,8 @@ async def process_meeting(
 
 @router.websocket("/{task_id}/events")
 async def meeting_events(websocket: WebSocket, task_id: str) -> None:
+    if not await authorize_websocket(websocket):
+        return
     await websocket.accept()
     settings = websocket.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()

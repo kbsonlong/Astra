@@ -4,16 +4,20 @@ Mac mini 宿主机原生运行 FastAPI、MLX Whisper 和 Piper SDK，Compose 只
 
 ## 环境变量
 
-复制一份环境文件并填写远端模型名、本地 ASR 模型和 Piper voice 路径：
+复制一份环境文件并填写远端模型名、本地 ASR 模型、Piper voice 路径和管理员认证凭据：
 
 ```bash
 cp .env.example .env
+# 生成两个不同的高熵值，分别填入 ADMIN_TOKEN 与 ADMIN_SESSION_SECRET。
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
 # Mac Docker Desktop 下默认 host.docker.internal:8000 指向宿主机原生 FastAPI。
 # 若后端不在本机，设置为目标地址（不含 http://），例如 API_UPSTREAM=192.168.3.18:8001。
 # NGINX_CLIENT_MAX_BODY_SIZE 必须不小于预期会议录音，且不超过后端允许的 500MB。
 docker compose config --quiet
 docker compose up -d
 ```
+
+`ADMIN_TOKEN` 配置后，除 `/api/auth/*` 外的全部 API 和 WebSocket 都需要登录；登录交换为同源、`HttpOnly`、`SameSite=Strict` 的短期 Cookie，令牌不会存入浏览器本地存储或出现在 WebSocket URL 中。未配置 `ADMIN_TOKEN` 时服务为兼容旧部署而保持开放，`/api/auth/status` 会报告 `auth_required: false`，不得将此状态暴露到不可信网络。`AUTH_COOKIE_SECURE` 在 Nginx 终止 HTTPS 后必须设为 `true`；当前纯 HTTP 局域网部署保持 `false`，因此不应跨不受信任网络使用。
 
 `API_UPSTREAM` 和 `NGINX_CLIENT_MAX_BODY_SIZE` 会在 Nginx 容器启动时渲染；默认值分别是 `host.docker.internal:8000` 和 `500m`。后端仍原生运行于 Mac mini，不加入 Compose。后端还会在读取请求时执行 `TRANSCRIBE_MAX_UPLOAD_BYTES`（默认 25MiB）、`MEETING_MAX_UPLOAD_BYTES`（默认 500MiB）和 `WS_MAX_AUDIO_BYTES`（默认 25MiB）限制；代理限制不得高于对应后端上限。
 

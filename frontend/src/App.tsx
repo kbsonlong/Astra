@@ -3,6 +3,7 @@ import UploadPage from "./UploadPage";
 import ReviewPage from "./ReviewPage";
 import TrainingPage from "./TrainingPage";
 import SettingsPage from "./SettingsPage";
+import LoginPage from "./LoginPage";
 
 type ServerEvent = {
   type: string;
@@ -35,7 +36,70 @@ const stateHints: Record<string, string> = {
   SPEAKING: "正在播放语音回答，结束后会继续聆听。",
 };
 
+type AuthStatus = {
+  auth_required: boolean;
+  authenticated: boolean;
+};
+
 export default function App() {
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/auth/status", { credentials: "same-origin" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("无法读取认证状态");
+        return response.json() as Promise<AuthStatus>;
+      })
+      .then((status) => {
+        if (active) setAuth(status);
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setAuthError(error instanceof Error ? error.message : "无法读取认证状态");
+        }
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    window.fetch = async (...args) => {
+      const response = await originalFetch.call(window, ...args);
+      if (response.status === 401) {
+        setAuth({ auth_required: true, authenticated: false });
+      }
+      return response;
+    };
+    return () => { window.fetch = originalFetch; };
+  }, []);
+
+  async function logout() {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+    setAuth({ auth_required: true, authenticated: false });
+  }
+
+  if (!auth) {
+    return <main className="app-shell login-shell"><p>{authError || "正在确认管理员会话…"}</p></main>;
+  }
+  if (auth.auth_required && !auth.authenticated) {
+    return <LoginPage onAuthenticated={setAuth} />;
+  }
+
+  const page = location.pathname === "/upload" ? <UploadPage />
+    : location.pathname === "/review" ? <ReviewPage />
+      : location.pathname === "/training" ? <TrainingPage />
+        : location.pathname === "/settings" ? <SettingsPage />
+          : <VoiceAssistant />;
+
+  return <>{auth.auth_required && <button className="auth-logout" type="button" onClick={() => void logout()}>退出登录</button>}{page}</>;
+}
+
+function VoiceAssistant() {
   if (location.pathname === "/upload") return <UploadPage />;
   if (location.pathname === "/review") return <ReviewPage />;
   if (location.pathname === "/training") return <TrainingPage />;

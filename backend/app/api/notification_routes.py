@@ -6,6 +6,8 @@ import json
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from .auth import authorize_websocket
+
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
 
 
@@ -32,6 +34,8 @@ async def _notification_snapshot(websocket: WebSocket) -> dict[str, object]:
 
 @router.websocket("/events")
 async def notification_events(websocket: WebSocket) -> None:
+    if not await authorize_websocket(websocket):
+        return
     await websocket.accept()
     last_payload = ""
     try:

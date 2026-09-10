@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
+from .auth import authorize_websocket
 from ..core.session_manager import Session
 from ..core.pipeline import VoicePipeline
 from ..schemas.ws import ClientMessage, StateChange
@@ -63,6 +64,8 @@ async def run_generation(
 
 @router.websocket("/ws")
 async def session_websocket(websocket: WebSocket) -> None:
+    if not await authorize_websocket(websocket):
+        return
     await websocket.accept()
     session = Session(max_audio_bytes=websocket.app.state.settings.ws_max_audio_bytes)
     pipeline: VoicePipeline | None = getattr(websocket.app.state, "pipeline", None)

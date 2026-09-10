@@ -1,6 +1,12 @@
 from dataclasses import replace
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from .api.auth import (
+    auth_required,
+    is_authorized_request,
+    router as auth_router,
+)
 from .api.meeting_routes import router as meeting_router
 from .api.speaker_routes import router as speaker_router
 from .api.notification_routes import router as notification_router
@@ -125,6 +131,20 @@ def create_app(
     app = FastAPI(title="Astra API", version="0.1.0")
     current = settings or Settings.from_env()
     app.state.settings = current
+
+    @app.middleware("http")
+    async def require_admin_session(request: Request, call_next):
+        if (
+            request.url.path.startswith("/api/")
+            and not request.url.path.startswith("/api/auth/")
+            and not is_authorized_request(request)
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "administrator authentication required"},
+            )
+        return await call_next(request)
+
     app.state.training_manager = TrainingManager()
     app.state.training_config_loader = lambda: load_qwen3_training_config(
         current.qwen3_training_config_path
@@ -210,6 +230,7 @@ def create_app(
             correction_stage=correction_stage,
             prompt_templates_path=current.meeting_prompt_templates_path,
         )
+    app.include_router(auth_router)
     app.include_router(ws_router)
     app.include_router(http_router)
     app.include_router(meeting_router)
@@ -219,9 +240,16 @@ def create_app(
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
-        return await collect_health(
+        payload = await collect_health(
             app.state.settings, app.state.pipeline, app.state.meeting_pipeline
         )
+        payload["auth"] = {
+            "required": auth_required(app.state.settings),
+            "session_secret_configured": bool(
+                app.state.settings.admin_session_secret
+            ),
+        }
+        return payload
 
     @app.get("/api/config")
     async def config() -> dict[str, object]:
