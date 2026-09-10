@@ -132,6 +132,7 @@ def test_process_forwards_custom_prompt_template_to_worker(tmp_path, monkeypatch
     settings = Settings(
         meeting_output_dir=str(tmp_path / "meetings"),
         meeting_prompt_templates_path=str(tmp_path / "templates.json"),
+        task_store_path=str(tmp_path / "tasks.sqlite3"),
     )
     app = create_app(settings=settings, enable_pipeline=False, enable_meeting=False)
     client = TestClient(app)

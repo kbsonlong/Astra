@@ -13,12 +13,14 @@ from multiprocessing import get_context
 from pathlib import Path
 
 from ..config import Qwen3TrainingConfig
+from .task_store import TaskRecord, TaskStore
 
 
 @dataclass
 class TrainingJob:
     task_id: str
-    process: object
+    process: object | None
+    pid: int | None
     output_dir: str
     log_path: str
     started_at: str
@@ -37,15 +39,41 @@ def _training_worker(config_data: dict[str, object], log_path: str) -> None:
 
 
 class TrainingManager:
-    """每个 API 进程最多运行一个训练子进程。"""
+    """每个 API 进程最多运行一个训练子进程，并持久化其控制视图。"""
 
-    def __init__(self) -> None:
+    def __init__(self, task_store: TaskStore | None = None) -> None:
         self._job: TrainingJob | None = None
+        self._task_store = task_store
         self._lock = asyncio.Lock()
+
+    @staticmethod
+    def _is_alive(pid: int | None) -> bool:
+        return TaskStore.pid_alive(pid)
+
+    def restore(self, record: TaskRecord) -> None:
+        """Restore a running process view after API restart (without Process handle)."""
+        if record.kind != "training" or record.status != "processing":
+            return
+        if self._is_alive(record.pid):
+            self._job = TrainingJob(
+                task_id=record.task_id,
+                process=None,
+                pid=record.pid,
+                output_dir=record.output_dir,
+                log_path=record.log_path,
+                started_at=record.started_at,
+            )
+
+    def _running(self) -> bool:
+        if self._job is None:
+            return False
+        if self._job.process is not None:
+            return self._job.process.exitcode is None  # type: ignore[attr-defined]
+        return self._is_alive(self._job.pid)
 
     async def start(self, config: Qwen3TrainingConfig) -> dict[str, object]:
         async with self._lock:
-            if self._job and self._job.process.returncode is None:
+            if self._running() and self._job:
                 raise RuntimeError(f"训练任务已在运行: {self._job.task_id}")
 
             output_dir = Path(config.output_dir).expanduser()
@@ -57,35 +85,59 @@ class TrainingManager:
                 args=(config.to_dict(), str(log_path)),
             )
             process.start()
+            pid = process.pid
             self._job = TrainingJob(
                 task_id=task_id,
                 process=process,
+                pid=pid,
                 output_dir=str(output_dir),
                 log_path=str(log_path),
                 started_at=time.strftime("%Y-%m-%d %H:%M:%S"),
             )
-            asyncio.create_task(self._reap(process))
+            if self._task_store is not None:
+                self._task_store.register(
+                    task_id=task_id, kind="training", status="processing", pid=pid,
+                    pgid=None, output_dir=str(output_dir), log_path=str(log_path),
+                )
+            asyncio.create_task(self._reap(process, task_id))
             return self.status()
 
-    async def _reap(self, process: object) -> None:
+    async def _reap(self, process: object, task_id: str) -> None:
         await asyncio.to_thread(process.join)  # type: ignore[attr-defined]
+        code = process.exitcode  # type: ignore[attr-defined]
+        if self._task_store is not None:
+            existing = self._task_store.get(task_id)
+            if existing is not None and existing.status == "stopped":
+                return
+            self._task_store.update(
+                task_id,
+                status="done" if code == 0 else "failed",
+                detail={"returncode": code},
+            )
 
     async def stop(self) -> dict[str, object]:
         async with self._lock:
-            if not self._job or self._job.process.exitcode is not None:  # type: ignore[attr-defined]
+            if not self._running() or not self._job or not self._job.pid:
                 raise RuntimeError("当前没有运行中的训练任务")
-            os.kill(self._job.process.pid, signal.SIGTERM)  # type: ignore[attr-defined]
+            os.kill(self._job.pid, signal.SIGTERM)
+            if self._task_store is not None:
+                self._task_store.update(self._job.task_id, status="stopped")
             return self.status()
 
     def status(self) -> dict[str, object]:
         if not self._job:
             return {"status": "idle"}
-        code = self._job.process.exitcode  # type: ignore[attr-defined]
-        state = "processing" if code is None else ("done" if code == 0 else "failed")
+        record = self._task_store.get(self._job.task_id) if self._task_store else None
+        process = self._job.process
+        code = process.exitcode if process is not None else None  # type: ignore[attr-defined]
+        state = record.status if record is not None else (
+            "processing" if self._running() else ("done" if code == 0 else "failed")
+        )
         return {
             "task_id": self._job.task_id,
             "status": state,
-            "returncode": code,
+            "returncode": code if record is None else record.detail.get("returncode", code),
+            "pid": self._job.pid,
             "started_at": self._job.started_at,
             "output_dir": self._job.output_dir,
             "log_path": self._job.log_path,

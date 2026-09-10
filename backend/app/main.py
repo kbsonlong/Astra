@@ -36,6 +36,7 @@ from .core.speaker_registry import SpeakerProfileStore
 from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
 from .core.training import TrainingManager
+from .core.task_store import TaskStore
 
 
 def _reconfigure_llm_client(client: object | None, settings: Settings, *, meeting: bool = False) -> None:
@@ -100,6 +101,7 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "speaker_sample_dir": current.speaker_sample_dir,
         "tts_model_path": current.tts_model_path,
         "qwen3_training_config_path": current.qwen3_training_config_path,
+        "task_store_path": current.task_store_path,
         "version": current.version,
     }
 
@@ -127,6 +129,9 @@ def _build_meeting_stages(
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
+    records = app.state.task_store.reconcile()
+    for record in records:
+        app.state.training_manager.restore(record)
     yield
     worker = getattr(app.state, "asr_worker", None)
     if worker is not None:
@@ -158,7 +163,8 @@ def create_app(
             )
         return await call_next(request)
 
-    app.state.training_manager = TrainingManager()
+    app.state.task_store = TaskStore(current.task_store_path)
+    app.state.training_manager = TrainingManager(app.state.task_store)
     app.state.training_config_loader = lambda: load_qwen3_training_config(
         current.qwen3_training_config_path
     )

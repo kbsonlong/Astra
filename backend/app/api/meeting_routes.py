@@ -163,12 +163,24 @@ def _job_dir(base: Path, task_id: str) -> Path:
     return out_dir
 
 
-def _status_payload(base: Path, task_id: str) -> dict[str, object]:
+def _status_payload(
+    base: Path, task_id: str, task_store: object | None = None
+) -> dict[str, object]:
     out_dir = _job_dir(base, task_id)
     status_path = out_dir / "status.json"
     if not status_path.exists():
         raise HTTPException(status_code=404, detail="task not found")
     status = json.loads(status_path.read_text(encoding="utf-8"))
+    if task_store is not None and status.get("status") == "processing":
+        try:
+            record = task_store.reconcile_task(task_id)  # type: ignore[attr-defined]
+        except KeyError:
+            record = None
+        if record is not None and record.status != "processing":
+            status = {**status, "status": record.status, **record.detail}
+            status_path.write_text(
+                json.dumps(status, ensure_ascii=False), encoding="utf-8"
+            )
     result: dict[str, object] = {"type": "meeting_status", "task_id": task_id, **status}
     report = out_dir / "report.md"
     if status.get("status") == "done" and report.exists():
@@ -453,14 +465,39 @@ async def process_meeting(
     try:
         with log_path.open("wb") as log:
             # start_new_session: 脱离进程组, uvicorn 退出/重启不杀会议任务
-            await asyncio.create_subprocess_exec(
+            process = await asyncio.create_subprocess_exec(
                 *argv, cwd=str(_REPO_ROOT), env=env,
                 stdout=log, stderr=log, start_new_session=True,
             )
+        pid = getattr(process, "pid", None)
+        try:
+            pgid = os.getpgid(pid) if pid is not None else None
+        except OSError:
+            pgid = None
+        request.app.state.task_store.register(
+            task_id=task_id,
+            kind="meeting",
+            status="processing",
+            pid=pid,
+            pgid=pgid,
+            output_dir=str(out_dir),
+            log_path=str(log_path),
+            detail={"filename": filename, "prompt_template": selected_template.id},
+        )
     except Exception as exc:
+        failure = {"status": "failed", "error": f"spawn failed: {exc}"}
         (out_dir / "status.json").write_text(
-            json.dumps({"status": "failed", "error": f"spawn failed: {exc}"}),
-            encoding="utf-8",
+            json.dumps(failure), encoding="utf-8"
+        )
+        request.app.state.task_store.register(
+            task_id=task_id,
+            kind="meeting",
+            status="failed",
+            pid=None,
+            pgid=None,
+            output_dir=str(out_dir),
+            log_path=str(log_path),
+            detail=failure,
         )
         raise HTTPException(status_code=500, detail=f"failed to start job: {exc}") from exc
 
@@ -484,7 +521,9 @@ async def meeting_events(websocket: WebSocket, task_id: str) -> None:
     try:
         while True:
             try:
-                payload = _status_payload(base, task_id)
+                payload = _status_payload(
+                    base, task_id, websocket.app.state.task_store
+                )
             except HTTPException as exc:
                 await websocket.send_json(
                     {
