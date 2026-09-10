@@ -158,11 +158,27 @@ def _normalize_base_url(value: str) -> str:
 
 
 def persist_llm_environment(values: Mapping[str, str], path: str | Path | None = None) -> None:
-    """Persist managed LLM variables and make them visible to child workers."""
-    env_path = Path(path or (Path.cwd() / ".env")).expanduser()
+    """Atomically persist managed LLM variables for child workers."""
+    env_path = Path(
+        path or os.getenv("ASTRA_CONFIG_PATH") or (Path.cwd() / ".env")
+    ).expanduser()
     env_path.parent.mkdir(parents=True, exist_ok=True)
-    for key, value in values.items():
-        set_key(str(env_path), key, value, quote_mode="auto")
+    fd, temporary = tempfile.mkstemp(
+        prefix=f".{env_path.name}.", suffix=".tmp", dir=env_path.parent
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            if env_path.is_file():
+                handle.write(env_path.read_text(encoding="utf-8"))
+        for key, value in values.items():
+            set_key(temporary, key, value, quote_mode="auto")
+        os.replace(temporary, env_path)
+    except Exception:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        raise
 
 
 @dataclass(frozen=True)
@@ -230,11 +246,15 @@ class Settings:
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
     ws_max_audio_bytes: int = 25 * 1024 * 1024
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
+    config_path: str = ".env"
     version: str = "mvp"
 
     @classmethod
     def from_env(cls) -> "Settings":
-        load_dotenv(dotenv_path=Path.cwd() / ".env")
+        config_path = Path(
+            os.getenv("ASTRA_CONFIG_PATH") or (Path.cwd() / ".env")
+        ).expanduser()
+        load_dotenv(dotenv_path=config_path)
         return cls(
             llm_base_url=_normalize_base_url(
                 os.getenv("LLM_BASE_URL", cls.llm_base_url)
@@ -374,6 +394,7 @@ class Settings:
             qwen3_training_config_path=os.getenv(
                 "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path
             ),
+            config_path=str(config_path),
             version=os.getenv("ASTRA_VERSION", cls.version),
         )
 

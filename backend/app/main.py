@@ -89,21 +89,14 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "asr_worker_shutdown_timeout_seconds": current.asr_worker_shutdown_timeout_seconds,
         "asr_hotwords": list(current.asr_hotwords),
         "asr_system_prompt_configured": bool(current.asr_system_prompt),
-        "vad_model": current.vad_model,
         "punctuation_enabled": current.punctuation_enabled,
         "punctuation_engine": current.punctuation_engine,
-        "punctuation_model": current.punctuation_model,
         "punctuation_device": current.punctuation_device,
         "sd_engine": current.sd_engine,
-        "speaker_store_path": current.speaker_store_path,
         "speaker_match_threshold": current.speaker_match_threshold,
         "speaker_match_margin": current.speaker_match_margin,
         "speaker_max_speakers": current.speaker_max_speakers,
         "speaker_duplicate_threshold": current.speaker_duplicate_threshold,
-        "speaker_sample_dir": current.speaker_sample_dir,
-        "tts_model_path": current.tts_model_path,
-        "qwen3_training_config_path": current.qwen3_training_config_path,
-        "task_store_path": current.task_store_path,
         "meeting_max_concurrent_jobs": current.meeting_max_concurrent_jobs,
         "training_max_concurrent_jobs": current.training_max_concurrent_jobs,
         "meeting_task_timeout_seconds": current.meeting_task_timeout_seconds,
@@ -374,7 +367,9 @@ def create_app(
             ),
         )
         try:
-            persist_llm_environment(llm_environment_values(updated))
+            persist_llm_environment(
+                llm_environment_values(updated), path=current.config_path
+            )
         except OSError as exc:
             raise HTTPException(status_code=500, detail=f"无法保存 LLM 配置: {exc}") from exc
 

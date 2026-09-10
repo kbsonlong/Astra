@@ -17,6 +17,8 @@ docker compose config --quiet
 docker compose up -d
 ```
 
+`ASTRA_CONFIG_PATH` 指定运行时配置文件路径，默认是当前目录的 `.env`；若服务由 systemd、launchd 或其他工作目录启动器运行，建议填写绝对路径。管理设置保存 LLM 配置时会原子替换该文件，API 不返回本地模型、数据或数据库的绝对路径。
+
 `ADMIN_TOKEN` 配置后，除 `/api/auth/*` 外的全部 API 和 WebSocket 都需要登录；登录交换为同源、`HttpOnly`、`SameSite=Strict` 的短期 Cookie，令牌不会存入浏览器本地存储或出现在 WebSocket URL 中。未配置 `ADMIN_TOKEN` 时服务为兼容旧部署而保持开放，`/api/auth/status` 会报告 `auth_required: false`，不得将此状态暴露到不可信网络。`AUTH_COOKIE_SECURE` 在 Nginx 终止 HTTPS 后必须设为 `true`；当前纯 HTTP 局域网部署保持 `false`，因此不应跨不受信任网络使用。
 
 `API_UPSTREAM` 和 `NGINX_CLIENT_MAX_BODY_SIZE` 会在 Nginx 容器启动时渲染；默认值分别是 `host.docker.internal:8000` 和 `500m`。后端仍原生运行于 Mac mini，不加入 Compose。后端还会在读取请求时执行 `TRANSCRIBE_MAX_UPLOAD_BYTES`（默认 25MiB）、`MEETING_MAX_UPLOAD_BYTES`（默认 500MiB）和 `WS_MAX_AUDIO_BYTES`（默认 25MiB）限制；代理限制不得高于对应后端上限。实时 ASR 由一个固定线程 worker 串行执行，`ASR_WORKER_QUEUE_SIZE` 满时请求返回 503；`ASR_WORKER_REQUEST_TIMEOUT_SECONDS` 仅取消排队/结果回填，不能抢占已进入 MLX 的同步推理。会议与训练子进程会登记到 `TASK_STORE_PATH`（默认 `~/.astra/tasks.sqlite3`）。`MEETING_MAX_CONCURRENT_JOBS` 和 `TRAINING_MAX_CONCURRENT_JOBS`（均默认 1）在 SQLite 事务中全局预留，跨 API 重启和多 worker 生效，额度已满时接口返回 429。会议可由管理界面取消，系统会向其独立进程组发送 `SIGTERM`；训练仅终止其子进程 PID。状态查询及 API 启动会按 `MEETING_TASK_TIMEOUT_SECONDS`（默认 7200）和 `TRAINING_TASK_TIMEOUT_SECONDS`（默认 43200）终止超时任务并将其标记为 failed。启动收敛后还会根据 `MEETING_ARTIFACT_RETENTION_DAYS`（默认 30）及 `MEETING_ARTIFACT_MAX_BYTES`（默认 20GiB）清理会议根目录内**已登记且终态**的最旧任务产物；运行中、未登记及根目录外路径绝不删除。每次成功删除会写入 `tasks.sqlite3` 的 `artifact_cleanup_events`，并记录含 task ID、原因和回收字节数的应用日志。请在启用前按合规要求确认保留期并备份需要长期保存的会议数据。

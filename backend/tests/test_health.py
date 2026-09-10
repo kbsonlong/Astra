@@ -19,6 +19,16 @@ def settings() -> Settings:
 
 
 def test_config_masks_api_key(settings: Settings) -> None:
+    settings = Settings(
+        **{
+            **settings.__dict__,
+            "vad_model": "/private/models/vad.onnx",
+            "speaker_store_path": "/private/data/speakers.sqlite3",
+            "speaker_sample_dir": "/private/data/samples",
+            "tts_model_path": "/private/models/voice.onnx",
+            "task_store_path": "/private/data/tasks.sqlite3",
+        }
+    )
     client = TestClient(create_app(settings))
 
     response = client.get("/api/config")
@@ -26,6 +36,22 @@ def test_config_masks_api_key(settings: Settings) -> None:
     assert response.status_code == 200
     assert response.json()["llm_api_key"] == "sk-t...cret"
     assert "secret" not in response.text
+    for path in (
+        "/private/models/vad.onnx",
+        "/private/data/speakers.sqlite3",
+        "/private/data/samples",
+        "/private/models/voice.onnx",
+        "/private/data/tasks.sqlite3",
+    ):
+        assert path not in response.text
+    for key in (
+        "vad_model",
+        "speaker_store_path",
+        "speaker_sample_dir",
+        "tts_model_path",
+        "task_store_path",
+    ):
+        assert key not in response.json()
 
 
 def test_llm_config_can_be_saved_and_preserves_masked_key(
@@ -38,6 +64,7 @@ def test_llm_config_can_be_saved_and_preserves_masked_key(
         llm_models_path="/models",
         llm_model="old-model",
         llm_api_key="sk-existing-secret",
+        config_path=str(tmp_path / "runtime.env"),
     )
     client = TestClient(
         create_app(settings, enable_pipeline=False, enable_meeting=False)
@@ -80,10 +107,11 @@ def test_llm_config_can_be_saved_and_preserves_masked_key(
     assert response.json()["llm_base_url"] == "http://new.test/v1"
     assert response.json()["llm_api_key"] == "sk-e...cret"
     assert response.json()["runtime_applied"] is True
-    env_text = (tmp_path / ".env").read_text(encoding="utf-8")
+    env_text = (tmp_path / "runtime.env").read_text(encoding="utf-8")
     assert "LLM_BASE_URL='http://new.test/v1'" in env_text
     assert "LLM_MODEL='new-model'" in env_text
     assert "LLM_API_KEY='sk-existing-secret'" in env_text
+    assert not (tmp_path / ".env").exists()
 
     saved = client.get("/api/config").json()
     assert saved["llm_model"] == "new-model"
@@ -96,6 +124,7 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     # cwd 下跑过 Settings.from_env(), 真实 .env 的值会残留进 os.environ,
     # 导致本测试读到串扰值(顺序相关 flake)。先清掉相关键再加载。
     for key in (
+        "ASTRA_CONFIG_PATH",
         "ASR_MODEL", "ASR_LANGUAGE", "ASR_MAX_TOKENS", "ASR_REPETITION_PENALTY",
         "ASR_REPETITION_CONTEXT_SIZE", "ASR_HOTWORDS", "ASR_SYSTEM_PROMPT",
         "TTS_MODEL_PATH", "LLM_MODELS_PATH", "TRANSCRIBE_MAX_UPLOAD_BYTES",
@@ -142,6 +171,20 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.training_task_timeout_seconds == 25.5
     assert loaded.meeting_artifact_retention_days == 14
     assert loaded.meeting_artifact_max_bytes == 12345
+
+
+def test_settings_uses_explicit_astra_config_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    config_path = tmp_path / "astra-runtime.env"
+    config_path.write_text("LLM_MODEL=explicit-model\n", encoding="utf-8")
+    monkeypatch.setenv("ASTRA_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+
+    loaded = Settings.from_env()
+
+    assert loaded.config_path == str(config_path)
+    assert loaded.llm_model == "explicit-model"
 
 
 def test_settings_resolves_relative_vad_model_from_project_root(
