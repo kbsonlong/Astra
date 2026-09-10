@@ -5,13 +5,14 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
 
+from ..core.review_store import ReviewStore
 from ..main_types import TrainingConfigPayload
 
 router = APIRouter(prefix="/api/training", tags=["training"])
 _TASK_ID_RE = re.compile(r"^\d{8}-\d{6}-[\da-f]{4,8}$")
 
 
-def _approved_datasets(meeting_dir: Path) -> list[dict[str, object]]:
+def _approved_datasets(meeting_dir: Path, review_store: ReviewStore) -> list[dict[str, object]]:
     if not meeting_dir.is_dir():
         return []
     datasets: list[dict[str, object]] = []
@@ -19,15 +20,22 @@ def _approved_datasets(meeting_dir: Path) -> list[dict[str, object]]:
         if not task_dir.is_dir() or not _TASK_ID_RE.match(task_dir.name):
             continue
         dataset_path = task_dir / "qwen3-asr-candidates.jsonl"
-        if not dataset_path.is_file():
+        source_path = task_dir / "transcript_segments.jsonl"
+        if not source_path.is_file():
+            source_path = dataset_path
+        if not source_path.is_file():
             continue
-        total = approved = 0
-        for line in dataset_path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            total += 1
-            if json.loads(line).get("review_status") == "approved":
-                approved += 1
+        if not review_store.has_task(task_dir.name):
+            rows = [
+                json.loads(line)
+                for line in source_path.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+            review_store.import_if_empty(task_dir.name, rows)
+        review_store.export_jsonl(task_dir.name, dataset_path)
+        rows = review_store.export_rows(task_dir.name)
+        total = len(rows)
+        approved = sum(row.get("review_status") == "approved" for row in rows)
         if approved:
             datasets.append({
                 "id": task_dir.name,
@@ -43,7 +51,7 @@ def _approved_datasets(meeting_dir: Path) -> list[dict[str, object]]:
 @router.get("/datasets")
 async def training_datasets(request: Request) -> dict[str, object]:
     meeting_dir = Path(request.app.state.settings.meeting_output_dir).expanduser()
-    return {"items": _approved_datasets(meeting_dir)}
+    return {"items": _approved_datasets(meeting_dir, request.app.state.review_store)}
 
 
 @router.post("/start")

@@ -39,6 +39,7 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 from ..config import llm_environment_values
+from ..core.review_store import ReviewConflictError
 from .auth import authorize_websocket
 from .upload_limits import UploadTooLargeError, save_upload_limited
 from ..core.meeting_prompts import (
@@ -66,11 +67,13 @@ _SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
 class TrainingReviewPayload(BaseModel):
     review_status: Literal["pending", "approved", "rejected"]
     corrected_text: str = Field(min_length=1, max_length=20_000)
+    version: int | None = Field(default=None, ge=1)
 
 
 class BatchTrainingReviewItem(BaseModel):
     segment_id: str = Field(min_length=1, max_length=32)
     corrected_text: str = Field(min_length=1, max_length=20_000)
+    version: int | None = Field(default=None, ge=1)
 
 
 class BatchTrainingReviewPayload(BaseModel):
@@ -212,21 +215,22 @@ def _jsonl_rows(path: Path) -> list[dict[str, object]]:
     return rows
 
 
-def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        "\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + ("\n" if rows else ""),
-        encoding="utf-8",
-    )
-    temporary.replace(path)
+def _ensure_review_store(request: Request, task_id: str, out_dir: Path):
+    store = request.app.state.review_store
+    if not store.has_task(task_id):
+        source = out_dir / "transcript_segments.jsonl"
+        if not source.is_file():
+            source = out_dir / "qwen3-asr-candidates.jsonl"
+        store.import_if_empty(task_id, _jsonl_rows(source))
+    return store
 
 
-def _review_rows(out_dir: Path, task_id: str) -> list[dict[str, object]]:
-    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
-    for row in rows:
-        segment_id = str(row.get("segment_id", ""))
-        row["audio_url"] = f"/api/meeting/{task_id}/training-data/{segment_id}/audio"
-    return rows
+def _review_item(task_id: str, row: dict[str, object]) -> dict[str, object]:
+    segment_id = str(row.get("segment_id", ""))
+    return {
+        **row,
+        "audio_url": f"/api/meeting/{task_id}/training-data/{segment_id}/audio",
+    }
 
 
 @router.get("/{task_id}/training-data")
@@ -238,15 +242,16 @@ async def training_data(
 ) -> dict[str, object]:
     base = Path(request.app.state.settings.meeting_output_dir).expanduser()
     out_dir = _job_dir(base, task_id)
-    rows = _review_rows(out_dir, task_id)
-    counts = {status: sum(row.get("review_status") == status for row in rows) for status in ("pending", "approved", "rejected")}
-    total = len(rows)
+    store = _ensure_review_store(request, task_id, out_dir)
+    _, stored_counts = store.page(task_id, page=1, page_size=1)
+    counts = {status: stored_counts[status] for status in ("pending", "approved", "rejected")}
+    total = stored_counts["total"]
     total_pages = max(1, (total + page_size - 1) // page_size)
     current_page = min(page, total_pages)
-    start = (current_page - 1) * page_size
+    rows, _ = store.page(task_id, page=current_page, page_size=page_size)
     return {
         "task_id": task_id,
-        "items": rows[start : start + page_size],
+        "items": [_review_item(task_id, row) for row in rows],
         "counts": counts,
         "pagination": {
             "page": current_page,
@@ -322,38 +327,31 @@ async def batch_review_training_data(
 
     base = Path(request.app.state.settings.meeting_output_dir).expanduser()
     out_dir = _job_dir(base, task_id)
-    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
-    rows_by_id = {str(row.get("segment_id", "")): row for row in rows}
-    missing = [segment_id for segment_id in segment_ids if segment_id not in rows_by_id]
+    store = _ensure_review_store(request, task_id, out_dir)
+    rows_by_id = {
+        segment_id: store.get(task_id, segment_id) for segment_id in segment_ids
+    }
+    missing = [segment_id for segment_id, row in rows_by_id.items() if row is None]
     if missing:
         raise HTTPException(status_code=404, detail=f"segment not found: {missing[0]}")
 
+    updates = []
     for item in payload.items:
         corrected_text = item.corrected_text.strip()
         if not corrected_text:
             raise HTTPException(status_code=400, detail="corrected_text cannot be empty")
-        row = rows_by_id[item.segment_id]
-        row["corrected_text"] = corrected_text
-        row["text"] = corrected_text
-        row["review_status"] = payload.review_status
-        row["correction_source"] = "human"
-    _write_jsonl(out_dir / "transcript_segments.jsonl", rows)
+        updates.append({
+            "segment_id": item.segment_id,
+            "corrected_text": corrected_text,
+            "version": item.version or rows_by_id[item.segment_id]["version"],
+        })
+    try:
+        store.update_many(task_id, updates, payload.review_status)
+    except ReviewConflictError as exc:
+        raise HTTPException(status_code=409, detail=f"review conflict: {exc}") from exc
 
-    candidate_path = out_dir / "qwen3-asr-candidates.jsonl"
-    if candidate_path.is_file():
-        candidates = _jsonl_rows(candidate_path)
-        candidates_by_id = {str(row.get("segment_id", "")): row for row in candidates}
-        for item in payload.items:
-            candidate = candidates_by_id.get(item.segment_id)
-            if candidate is not None:
-                candidate["text"] = item.corrected_text.strip()
-                candidate["review_status"] = payload.review_status
-        _write_jsonl(candidate_path, candidates)
-
-    counts = {
-        status: sum(row.get("review_status") == status for row in rows)
-        for status in ("pending", "approved", "rejected")
-    }
+    _, stored_counts = store.page(task_id, page=1, page_size=1)
+    counts = {status: stored_counts[status] for status in ("pending", "approved", "rejected")}
     return {
         "task_id": task_id,
         "updated": segment_ids,
@@ -373,23 +371,24 @@ async def review_training_data(
         raise HTTPException(status_code=400, detail="invalid segment_id format")
     base = Path(request.app.state.settings.meeting_output_dir).expanduser()
     out_dir = _job_dir(base, task_id)
-    rows = _jsonl_rows(out_dir / "transcript_segments.jsonl")
-    row = next((item for item in rows if item.get("segment_id") == segment_id), None)
+    store = _ensure_review_store(request, task_id, out_dir)
+    row = store.get(task_id, segment_id)
     if row is None:
         raise HTTPException(status_code=404, detail="segment not found")
-    row["corrected_text"] = payload.corrected_text.strip()
-    row["text"] = payload.corrected_text.strip()
-    row["review_status"] = payload.review_status
-    row["correction_source"] = "human"
-    _write_jsonl(out_dir / "transcript_segments.jsonl", rows)
-
-    candidates = _jsonl_rows(out_dir / "qwen3-asr-candidates.jsonl")
-    candidate = next((item for item in candidates if item.get("segment_id") == segment_id), None)
-    if candidate is not None:
-        candidate["text"] = payload.corrected_text.strip()
-        candidate["review_status"] = payload.review_status
-        _write_jsonl(out_dir / "qwen3-asr-candidates.jsonl", candidates)
-    return {"task_id": task_id, "item": {**row, "audio_url": f"/api/meeting/{task_id}/training-data/{segment_id}/audio"}}
+    try:
+        store.update_many(
+            task_id,
+            [{
+                "segment_id": segment_id,
+                "corrected_text": payload.corrected_text.strip(),
+                "version": payload.version or row["version"],
+            }],
+            payload.review_status,
+        )
+    except ReviewConflictError as exc:
+        raise HTTPException(status_code=409, detail=f"review conflict: {exc}") from exc
+    updated = store.get(task_id, segment_id)
+    return {"task_id": task_id, "item": _review_item(task_id, updated or row)}
 
 
 @router.get("/{task_id}/training-data/{segment_id}/audio")

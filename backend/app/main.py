@@ -37,6 +37,7 @@ from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
 from .core.training import TrainingManager
 from .core.task_store import TaskStore
+from .core.review_store import ReviewStore
 from .core.artifact_retention import clean_meeting_artifacts
 
 
@@ -180,6 +181,7 @@ def create_app(
         return await call_next(request)
 
     app.state.task_store = TaskStore(current.task_store_path)
+    app.state.review_store = ReviewStore(current.task_store_path)
     app.state.training_manager = TrainingManager(
         app.state.task_store,
         max_concurrent_jobs=current.training_max_concurrent_jobs,

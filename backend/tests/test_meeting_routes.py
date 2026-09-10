@@ -297,7 +297,14 @@ def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
 
     from app.main import create_app
 
-    app = create_app(settings=Settings(meeting_output_dir=str(tmp_path)), enable_pipeline=False, enable_meeting=False)
+    app = create_app(
+        settings=Settings(
+            meeting_output_dir=str(tmp_path),
+            task_store_path=str(tmp_path / "tasks.sqlite3"),
+        ),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
     client = TestClient(app)
 
     review = client.get(f"/api/meeting/{task_id}/training-data")
@@ -311,10 +318,28 @@ def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
     )
     assert response.status_code == 200
     assert response.json()["item"]["review_status"] == "approved"
+    assert response.json()["item"]["version"] == 2
     for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
         saved = json.loads((out_dir / name).read_text(encoding="utf-8"))
-        assert saved["text"] == "云资源中心"
-        assert saved["review_status"] == "approved"
+        assert saved["text"] == "冷资源中心"
+        assert saved["review_status"] == "pending"
+
+    conflict = client.patch(
+        f"/api/meeting/{task_id}/training-data/seg-000001",
+        json={
+            "corrected_text": "过期更新",
+            "review_status": "approved",
+            "version": 1,
+        },
+    )
+    assert conflict.status_code == 409
+
+    datasets = client.get("/api/training/datasets")
+    assert datasets.status_code == 200
+    assert datasets.json()["items"][0]["approved_count"] == 1
+    exported = json.loads((out_dir / "qwen3-asr-candidates.jsonl").read_text(encoding="utf-8"))
+    assert exported["text"] == "云资源中心"
+    assert exported["review_status"] == "approved"
 
     audio = client.get(f"/api/meeting/{task_id}/training-data/seg-000001/audio")
     assert audio.status_code == 200
@@ -345,7 +370,14 @@ def test_training_review_paginates_and_batch_updates_segments(tmp_path) -> None:
 
     from app.main import create_app
 
-    app = create_app(settings=Settings(meeting_output_dir=str(tmp_path)), enable_pipeline=False, enable_meeting=False)
+    app = create_app(
+        settings=Settings(
+            meeting_output_dir=str(tmp_path),
+            task_store_path=str(tmp_path / "tasks.sqlite3"),
+        ),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
     client = TestClient(app)
 
     page = client.get(f"/api/meeting/{task_id}/training-data?page=2&page_size=2")
@@ -374,11 +406,15 @@ def test_training_review_paginates_and_batch_updates_segments(tmp_path) -> None:
     assert batch.json()["updated_count"] == 2
     assert batch.json()["counts"] == {"pending": 1, "approved": 2, "rejected": 0}
 
+    reviewed = client.get(f"/api/meeting/{task_id}/training-data")
+    assert [item["text"] for item in reviewed.json()["items"][:2]] == ["确认一", "确认二"]
+    assert [item["review_status"] for item in reviewed.json()["items"][:2]] == ["approved", "approved"]
+
     for name in ("transcript_segments.jsonl", "qwen3-asr-candidates.jsonl"):
         saved = [json.loads(line) for line in (out_dir / name).read_text(encoding="utf-8").splitlines()]
-        assert saved[0]["text"] == "确认一"
-        assert saved[1]["text"] == "确认二"
-        assert all(row["review_status"] == ("approved" if row["segment_id"] != "seg-000003" else "pending") for row in saved)
+        assert saved[0]["text"] == "原始 1"
+        assert saved[1]["text"] == "原始 2"
+        assert all(row["review_status"] == "pending" for row in saved)
 
 
 def test_process_rejects_when_meeting_concurrency_limit_is_reached(tmp_path) -> None:
