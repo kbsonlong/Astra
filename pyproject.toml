@@ -1,0 +1,19 @@
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+# Keep the first CI gate focused on syntax and runtime-fatal issues; legacy F401
+# cleanup is tracked separately from the delivery workflow.
+select = ["E4", "E7", "E9"]
+
+[tool.mypy]
+python_version = "3.11"
+files = [
+  "backend/app/config.py",
+  "backend/app/core/review_store.py",
+  "backend/app/core/task_store.py",
+  "backend/app/core/artifact_retention.py",
+]
+ignore_missing_imports = true
+check_untyped_defs = true
