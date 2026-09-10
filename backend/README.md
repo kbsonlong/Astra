@@ -37,11 +37,17 @@ Silero VAD -> ASR -> punctuation -> speaker diarization -> LLM summary
 ## 后台训练
 
 训练参数保存后，可在前端点击“启动训练”。后端通过 `mlx-tune` SDK 在独立进程中执行，
-不启动 Python 命令行；日志和适配器写入 `output_dir`。项目 `.venv` 需要安装 `mlx-tune`：
+不启动 Python 命令行；日志和适配器写入 `output_dir`。项目 `.venv` 默认从 PyPI 安装固定版本
+`mlx-tune==0.6.0`。如果需要复现旧的内部固定 commit，或目标环境无法访问 PyPI，可改用
+SSH 源或预先构建的本地 wheel：
 
 ```bash
 .venv/bin/pip install 'mlx-tune @ git+ssh://git@github.com/kbsonlong/mlx-tune.git@d5bcb880034078a78f0db51684e5783db44fbfa6'
+# 或：.venv/bin/pip install /path/to/mlx-tune-*.whl
 ```
+
+Node 依赖使用 `frontend/package-lock.json`，前端安装使用 `npm ci`，不要使用无锁定的
+`npm install` 更新依赖。
 
 训练 JSONL 每行需要 `audio` 和 `text` 字段，音频路径支持 `~`。任务状态可通过
 `GET /api/training/status` 查询，停止使用 `POST /api/training/stop`。
