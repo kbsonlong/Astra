@@ -304,7 +304,7 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 - WebSocket 使用 `{"type":"audio_channel","channel":"reference"}` 切换后续二进制帧到远端参考缓冲，再用 `speech_end` 将近端和参考一起交给 pipeline；近端与参考共享同一个会话大小上限。
 - `enhancement_status` 事件记录 `applied`/`not_applicable`、模型 ID、160 sample 处理帧、22 ms 算法延迟和当前可见诊断字段。当前 native pipeline 不返回 TDE/LP 中间张量，因此记录为不可用，而不是虚构内部结果。
 - 真实 10 秒 ModelScope 样本 smoke 已在目标 Mac mini CPU 上通过，推理耗时约 3.18 秒；这不是连续实时 5 分钟稳定性或通话质量验收。
-- 当前浏览器前端仍未采集并发送实际扬声器播放的 16 kHz mono PCM reference，因此产品实时 AEC 尚未默认启用；下一步仍需补前端/播放层 reference 采集和双讲、延迟漂移测试。
+- 当前浏览器前端已通过 Web Audio 捕获播报链路并在讲话提交前发送 16 kHz mono PCM16 WAV reference；播报中检测到用户讲话时会先发送 VAD interrupt，再保留同一捕获窗口。产品实时 AEC 仍默认关闭，双讲、延迟漂移和真实设备回声效果仍需验证。
 
 真实模型复测命令（不会自动下载权重）：
 
@@ -319,7 +319,8 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
 ```
 
 输入必须是等长的 16 kHz mono PCM16 WAV；脚本输出 `/tmp/astra-jaec-smoke.wav`，并报告
-总耗时、RTF 和 stage diagnostics。
+总耗时、RTF 和 stage diagnostics。浏览器端会把 reference 以同样格式通过
+`audio_channel=reference` 发送，随后切回 `microphone` 再发送 `speech_end`。
 
 ### Phase D：按需 Separation
 

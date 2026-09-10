@@ -4,6 +4,12 @@ import ReviewPage from "./ReviewPage";
 import TrainingPage from "./TrainingPage";
 import SettingsPage from "./SettingsPage";
 import LoginPage from "./LoginPage";
+import {
+  encodePcm16Wav,
+  fitPcmLengthFromEnd,
+  JAEC_SAMPLE_RATE,
+  PcmCollector,
+} from "./audio/pcm";
 
 type ServerEvent = {
   type: string;
@@ -110,6 +116,15 @@ function VoiceAssistant() {
   const mediaStream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const analyser = useRef<AnalyserNode | null>(null);
+  const microphoneCapture = useRef<ScriptProcessorNode | null>(null);
+  const farEndCapture = useRef<ScriptProcessorNode | null>(null);
+  const ttsSources = useRef(new Set<AudioBufferSourceNode>());
+  const microphonePcm = useRef(new PcmCollector());
+  const farEndPcm = useRef(new PcmCollector());
+  const captureWindow = useRef(false);
+  const nextTtsTime = useRef(0);
+  const pendingTtsDecodes = useRef(0);
+  const ttsFinished = useRef(false);
   const monitorFrame = useRef<number | null>(null);
   const speechStarted = useRef(false);
   const silenceSince = useRef<number | null>(null);
@@ -128,6 +143,17 @@ function VoiceAssistant() {
     monitorFrame.current = null;
     recorder.current?.stop();
     recorder.current = null;
+    microphoneCapture.current?.disconnect();
+    microphoneCapture.current = null;
+    farEndCapture.current?.disconnect();
+    farEndCapture.current = null;
+    stopTtsPlayback();
+    microphonePcm.current.clear();
+    farEndPcm.current.clear();
+    captureWindow.current = false;
+    nextTtsTime.current = 0;
+    pendingTtsDecodes.current = 0;
+    ttsFinished.current = false;
     mediaStream.current?.getTracks().forEach((track) => track.stop());
     mediaStream.current = null;
     void audioContext.current?.close();
@@ -135,6 +161,52 @@ function VoiceAssistant() {
     analyser.current = null;
     speechStarted.current = false;
     silenceSince.current = null;
+  }
+
+  function resetCaptureWindow() {
+    microphonePcm.current.clear();
+    farEndPcm.current.clear();
+    captureWindow.current = true;
+  }
+
+  function stopTtsPlayback() {
+    for (const source of ttsSources.current) {
+      try { source.stop(); } catch { /* source may already have ended */ }
+      source.disconnect();
+    }
+    ttsSources.current.clear();
+    nextTtsTime.current = 0;
+  }
+
+  function finishTtsCaptureIfIdle() {
+    if (
+      ttsFinished.current
+      && pendingTtsDecodes.current === 0
+      && ttsSources.current.size === 0
+      && !speechStarted.current
+    ) {
+      farEndPcm.current.clear();
+      ttsFinished.current = false;
+    }
+  }
+
+  function sendFarEndReference(connection: WebSocket) {
+    const context = audioContext.current;
+    if (!context || !captureWindow.current) return;
+    const microphone = microphonePcm.current.toSampleRate(context.sampleRate);
+    const farEnd = farEndPcm.current.toSampleRate(context.sampleRate);
+    captureWindow.current = false;
+    microphonePcm.current.clear();
+    farEndPcm.current.clear();
+    ttsFinished.current = false;
+    if (microphone.length === 0 || farEnd.length === 0) return;
+
+    // JAEC consumes equal-length 16 kHz mono WAVs. Missing far-end samples are
+    // silence, which preserves the microphone timeline for short TTS chunks.
+    const aligned = fitPcmLengthFromEnd(farEnd, microphone.length);
+    connection.send(JSON.stringify({ type: "audio_channel", channel: "reference" }));
+    connection.send(encodePcm16Wav(aligned, JAEC_SAMPLE_RATE));
+    connection.send(JSON.stringify({ type: "audio_channel", channel: "microphone" }));
   }
 
   function monitorMicrophone() {
@@ -149,12 +221,26 @@ function VoiceAssistant() {
     }
     const level = Math.sqrt(sum / samples.length);
     const now = performance.now();
-    if (stateRef.current === "LISTENING") {
+    if (stateRef.current === "LISTENING" || stateRef.current === "SPEAKING") {
       if (level >= SPEECH_THRESHOLD) {
         if (!speechStarted.current) {
           speechStarted.current = true;
           setTranscript("");
           setAnswer("");
+          if (stateRef.current === "SPEAKING") {
+            const connection = socket.current;
+            if (connection?.readyState === WebSocket.OPEN) {
+              connection.send(JSON.stringify({
+                type: "interrupt",
+                generation_id: activeGeneration.current || undefined,
+                reason: "vad",
+              }));
+            }
+            stopTtsPlayback();
+            stateRef.current = "LISTENING";
+            setState("LISTENING");
+            resetCaptureWindow();
+          }
         }
         silenceSince.current = null;
       } else if (speechStarted.current) {
@@ -162,6 +248,7 @@ function VoiceAssistant() {
         if (now - silenceSince.current >= SILENCE_MS) {
           const connection = socket.current;
           if (connection?.readyState === WebSocket.OPEN) {
+            sendFarEndReference(connection);
             connection.send(JSON.stringify({ type: "speech_end" }));
             stateRef.current = "REASONING";
             setState("REASONING");
@@ -183,13 +270,35 @@ function VoiceAssistant() {
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
-    const context = new AudioContext();
+    const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
     const source = context.createMediaStreamSource(stream);
     const currentAnalyser = context.createAnalyser();
     currentAnalyser.fftSize = 1024;
     source.connect(currentAnalyser);
+    const currentMicrophoneCapture = context.createScriptProcessor(4096, 1, 1);
+    currentMicrophoneCapture.onaudioprocess = (event) => {
+      if (captureWindow.current && stateRef.current === "LISTENING") {
+        microphonePcm.current.append(event.inputBuffer.getChannelData(0));
+      }
+    };
+    const silentSink = context.createGain();
+    silentSink.gain.value = 0;
+    source.connect(currentMicrophoneCapture);
+    currentMicrophoneCapture.connect(silentSink);
+    silentSink.connect(context.destination);
+
+    const currentFarEndCapture = context.createScriptProcessor(4096, 1, 1);
+    currentFarEndCapture.onaudioprocess = (event) => {
+      if (captureWindow.current || stateRef.current === "SPEAKING") {
+        farEndPcm.current.append(event.inputBuffer.getChannelData(0));
+      }
+    };
+    currentFarEndCapture.connect(context.destination);
     audioContext.current = context;
     analyser.current = currentAnalyser;
+    microphoneCapture.current = currentMicrophoneCapture;
+    farEndCapture.current = currentFarEndCapture;
+    resetCaptureWindow();
 
     const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
       ? "audio/webm;codecs=opus"
@@ -248,13 +357,48 @@ function VoiceAssistant() {
     }
     if (event.type === "asr_final") setTranscript(event.text ?? "");
     if (event.type === "llm_token") setAnswer((current) => current + (event.token ?? ""));
+    if (event.type === "tts_start") {
+      farEndPcm.current.clear();
+      captureWindow.current = false;
+      ttsFinished.current = false;
+    }
     if (event.type === "tts_chunk" && event.audio_b64) {
-      const bytes = Uint8Array.from(atob(event.audio_b64), (char) => char.charCodeAt(0));
-      new Audio(URL.createObjectURL(new Blob([bytes], { type: event.mime ?? "audio/wav" }))).play();
+      void playTtsChunk(event);
     }
     if (event.type === "tts_end") {
+      microphonePcm.current.clear();
+      captureWindow.current = true;
+      ttsFinished.current = true;
+      finishTtsCaptureIfIdle();
       stateRef.current = "LISTENING";
       setState("LISTENING");
+    }
+  }
+
+  async function playTtsChunk(event: ServerEvent) {
+    const context = audioContext.current;
+    if (!context || !event.audio_b64) return;
+    pendingTtsDecodes.current += 1;
+    const bytes = Uint8Array.from(atob(event.audio_b64), (char) => char.charCodeAt(0));
+    try {
+      const audioBuffer = await context.decodeAudioData(bytes.buffer.slice(0));
+      const source = context.createBufferSource();
+      source.buffer = audioBuffer;
+      const farEnd = farEndCapture.current;
+      if (farEnd) source.connect(farEnd);
+      else source.connect(context.destination);
+      const startAt = Math.max(context.currentTime, nextTtsTime.current);
+      source.start(startAt);
+      nextTtsTime.current = startAt + audioBuffer.duration;
+      ttsSources.current.add(source);
+      source.onended = () => {
+        ttsSources.current.delete(source);
+        source.disconnect();
+        finishTtsCaptureIfIdle();
+      };
+    } finally {
+      pendingTtsDecodes.current -= 1;
+      finishTtsCaptureIfIdle();
     }
   }
 
