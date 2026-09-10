@@ -32,10 +32,12 @@ class ZipEnhancerStage:
         *,
         model_id: str = ZIPENHANCER_MODEL_ID,
         model_dir: str | Path | None = None,
+        device: str = "auto",
         backend: object | None = None,
     ) -> None:
         self.model_id = model_id
         self.model_dir = str(Path(model_dir).expanduser()) if model_dir else ""
+        self.device = device
         self._backend = backend
 
     def _load_backend(self) -> object:
@@ -57,10 +59,23 @@ class ZipEnhancerStage:
         model_path = Path(self.model_dir)
         if not model_path.is_dir():
             raise RuntimeError(f"ZipEnhancer model directory does not exist: {model_path}")
+        if self.device == "mps":
+            # ModelScope 1.39.1 rejects ``device="mps"`` in its pipeline
+            # validator. Load through its CPU path, then move the PyTorch
+            # model and pipeline input device to MPS explicitly.
+            import torch
+
+            if not torch.backends.mps.is_available():
+                raise RuntimeError("ZipEnhancer MPS requested but MPS is unavailable")
+            pipeline_options = {"device": "cpu"}
+        else:
+            pipeline_options = {} if self.device == "auto" else {"device": self.device}
         self._backend = pipeline(
-            Tasks.acoustic_noise_suppression,
-            model=str(model_path),
+            Tasks.acoustic_noise_suppression, model=str(model_path), **pipeline_options
         )
+        if self.device == "mps":
+            self._backend.device = torch.device("mps")  # type: ignore[attr-defined]
+            self._backend.model.to(torch.device("mps"))  # type: ignore[attr-defined]
         return self._backend
 
     @staticmethod
@@ -137,6 +152,7 @@ class ZipEnhancerStage:
             details={
                 "backend": "modelscope",
                 "model_id": self.model_id,
+                "device": self.device,
                 "output_samples": len(output),
             },
         )
@@ -147,10 +163,13 @@ def build_audio_enhancement_pipeline(
     enabled: bool,
     ans_model: str,
     model_dir: str = "",
+    device: str = "auto",
 ) -> AudioEnhancementPipeline | None:
     """Build only the explicitly configured offline enhancement pipeline."""
     if not enabled or ans_model in {"", "none"}:
         return None
     if ans_model != "zipenhancer_16k":
         raise ValueError(f"unsupported audio ANS model: {ans_model}")
-    return AudioEnhancementPipeline([ZipEnhancerStage(model_dir=model_dir or None)])
+    return AudioEnhancementPipeline(
+        [ZipEnhancerStage(model_dir=model_dir or None, device=device)]
+    )

@@ -67,5 +67,18 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_zipenhancer.py \
 上 CPU smoke 成功：2.398 秒音频耗时 37.925 秒，RTF 15.817；这证明本地模型链路可用，
 但不构成实时性能通过，也未替代真实会议录音的 ASR A/B 和人工听感验证。
 
+同一模型、同一 2.398 秒输入的 CPU/MPS 基线（1 次预热、2 次测量）可用以下命令重跑：
+
+```bash
+PYTHONPATH=backend .venv/bin/python backend/scripts/benchmark_zipenhancer.py \
+  --model-dir ~/.astra/models/audio-enhancement/zipenhancer_16k \
+  --input ~/.astra/models/audio-enhancement/zipenhancer_16k/examples/speech_with_noise.wav
+```
+
+2026-09-11 目标 Mac mini 结果：CPU 加载 2.664 秒，稳态 p50 31.943 秒、p95 33.811 秒，
+RTF p50 13.322；MPS 加载 2.708 秒，稳态 p50/p95 均 0.525 秒，RTF 0.219。MPS 需要绕过
+ModelScope 对 `device="mps"` 的校验，先以 CPU pipeline 加载，再显式迁移底层 PyTorch 模型；
+这条兼容路径已纳入 `ZipEnhancerStage`，仍需在更长和更多样本上复测稳定性。
+
 训练 JSONL 每行需要 `audio` 和 `text` 字段，音频路径支持 `~`。任务状态可通过
 `GET /api/training/status` 查询，停止使用 `POST /api/training/stop`。

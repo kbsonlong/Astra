@@ -41,6 +41,7 @@ def test_zipenhancer_stage_uses_modelscope_contract_and_preserves_length() -> No
     assert len(output.samples) == 320
     assert metrics.status == "applied"
     assert metrics.details["backend"] == "modelscope"
+    assert metrics.details["device"] == "auto"
 
 
 def test_zipenhancer_is_not_applicable_to_realtime_context() -> None:
