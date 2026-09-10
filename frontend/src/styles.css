@@ -1110,6 +1110,75 @@ h1 {
   height: 36px;
 }
 
+.overlap-detection {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(22, 32, 37, 0.1);
+  border-left: 4px solid #94a6a1;
+  border-radius: 8px;
+  background: rgba(246, 249, 247, 0.8);
+}
+
+.overlap-detection.is-suspected {
+  border-left-color: #d48643;
+  background: rgba(255, 247, 236, 0.9);
+}
+
+.overlap-detection-head,
+.overlap-meter-labels,
+.overlap-detection-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.overlap-detection-head span {
+  color: #65747a;
+  font-size: 13px;
+}
+
+.overlap-meter-wrap {
+  display: grid;
+  gap: 5px;
+}
+
+.overlap-meter {
+  position: relative;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dfe8e4;
+}
+
+.overlap-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #6d9388;
+}
+
+.is-suspected .overlap-meter span {
+  background: #d48643;
+}
+
+.overlap-meter i {
+  position: absolute;
+  top: -3px;
+  width: 2px;
+  height: 15px;
+  background: #2f3f44;
+}
+
+.overlap-meter-labels,
+.overlap-detection-stats,
+.overlap-detection > small {
+  color: #65747a;
+  font-size: 12px;
+}
+
 .review-text-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

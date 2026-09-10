@@ -32,6 +32,64 @@ type PromptEditorState = {
   merge_system_prompt: string;
 };
 
+type OverlapDetection = {
+  suspected: boolean;
+  score: number;
+  active_frames: number;
+  candidate_frames: number;
+  threshold: number;
+  details?: {
+    sample_rate?: number;
+    frame_seconds?: number;
+    hop_seconds?: number;
+    frequency_band_hz?: number[];
+  };
+};
+
+function OverlapDetectionView({ detection }: { detection: OverlapDetection }) {
+  const score = Math.max(0, Math.min(1, detection.score));
+  const threshold = Math.max(0, Math.min(1, detection.threshold));
+  const candidateRatio = detection.active_frames > 0
+    ? detection.candidate_frames / detection.active_frames
+    : 0;
+  const details = detection.details ?? {};
+  const band = details.frequency_band_hz?.join("–") ?? "80–350";
+  return (
+    <div className={"overlap-detection " + (detection.suspected ? "is-suspected" : "is-clear")}>
+      <div className="overlap-detection-head">
+        <strong>重叠检测</strong>
+        <span>{detection.suspected ? "疑似重叠，已触发分离" : "未发现明显重叠"}</span>
+      </div>
+      <div className="overlap-meter-wrap">
+        <div
+          className="overlap-meter"
+          role="progressbar"
+          aria-label="重叠检测得分"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(score * 100)}
+        >
+          <span style={{ width: (score * 100) + "%" }} />
+          <i style={{ left: (threshold * 100) + "%" }} />
+        </div>
+        <div className="overlap-meter-labels">
+          <span>得分 {(score * 100).toFixed(1)}%</span>
+          <span>触发线 {(threshold * 100).toFixed(1)}%</span>
+        </div>
+      </div>
+      <div className="overlap-detection-stats">
+        <span>候选帧 {(candidateRatio * 100).toFixed(1)}%</span>
+        <span>有效帧 {detection.active_frames}</span>
+        <span>分析频段 {band} Hz</span>
+      </div>
+      <small>
+        {details.sample_rate ?? 16000} Hz · 窗长 {((details.frame_seconds ?? 0.025) * 1000).toFixed(0)} ms ·
+        步长 {((details.hop_seconds ?? 0.01) * 1000).toFixed(0)} ms
+      </small>
+    </div>
+  );
+}
+
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
@@ -116,6 +174,7 @@ type MeetingResult = {
     candidate_segments?: number;
   };
   separation_audio_urls?: string[];
+  overlap_detection?: OverlapDetection;
 };
 
 type MeetingStatus = {
@@ -134,6 +193,7 @@ type MeetingStatus = {
   training_artifacts?: MeetingResult["training_artifacts"];
   prompt_template?: string;
   separation_audio_urls?: string[];
+  overlap_detection?: OverlapDetection;
 };
 
 const meetingEventUrl = (taskId: string) => {
@@ -361,6 +421,7 @@ export default function UploadPage() {
           training_artifacts: current.training_artifacts,
           prompt_template: current.prompt_template,
           separation_audio_urls: current.separation_audio_urls,
+          overlap_detection: current.overlap_detection,
         });
       };
 
@@ -894,6 +955,9 @@ export default function UploadPage() {
                   </label>
                 ))}
               </div>
+            )}
+            {meeting.overlap_detection && (
+              <OverlapDetectionView detection={meeting.overlap_detection} />
             )}
             <p className="result-meta">完整报告: {meeting.report_path}</p>
             <p className="result-meta"><a className="review-link" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a> · <a className="review-link" href="/training">打开训练设置</a></p>
