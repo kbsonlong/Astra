@@ -1,0 +1,6 @@
+# Optional Phase B backend for the offline ZipEnhancer 16 kHz ANS stage.
+# Install this after backend/requirements.txt; enabling remains opt-in via .env.
+modelscope==1.39.1
+addict==2.4.0
+simplejson==3.20.1
+sortedcontainers==2.4.0

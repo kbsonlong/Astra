@@ -110,6 +110,9 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "meeting_max_duration_seconds": current.meeting_max_duration_seconds,
         "ws_max_audio_bytes": current.ws_max_audio_bytes,
         "audio_max_concurrent_per_ip": current.audio_max_concurrent_per_ip,
+        "audio_enhancement_enabled": current.audio_enhancement_enabled,
+        "audio_ans_model": current.audio_ans_model,
+        "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
         "version": current.version,
     }
 

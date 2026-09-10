@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Protocol, Sequence
 
 from .audio_adapter import audio_buffer_to_wav_bytes, decode_audio_file
+from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
 from .workflow import (
     AudioWorkflow,
     PassthroughPunctuation,
@@ -42,6 +43,7 @@ class MeetingResult:
     speaker_labels: dict[str, str] = field(default_factory=dict)  # 簇id -> 标签
     summary: str = ""
     translation: str = ""
+    enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
 
     def timeline_text(self) -> str:
         """时间轴逐字稿 (每行: [mm:ss] S# 文本)。"""
@@ -122,6 +124,7 @@ class MeetingPipeline:
         correction_stage: WorkflowStage | None = None,
         text_cleanup: WorkflowStage | None = None,
         prompt_templates_path: str | Path | None = None,
+        enhancement: AudioEnhancementPipeline | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
@@ -142,6 +145,7 @@ class MeetingPipeline:
             raise ValueError("use correction_stage or text_cleanup, not both")
         self.correction_stage = correction_stage or text_cleanup
         self.prompt_templates_path = prompt_templates_path
+        self.enhancement = enhancement
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
@@ -348,10 +352,21 @@ class MeetingPipeline:
             wav, dur = await asyncio.to_thread(self.decode_to_wav, src)
 
         try:
+            enhancement_metrics: list[dict[str, object]] = []
+            if self.enhancement is not None:
+                audio_buffer = await asyncio.to_thread(decode_audio_file, wav)
+                audio_buffer, metrics = await self.enhancement.process(
+                    audio_buffer,
+                    EnhancementContext(realtime=False),
+                )
+                enhancement_metrics = [item.to_dict() for item in metrics]
+                if any(item["status"] == "applied" for item in enhancement_metrics):
+                    Path(wav).write_bytes(audio_buffer_to_wav_bytes(audio_buffer))
             lang, segs = await self.transcribe(wav, progress=progress)
             result = MeetingResult(
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,
+                enhancement_metrics=enhancement_metrics,
             )
             if summarize:
                 result.summary, result.translation = await self.summarize(

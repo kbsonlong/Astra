@@ -130,9 +130,11 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "TTS_MODEL_PATH", "LLM_MODELS_PATH", "TRANSCRIBE_MAX_UPLOAD_BYTES",
         "TRANSCRIBE_MAX_DURATION_SECONDS", "MEETING_MAX_UPLOAD_BYTES",
         "MEETING_MAX_DURATION_SECONDS", "WS_MAX_AUDIO_BYTES",
-        "AUDIO_MAX_CONCURRENT_PER_IP", "MEETING_MAX_CONCURRENT_JOBS",
-        "TRAINING_MAX_CONCURRENT_JOBS", "MEETING_TASK_TIMEOUT_SECONDS",
-        "TRAINING_TASK_TIMEOUT_SECONDS", "MEETING_ARTIFACT_RETENTION_DAYS",
+        "AUDIO_MAX_CONCURRENT_PER_IP", "AUDIO_ENHANCEMENT_ENABLED",
+        "AUDIO_ANS_MODEL", "AUDIO_ENHANCEMENT_MODEL_DIR",
+        "MEETING_MAX_CONCURRENT_JOBS", "TRAINING_MAX_CONCURRENT_JOBS",
+        "MEETING_TASK_TIMEOUT_SECONDS", "TRAINING_TASK_TIMEOUT_SECONDS",
+        "MEETING_ARTIFACT_RETENTION_DAYS",
         "MEETING_ARTIFACT_MAX_BYTES",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -147,6 +149,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "MEETING_MAX_DURATION_SECONDS=34.5\n"
         "WS_MAX_AUDIO_BYTES=789\n"
         "AUDIO_MAX_CONCURRENT_PER_IP=5\n"
+        "AUDIO_ENHANCEMENT_ENABLED=true\n"
+        "AUDIO_ANS_MODEL=zipenhancer_16k\n"
+        "AUDIO_ENHANCEMENT_MODEL_DIR=/models/audio\n"
         "MEETING_MAX_CONCURRENT_JOBS=2\n"
         "TRAINING_MAX_CONCURRENT_JOBS=3\n"
         "MEETING_TASK_TIMEOUT_SECONDS=12.5\n"
@@ -173,6 +178,9 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.meeting_max_duration_seconds == 34.5
     assert loaded.ws_max_audio_bytes == 789
     assert loaded.audio_max_concurrent_per_ip == 5
+    assert loaded.audio_enhancement_enabled is True
+    assert loaded.audio_ans_model == "zipenhancer_16k"
+    assert loaded.audio_enhancement_model_dir == "/models/audio"
     assert loaded.meeting_max_concurrent_jobs == 2
     assert loaded.training_max_concurrent_jobs == 3
     assert loaded.meeting_task_timeout_seconds == 12.5

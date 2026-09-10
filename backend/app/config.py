@@ -248,6 +248,9 @@ class Settings:
     meeting_max_duration_seconds: float = 4 * 60 * 60
     ws_max_audio_bytes: int = 25 * 1024 * 1024
     audio_max_concurrent_per_ip: int = 4
+    audio_enhancement_enabled: bool = False
+    audio_ans_model: str = "none"
+    audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
     version: str = "mvp"
@@ -402,6 +405,13 @@ class Settings:
             ),
             audio_max_concurrent_per_ip=_positive_int_env(
                 "AUDIO_MAX_CONCURRENT_PER_IP", cls.audio_max_concurrent_per_ip
+            ),
+            audio_enhancement_enabled=_bool_env(
+                "AUDIO_ENHANCEMENT_ENABLED", cls.audio_enhancement_enabled
+            ),
+            audio_ans_model=os.getenv("AUDIO_ANS_MODEL", cls.audio_ans_model),
+            audio_enhancement_model_dir=os.getenv(
+                "AUDIO_ENHANCEMENT_MODEL_DIR", cls.audio_enhancement_model_dir
             ),
             qwen3_training_config_path=os.getenv(
                 "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path

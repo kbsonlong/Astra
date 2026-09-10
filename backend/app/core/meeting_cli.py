@@ -49,6 +49,7 @@ def _build_pipeline(prompt_templates_path: str = ""):
     """与 main.py 中会议管线一致的干净配置(无热词/无 system_prompt)。"""
     from app.config import Settings
     from app.core.meeting import MeetingPipeline
+    from app.core.zipenhancer import build_audio_enhancement_pipeline
     from app.models.asr_client import MlxAudioAsrClient
     from app.models.llm_client import OpenAICompatLLMClient
 
@@ -110,6 +111,11 @@ def _build_pipeline(prompt_templates_path: str = ""):
         diarization=diarization,
         correction_stage=correction_stage,
         prompt_templates_path=prompt_templates_path,
+        enhancement=build_audio_enhancement_pipeline(
+            enabled=s.audio_enhancement_enabled,
+            ans_model=s.audio_ans_model,
+            model_dir=s.audio_enhancement_model_dir,
+        ),
     )
 
 
@@ -271,6 +277,10 @@ async def _run(
         "prompt_template_name": prompt_template.name,
         "llm_model": getattr(getattr(pipeline, "llm", None), "model", "") or "",
         "engine": ENGINE_LABEL,
+        "enhancement": {
+            "enabled": bool(result.enhancement_metrics),
+            "stages": result.enhancement_metrics,
+        },
     }
     (out_dir / "report.md").write_text(_render_markdown(result, meta), encoding="utf-8")
     (out_dir / "transcript.txt").write_text(result.timeline_text(), encoding="utf-8")
@@ -287,6 +297,7 @@ async def _run(
         "segments": len(result.segments),
         "speakers": sorted({s.speaker for s in result.segments if s.speaker}),
         "training_artifacts": artifacts,
+        "enhancement": result.enhancement_metrics,
         "elapsed_s": round(time.time() - t0, 1),
     })
     print(json.dumps({
