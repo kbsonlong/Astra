@@ -86,6 +86,11 @@ def test_spectral_overlap_detector_distinguishes_two_prominent_voice_band_tones(
         0.5 * np.sin(2 * np.pi * 140 * time_axis)
         + 0.5 * np.sin(2 * np.pi * 260 * time_axis)
     ).astype(np.float32)
+    harmonic = (
+        0.7 * np.sin(2 * np.pi * 140 * time_axis)
+        + 0.3 * np.sin(2 * np.pi * 280 * time_axis)
+    ).astype(np.float32)
+    noise = np.random.default_rng(7).normal(0, 0.2, len(time_axis)).astype(np.float32)
     detector = SpectralOverlapDetector()
 
     single_result = detector.detect(
@@ -94,10 +99,20 @@ def test_spectral_overlap_detector_distinguishes_two_prominent_voice_band_tones(
     mixed_result = detector.detect(
         AudioBuffer(samples=mixed, sample_rate=sample_rate, channels=1)
     )
+    harmonic_result = detector.detect(
+        AudioBuffer(samples=harmonic, sample_rate=sample_rate, channels=1)
+    )
+    noise_result = detector.detect(
+        AudioBuffer(samples=noise, sample_rate=sample_rate, channels=1)
+    )
 
     assert not single_result.suspected
     assert mixed_result.suspected
     assert mixed_result.candidate_frames > 0
+    assert not harmonic_result.suspected
+    assert not noise_result.suspected
+    assert harmonic_result.details["harmonic_rejections"] > 0
+    assert noise_result.details["noise_rejections"] > 0
 
 
 class FakeOverlapDetector:

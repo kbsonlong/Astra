@@ -43,16 +43,18 @@ type OverlapDetection = {
     frame_seconds?: number;
     hop_seconds?: number;
     frequency_band_hz?: number[];
+    eligible_frames?: number;
   };
 };
 
 function OverlapDetectionView({ detection }: { detection: OverlapDetection }) {
   const score = Math.max(0, Math.min(1, detection.score));
   const threshold = Math.max(0, Math.min(1, detection.threshold));
-  const candidateRatio = detection.active_frames > 0
-    ? detection.candidate_frames / detection.active_frames
-    : 0;
   const details = detection.details ?? {};
+  const eligibleFrames = details.eligible_frames ?? detection.active_frames;
+  const candidateRatio = eligibleFrames > 0
+    ? detection.candidate_frames / eligibleFrames
+    : 0;
   const band = details.frequency_band_hz?.join("–") ?? "80–350";
   return (
     <div className={"overlap-detection " + (detection.suspected ? "is-suspected" : "is-clear")}>
@@ -83,7 +85,7 @@ function OverlapDetectionView({ detection }: { detection: OverlapDetection }) {
         <span>分析频段 {band} Hz</span>
       </div>
       <small>
-        {details.sample_rate ?? 16000} Hz · 窗长 {((details.frame_seconds ?? 0.025) * 1000).toFixed(0)} ms ·
+        {details.sample_rate ?? 16000} Hz · 窗长 {((details.frame_seconds ?? 0.05) * 1000).toFixed(0)} ms ·
         步长 {((details.hop_seconds ?? 0.01) * 1000).toFixed(0)} ms
       </small>
     </div>

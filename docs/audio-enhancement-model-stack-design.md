@@ -335,7 +335,7 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
 - 输入先显式重采样为 8 kHz mono，按 `AUDIO_SEPARATION_WINDOW_SECONDS`（默认 30 秒）切窗，输出两路 8 kHz PCM；会议 worker 再将每路重采样到 16 kHz，分别执行 VAD/ASR，并标记为 `S1`/`S2`。
 - 会议 API 增加 `separate=true` 表单字段，前端会议工作台提供“启用 FLASepformer 双说话人分离”选项；产物写入 `separated/source-0.wav`、`source-1.wav`，原始混合音频仍保留。
 - `AUDIO_SEPARATION_TRIGGER=manual` 时只在请求显式 `separate=true` 执行；`always` 对每个离线会议执行；`overlap` 使用离线短时频谱双峰启发式，仅在疑似重叠时启动分离。
-- `overlap` 检测结果会写入 `meta.json`/`status.json`；它是保守的触发器，不是说话人数识别或准确的重叠时间戳，误检会增加一次离线分离成本，漏检仍回退混合音频 ASR。
+- `overlap` 检测结果会写入 `meta.json`/`status.json`；当前触发器结合低频双峰、频谱平坦度、谐波关系排除和连续候选帧约束，不是说话人数识别或准确的重叠时间戳，误检会增加一次离线分离成本，漏检仍回退混合音频 ASR。
 - 分离失败会回退到原始混合音频 VAD/ASR，并在 `meta.json`/`status.json` 记录失败原因；实时 WebSocket 不启用该 stage。
 - 当前模型卡声明该 checkpoint 面向干净条件下的 Libri2Mix 双说话人、固定输出两路，并采用 CC BY-NC 4.0；不能据此宣称中文、任意人数、噪声/混响会议的通用效果。
 
