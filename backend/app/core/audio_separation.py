@@ -22,6 +22,132 @@ SeparationStatus = Literal["applied", "not_applicable", "failed", "disabled"]
 
 
 @dataclass(frozen=True)
+class OverlapDetection:
+    suspected: bool
+    score: float
+    active_frames: int
+    candidate_frames: int
+    threshold: float
+    details: dict[str, object] | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "suspected": self.suspected,
+            "score": self.score,
+            "active_frames": self.active_frames,
+            "candidate_frames": self.candidate_frames,
+            "threshold": self.threshold,
+            "details": dict(self.details or {}),
+        }
+
+
+class OverlapDetector(Protocol):
+    def detect(self, audio: AudioBuffer) -> OverlapDetection: ...
+
+
+class SpectralOverlapDetector:
+    """Conservative mono overlap heuristic for deciding whether to separate.
+
+    It counts short-time frames with two prominent low-frequency peaks. This is
+    intentionally a trigger heuristic, not a speaker-count or diarization
+    result; false negatives fall back to the mixed ASR path without changing
+    the default manual/always behavior.
+    """
+
+    def __init__(
+        self,
+        *,
+        frame_seconds: float = 0.025,
+        hop_seconds: float = 0.010,
+        min_rms: float = 0.01,
+        peak_ratio: float = 0.22,
+        min_score: float = 0.45,
+        min_active_frames: int = 3,
+    ) -> None:
+        if frame_seconds <= 0 or hop_seconds <= 0:
+            raise ValueError("overlap frame and hop durations must be positive")
+        if not 0 < peak_ratio < 1 or not 0 < min_score <= 1:
+            raise ValueError("overlap ratios must be between 0 and 1")
+        self.frame_seconds = frame_seconds
+        self.hop_seconds = hop_seconds
+        self.min_rms = min_rms
+        self.peak_ratio = peak_ratio
+        self.min_score = min_score
+        self.min_active_frames = min_active_frames
+
+    def detect(self, audio: AudioBuffer) -> OverlapDetection:
+        samples = np.asarray(audio.samples, dtype=np.float32)
+        if audio.channels != 1:
+            raise ValueError("overlap detection currently requires mono audio")
+        if samples.ndim != 1:
+            raise ValueError("overlap detection requires one-dimensional samples")
+        frame_size = max(16, round(audio.sample_rate * self.frame_seconds))
+        hop_size = max(1, round(audio.sample_rate * self.hop_seconds))
+        if len(samples) < frame_size:
+            samples = np.pad(samples, (0, frame_size - len(samples)))
+        window = np.hanning(frame_size).astype(np.float32)
+        frequencies = np.fft.rfftfreq(frame_size, 1.0 / audio.sample_rate)
+        band = (frequencies >= 80.0) & (frequencies <= 350.0)
+        active_frames = 0
+        candidate_frames = 0
+        min_peak_distance = max(1, round(40.0 * frame_size / audio.sample_rate))
+
+        for start in range(0, len(samples) - frame_size + 1, hop_size):
+            frame = samples[start : start + frame_size]
+            rms = float(np.sqrt(np.mean(frame * frame)))
+            if rms < self.min_rms:
+                continue
+            active_frames += 1
+            spectrum = np.abs(np.fft.rfft(frame * window))
+            band_spectrum = spectrum[band]
+            if not len(band_spectrum):
+                continue
+            peak_limit = float(band_spectrum.max()) * self.peak_ratio
+            peaks = self._find_peaks(
+                band_spectrum,
+                height=peak_limit,
+                distance=min_peak_distance,
+            )
+            if len(peaks) >= 2:
+                candidate_frames += 1
+
+        score = candidate_frames / active_frames if active_frames else 0.0
+        return OverlapDetection(
+            suspected=active_frames >= self.min_active_frames and score >= self.min_score,
+            score=round(score, 4),
+            active_frames=active_frames,
+            candidate_frames=candidate_frames,
+            threshold=self.min_score,
+            details={
+                "sample_rate": audio.sample_rate,
+                "frame_seconds": self.frame_seconds,
+                "hop_seconds": self.hop_seconds,
+                "frequency_band_hz": [80, 350],
+                "peak_ratio": self.peak_ratio,
+            },
+        )
+
+    @staticmethod
+    def _find_peaks(
+        values: np.ndarray, *, height: float, distance: int
+    ) -> np.ndarray:
+        """Small dependency-free peak finder for the bounded detector band."""
+        candidates = np.flatnonzero(
+            (values[1:-1] >= values[:-2])
+            & (values[1:-1] >= values[2:])
+            & (values[1:-1] >= height)
+        ) + 1
+        if len(candidates) <= 1:
+            return candidates
+        order = candidates[np.argsort(values[candidates])[::-1]]
+        selected: list[int] = []
+        for candidate in order:
+            if all(abs(int(candidate) - item) >= distance for item in selected):
+                selected.append(int(candidate))
+        return np.asarray(selected, dtype=np.int64)
+
+
+@dataclass(frozen=True)
 class SeparationMetrics:
     stage_name: str
     status: SeparationStatus

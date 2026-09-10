@@ -297,6 +297,7 @@ async def _run(
             "stages": result.separation_metrics,
             "artifacts": result.separation_artifacts,
         },
+        "overlap_detection": result.overlap_detection,
     }
     (out_dir / "report.md").write_text(_render_markdown(result, meta), encoding="utf-8")
     (out_dir / "transcript.txt").write_text(result.timeline_text(), encoding="utf-8")
@@ -316,6 +317,7 @@ async def _run(
         "enhancement": result.enhancement_metrics,
         "separation": result.separation_metrics,
         "separation_artifacts": result.separation_artifacts,
+        "overlap_detection": result.overlap_detection,
         "elapsed_s": round(time.time() - t0, 1),
     })
     print(json.dumps({

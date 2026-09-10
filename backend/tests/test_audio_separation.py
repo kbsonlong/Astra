@@ -7,6 +7,8 @@ from app.core.audio_adapter import audio_buffer_to_wav_bytes, decode_audio_file
 from app.core.audio_enhancement import AudioBuffer, EnhancementContext
 from app.core.audio_separation import (
     FLASepformerStage,
+    OverlapDetection,
+    SpectralOverlapDetector,
     SeparationMetrics,
     build_audio_separation_stage,
 )
@@ -76,6 +78,42 @@ def test_build_audio_separation_stage_is_disabled_by_default() -> None:
     assert stage.name == "flasepformer_8k"
 
 
+def test_spectral_overlap_detector_distinguishes_two_prominent_voice_band_tones() -> None:
+    sample_rate = 16_000
+    time_axis = np.arange(sample_rate, dtype=np.float32) / sample_rate
+    single = np.sin(2 * np.pi * 140 * time_axis).astype(np.float32)
+    mixed = (
+        0.5 * np.sin(2 * np.pi * 140 * time_axis)
+        + 0.5 * np.sin(2 * np.pi * 260 * time_axis)
+    ).astype(np.float32)
+    detector = SpectralOverlapDetector()
+
+    single_result = detector.detect(
+        AudioBuffer(samples=single, sample_rate=sample_rate, channels=1)
+    )
+    mixed_result = detector.detect(
+        AudioBuffer(samples=mixed, sample_rate=sample_rate, channels=1)
+    )
+
+    assert not single_result.suspected
+    assert mixed_result.suspected
+    assert mixed_result.candidate_frames > 0
+
+
+class FakeOverlapDetector:
+    def __init__(self, suspected: bool) -> None:
+        self.suspected = suspected
+
+    def detect(self, audio: AudioBuffer) -> OverlapDetection:
+        return OverlapDetection(
+            suspected=self.suspected,
+            score=1.0 if self.suspected else 0.0,
+            active_frames=10,
+            candidate_frames=10 if self.suspected else 0,
+            threshold=0.55,
+        )
+
+
 class FakeMeetingSeparation:
     name = "flasepformer_8k"
     input_sample_rate = 8_000
@@ -135,3 +173,68 @@ def test_meeting_pipeline_transcribes_separated_tracks_and_writes_artifacts(
     assert [segment.speaker for segment in result.segments] == ["S1", "S2"]
     assert len(result.separation_artifacts) == 2
     assert all(Path(path).exists() for path in result.separation_artifacts)
+
+
+def test_meeting_pipeline_overlap_trigger_runs_detector_before_separation() -> None:
+    pipeline = MeetingPipeline(
+        asr=None,
+        diarization=None,
+        separation=FakeMeetingSeparation(),
+        separation_trigger="overlap",
+        overlap_detector=FakeOverlapDetector(suspected=True),
+    )
+
+    async def fake_run(wav: str | Path, *, filename: str) -> WorkflowResult:
+        return WorkflowResult(
+            language="zh",
+            segments=[Segment(start=0.0, end=0.1, text="overlap")],
+        )
+
+    pipeline.separated_workflow.run = fake_run  # type: ignore[method-assign]
+    result = asyncio.run(
+        pipeline.process(
+            audio_buffer_to_wav_bytes(_audio(1_600)),
+            filename="meeting.wav",
+            summarize=False,
+            do_translate=False,
+        )
+    )
+
+    assert result.overlap_detection == {
+        "suspected": True,
+        "score": 1.0,
+        "active_frames": 10,
+        "candidate_frames": 10,
+        "threshold": 0.55,
+        "details": {},
+    }
+    assert result.separation_metrics[0]["status"] == "applied"
+
+
+def test_meeting_pipeline_overlap_trigger_keeps_mixed_audio_when_clear() -> None:
+    pipeline = MeetingPipeline(
+        asr=None,
+        diarization=None,
+        separation=FakeMeetingSeparation(),
+        separation_trigger="overlap",
+        overlap_detector=FakeOverlapDetector(suspected=False),
+    )
+    calls: list[str] = []
+
+    async def fake_transcribe(wav: str, *, progress=None):
+        calls.append(wav)
+        return "zh", [Segment(start=0.0, end=0.1, text="mixed")]
+
+    pipeline.transcribe = fake_transcribe  # type: ignore[method-assign]
+    result = asyncio.run(
+        pipeline.process(
+            audio_buffer_to_wav_bytes(_audio(1_600)),
+            filename="meeting.wav",
+            summarize=False,
+            do_translate=False,
+        )
+    )
+
+    assert result.overlap_detection["suspected"] is False
+    assert result.separation_metrics == []
+    assert len(calls) == 1

@@ -22,7 +22,11 @@ from .audio_adapter import (
     resample_audio_buffer,
 )
 from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
-from .audio_separation import AudioSeparationStage
+from .audio_separation import (
+    AudioSeparationStage,
+    OverlapDetector,
+    SpectralOverlapDetector,
+)
 from .workflow import (
     AudioWorkflow,
     PassthroughPunctuation,
@@ -51,6 +55,7 @@ class MeetingResult:
     enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_artifacts: list[str] = field(default_factory=list)
+    overlap_detection: dict[str, object] | None = None
 
     def timeline_text(self) -> str:
         """时间轴逐字稿 (每行: [mm:ss] S# 文本)。"""
@@ -134,6 +139,7 @@ class MeetingPipeline:
         enhancement: AudioEnhancementPipeline | None = None,
         separation: AudioSeparationStage | None = None,
         separation_trigger: str = "manual",
+        overlap_detector: OverlapDetector | None = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
@@ -159,6 +165,7 @@ class MeetingPipeline:
             raise ValueError(f"unsupported separation trigger: {separation_trigger}")
         self.separation = separation
         self.separation_trigger = separation_trigger
+        self.overlap_detector = overlap_detector or SpectralOverlapDetector()
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
@@ -429,11 +436,15 @@ class MeetingPipeline:
             enhancement_metrics: list[dict[str, object]] = []
             separation_metrics: list[dict[str, object]] = []
             separation_artifacts: list[str] = []
-            use_separation = self.separation is not None and (
-                separate or self.separation_trigger == "always"
+            overlap_detection: dict[str, object] | None = None
+            separation_requested = separate or self.separation_trigger == "always"
+            needs_overlap_detection = (
+                self.separation is not None
+                and self.separation_trigger == "overlap"
+                and not separate
             )
             audio_buffer = None
-            if self.enhancement is not None or use_separation:
+            if self.enhancement is not None or separation_requested or needs_overlap_detection:
                 audio_buffer = await asyncio.to_thread(decode_audio_file, wav)
             if self.enhancement is not None and audio_buffer is not None:
                 audio_buffer, metrics = await self.enhancement.process(
@@ -443,6 +454,13 @@ class MeetingPipeline:
                 enhancement_metrics = [item.to_dict() for item in metrics]
                 if any(item["status"] == "applied" for item in enhancement_metrics):
                     Path(wav).write_bytes(audio_buffer_to_wav_bytes(audio_buffer))
+            if needs_overlap_detection and audio_buffer is not None:
+                detection = await asyncio.to_thread(
+                    self.overlap_detector.detect, audio_buffer
+                )
+                overlap_detection = detection.to_dict()
+                separation_requested = detection.suspected
+            use_separation = self.separation is not None and separation_requested
             if use_separation:
                 try:
                     if audio_buffer is None:
@@ -472,6 +490,7 @@ class MeetingPipeline:
                 enhancement_metrics=enhancement_metrics,
                 separation_metrics=separation_metrics,
                 separation_artifacts=separation_artifacts,
+                overlap_detection=overlap_detection,
             )
             if summarize:
                 result.summary, result.translation = await self.summarize(
