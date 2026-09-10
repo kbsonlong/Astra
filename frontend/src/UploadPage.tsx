@@ -115,6 +115,7 @@ type MeetingResult = {
     training_candidates?: string;
     candidate_segments?: number;
   };
+  separation_audio_urls?: string[];
 };
 
 type MeetingStatus = {
@@ -132,6 +133,7 @@ type MeetingStatus = {
   message?: string;
   training_artifacts?: MeetingResult["training_artifacts"];
   prompt_template?: string;
+  separation_audio_urls?: string[];
 };
 
 const meetingEventUrl = (taskId: string) => {
@@ -358,6 +360,7 @@ export default function UploadPage() {
           timeline_preview: current.transcript_preview ?? "",
           training_artifacts: current.training_artifacts,
           prompt_template: current.prompt_template,
+          separation_audio_urls: current.separation_audio_urls,
         });
       };
 
@@ -880,6 +883,17 @@ export default function UploadPage() {
                 <summary>逐字稿预览</summary>
                 <pre className="timeline-pre">{meeting.timeline_preview}</pre>
               </details>
+            )}
+            {meeting.separation_audio_urls && meeting.separation_audio_urls.length > 0 && (
+              <div className="meeting-separation-list">
+                <strong>分离音轨复听</strong>
+                {meeting.separation_audio_urls.map((audioUrl, index) => (
+                  <label key={audioUrl}>
+                    <span>来源 {index + 1}</span>
+                    <audio controls preload="none" src={audioUrl} />
+                  </label>
+                ))}
+              </div>
             )}
             <p className="result-meta">完整报告: {meeting.report_path}</p>
             <p className="result-meta"><a className="review-link" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a> · <a className="review-link" href="/training">打开训练设置</a></p>

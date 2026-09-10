@@ -1088,6 +1088,28 @@ h1 {
   height: 36px;
 }
 
+.meeting-separation-list {
+  display: grid;
+  gap: 10px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid rgba(22, 32, 37, 0.1);
+  border-radius: 8px;
+  background: rgba(246, 249, 247, 0.8);
+}
+
+.meeting-separation-list label {
+  display: grid;
+  gap: 5px;
+  color: #65747a;
+  font-size: 13px;
+}
+
+.meeting-separation-list audio {
+  width: min(100%, 520px);
+  height: 36px;
+}
+
 .review-text-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);

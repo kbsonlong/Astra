@@ -67,6 +67,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]  # backend/app/api -> repo 根
 # 新格式: 20260905-123456-1a2b3c4d | 旧格式(兼容只读): 20260905-123456-1234
 _TASK_ID_RE = re.compile(r"^\d{8}-\d{6}-[\da-f]{4,8}$")
 _SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
+_SEPARATED_AUDIO_RE = re.compile(r"^source-\d+\.wav$")
 
 
 class TrainingReviewPayload(BaseModel):
@@ -197,6 +198,13 @@ def _status_payload(
                 json.dumps(status, ensure_ascii=False), encoding="utf-8"
             )
     result: dict[str, object] = {"type": "meeting_status", "task_id": task_id, **status}
+    artifact_paths = status.get("separation_artifacts")
+    if isinstance(artifact_paths, list):
+        result["separation_audio_urls"] = [
+            f"/api/meeting/{task_id}/separated/{Path(str(path)).name}"
+            for path in artifact_paths
+            if _SEPARATED_AUDIO_RE.fullmatch(Path(str(path)).name)
+        ]
     report = out_dir / "report.md"
     if status.get("status") == "done" and report.exists():
         transcript = out_dir / "transcript.txt"
@@ -208,6 +216,22 @@ def _status_payload(
     elif status.get("status") == "processing":
         result["elapsed_s"] = _elapsed(status.get("started", ""))
     return result
+
+
+@router.get("/{task_id}/separated/{artifact_name}")
+async def separated_audio(
+    task_id: str, artifact_name: str, request: Request
+) -> FileResponse:
+    """提供会议分离音轨复听，文件名只允许 worker 生成的 source-N.wav。"""
+    if not _SEPARATED_AUDIO_RE.fullmatch(artifact_name):
+        raise HTTPException(status_code=400, detail="invalid separated audio name")
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    audio_path = (out_dir / "separated" / artifact_name).resolve()
+    separated_dir = (out_dir / "separated").resolve()
+    if separated_dir not in audio_path.parents or not audio_path.is_file():
+        raise HTTPException(status_code=404, detail="separated audio not found")
+    return FileResponse(audio_path, media_type="audio/wav", filename=artifact_name)
 
 
 def _jsonl_rows(path: Path) -> list[dict[str, object]]:

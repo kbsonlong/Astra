@@ -249,6 +249,9 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
                 "duration_s": 65.5,
                 "segments": 2,
                 "speakers": ["S1"],
+                "separation_artifacts": [
+                    str((out_dir / "separated" / "source-0.wav").resolve())
+                ],
             },
             ensure_ascii=False,
         ),
@@ -256,6 +259,8 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
     )
     (out_dir / "report.md").write_text("# 摘要\n完成", encoding="utf-8")
     (out_dir / "transcript.txt").write_text("[00:00] S1 测试\n[00:02] S1 完成", encoding="utf-8")
+    (out_dir / "separated").mkdir()
+    (out_dir / "separated" / "source-0.wav").write_bytes(b"RIFF")
 
     settings = Settings(meeting_output_dir=str(tmp_path))
     from app.main import create_app
@@ -272,8 +277,17 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
         assert event["speakers"] == ["S1"]
         assert event["summary_preview"] == "# 摘要\n完成"
         assert event["transcript_preview"] == "[00:00] S1 测试\n[00:02] S1 完成"
+        assert event["separation_audio_urls"] == [
+            f"/api/meeting/{task_id}/separated/source-0.wav"
+        ]
         with pytest.raises(WebSocketDisconnect):
             websocket.receive_json()
+
+    audio = client.get(f"/api/meeting/{task_id}/separated/source-0.wav")
+    assert audio.status_code == 200
+    assert audio.content == b"RIFF"
+    invalid = client.get(f"/api/meeting/{task_id}/separated/other.wav")
+    assert invalid.status_code == 400
 
 
 def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
