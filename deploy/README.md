@@ -8,9 +8,14 @@ Mac mini 宿主机原生运行 FastAPI、MLX Whisper 和 Piper SDK，Compose 只
 
 ```bash
 cp .env.example .env
-docker compose config
+# Mac Docker Desktop 下默认 host.docker.internal:8000 指向宿主机原生 FastAPI。
+# 若后端不在本机，设置为目标地址（不含 http://），例如 API_UPSTREAM=192.168.3.18:8001。
+# NGINX_CLIENT_MAX_BODY_SIZE 必须不小于预期会议录音，且不超过后端允许的 500MB。
+docker compose config --quiet
 docker compose up -d
 ```
+
+`API_UPSTREAM` 和 `NGINX_CLIENT_MAX_BODY_SIZE` 会在 Nginx 容器启动时渲染；默认值分别是 `host.docker.internal:8000` 和 `500m`。后端仍原生运行于 Mac mini，不加入 Compose。
 
 后端依赖 `mlx-whisper==0.4.3` 和 `piper-tts==1.7.0`，启动前必须完成 Python 依赖安装，并确保 `TTS_MODEL_PATH` 指向本地 Piper `.onnx` voice 文件。
 
@@ -31,6 +36,7 @@ curl -fsS http://192.168.3.18:8000/v1/chat/completions \
 
 ```bash
 docker compose ps
+docker compose exec frontend-nginx nginx -t
 curl -fsS http://127.0.0.1:8080/
 curl -fsS http://127.0.0.1:8080/api/health
 curl -fsS http://127.0.0.1:8000/api/health

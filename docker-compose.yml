@@ -1,6 +1,9 @@
 services:
   frontend-nginx:
     build: ./frontend
+    environment:
+      API_UPSTREAM: "${API_UPSTREAM:-host.docker.internal:8000}"
+      NGINX_CLIENT_MAX_BODY_SIZE: "${NGINX_CLIENT_MAX_BODY_SIZE:-500m}"
     ports:
       - "${FRONTEND_PORT:-8080}:80"
     healthcheck:
