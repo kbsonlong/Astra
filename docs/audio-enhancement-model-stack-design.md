@@ -288,6 +288,24 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 5. Separation 对 2 人重叠语音有效，但超出公开模型覆盖范围时明确降级，不宣称通用多人分离；
 6. 模型许可证、权重来源、版本和校验和已记录。
 
+### 7.4 当前 FLASepformer Apple Silicon 基线
+
+2026-09-11 在当前 Mac mini 上使用本地
+`iic/speech_flatsepreformer_separation_temporal_8k_base_libri2mix100` 权重和官方
+`mix_speech.wav`（8 kHz mono，4.409 秒）测得：
+
+| 运行 | 窗口 | 窗口数 | 分离耗时 | RTF | 输出路数 |
+|---|---:|---:|---:|---:|---:|
+| cold（含模型加载） | 30 秒 | 1 | 18.586 秒 | 4.216 | 2 |
+| warm | 30 秒 | 1 | 14.508 秒 | 3.291 | 2 |
+| warm | 2 秒 | 3 | 19.142 秒 | 4.342 | 2 |
+
+本次运行检测到 MPS 可用，但 `FLASepformerStage` 当前 ModelScope backend 固定以 CPU
+加载，因此没有可比较的 MPS 推理数据。当前 CPU RTF 大于 1，结论是该实现适合作为受控的
+离线分离分支，不满足实时处理承诺；缩短窗口在短音频上还会因重复调用模型增加开销。
+该结果只代表当前机器、checkpoint 和官方样本，不能替代中文会议长音频的 p95 延迟、峰值内存
+和质量指标。
+
 ## 8. 分阶段实施计划
 
 ### Phase A：接口和 benchmark，不改变默认行为
@@ -312,7 +330,7 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 - `/api/transcribe/stream` 以 `enhancement_status` SSE 事件暴露阶段结果；失败时回退到原始上传音频，不阻断转写；
 - `meta.json` 与 `status.json` 记录 stage 状态、模型、延迟和回退原因；原始音频仍保留；
 - ModelScope 依赖放在 `backend/requirements-audio-enhancement.txt`，不会随基础安装强制引入，且本阶段不自动下载权重；
-- 目前已完成 fake backend 契约测试，真实权重、真实录音听感和 ASR A/B 仍需在目标 Mac mini 上验证。
+- 目前已完成 fake backend 契约测试和官方样本的真实权重/stream E2E 验证；真实中文录音听感、ASR A/B 和长音频性能仍需在目标 Mac mini 上补测。
 
 ### Phase C：实时 AEC + ANS
 
