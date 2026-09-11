@@ -119,6 +119,8 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_overlap_detector_model": current.audio_overlap_detector_model,
         "audio_overlap_model_dir": current.audio_overlap_model_dir,
         "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
+        "audio_enhancement_max_queue": current.audio_enhancement_max_queue,
+        "audio_enhancement_frame_timeout_ms": current.audio_enhancement_frame_timeout_ms,
         "version": current.version,
     }
 
@@ -249,6 +251,8 @@ def create_app(
                 aec_model=current.audio_aec_model,
                 model_dir=current.audio_enhancement_model_dir,
             ),
+            enhancement_max_queue=current.audio_enhancement_max_queue,
+            enhancement_frame_timeout_ms=current.audio_enhancement_frame_timeout_ms,
         )
     app.state.meeting_pipeline = meeting_pipeline
     if enable_meeting and meeting_pipeline is None:

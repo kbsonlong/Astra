@@ -305,6 +305,7 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 - `AUDIO_AEC_MODEL=jaec_16k` 且 `AUDIO_ENHANCEMENT_ENABLED=true` 时，VoicePipeline 会在 ASR 前运行 JAEC；没有 reference、采样率/声道不匹配或近端/远端长度不一致时明确回退或报错，不伪造 AEC 成功。
 - WebSocket 使用 `{"type":"audio_channel","channel":"reference"}` 切换后续二进制帧到远端参考缓冲，再用 `speech_end` 将近端和参考一起交给 pipeline；近端与参考共享同一个会话大小上限。
 - `enhancement_status` 事件记录 `applied`/`not_applicable`、模型 ID、160 sample 处理帧、22 ms 算法延迟和当前可见诊断字段。当前 native pipeline 不返回 TDE/LP 中间张量，因此记录为不可用，而不是虚构内部结果。
+- 实时增强执行器现在按 160 samples（10 ms）切帧，使用有界队列并记录帧数、最大帧耗时和超预算回退帧；当前 WebSocket 仍在 `speech_end` 后提交整段音频，因此这是帧级执行基础，不等同于浏览器在线 PCM 帧传输。
 - 真实 10 秒 ModelScope 样本 smoke 已在目标 Mac mini CPU 上通过，推理耗时约 3.18 秒；这不是连续实时 5 分钟稳定性或通话质量验收。
 - 当前浏览器前端已通过 Web Audio 捕获播报链路并在讲话提交前发送 16 kHz mono PCM16 WAV reference；播报中检测到用户讲话时会先发送 VAD interrupt，再保留同一捕获窗口。产品实时 AEC 仍默认关闭，双讲、延迟漂移和真实设备回声效果仍需验证。
 

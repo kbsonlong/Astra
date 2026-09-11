@@ -26,11 +26,15 @@ class VoicePipeline:
         llm: OpenAICompatLLMClient,
         tts: PiperSdkTtsClient,
         enhancement: AudioEnhancementPipeline | None = None,
+        enhancement_max_queue: int = 2,
+        enhancement_frame_timeout_ms: float = 80.0,
     ) -> None:
         self.asr = asr
         self.llm = llm
         self.tts = tts
         self.enhancement = enhancement
+        self.enhancement_max_queue = enhancement_max_queue
+        self.enhancement_frame_timeout_ms = enhancement_frame_timeout_ms
 
     async def run(
         self,
@@ -58,12 +62,14 @@ class VoicePipeline:
                     filename="far-end-reference.wav",
                     source="reference",
                 )
-            microphone, enhancement_metrics = await self.enhancement.process(
+            microphone, enhancement_metrics = await self.enhancement.process_realtime(
                 microphone,
                 EnhancementContext(
                     reference=far_end,
                     realtime=True,
                 ),
+                max_queue=self.enhancement_max_queue,
+                frame_timeout_ms=self.enhancement_frame_timeout_ms,
             )
             await emit(
                 {

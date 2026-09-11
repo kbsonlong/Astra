@@ -257,6 +257,8 @@ class Settings:
     audio_overlap_detector_model: str = "heuristic"
     audio_overlap_model_dir: str = "~/.astra/models/overlap-detection/pyannote-osd"
     audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
+    audio_enhancement_max_queue: int = 2
+    audio_enhancement_frame_timeout_ms: float = 80.0
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
     version: str = "mvp"
@@ -434,6 +436,13 @@ class Settings:
             ),
             audio_enhancement_model_dir=os.getenv(
                 "AUDIO_ENHANCEMENT_MODEL_DIR", cls.audio_enhancement_model_dir
+            ),
+            audio_enhancement_max_queue=_positive_int_env(
+                "AUDIO_ENHANCEMENT_MAX_QUEUE", cls.audio_enhancement_max_queue
+            ),
+            audio_enhancement_frame_timeout_ms=_positive_float_env(
+                "AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS",
+                cls.audio_enhancement_frame_timeout_ms,
             ),
             qwen3_training_config_path=os.getenv(
                 "QWEN3_TRAINING_CONFIG_PATH", cls.qwen3_training_config_path

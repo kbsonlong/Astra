@@ -1,5 +1,6 @@
 import asyncio
 
+import numpy as np
 import pytest
 
 from app.core.audio_enhancement import (
@@ -67,3 +68,37 @@ def test_pipeline_keeps_previous_audio_when_a_stage_fails() -> None:
     assert len(metrics) == 1
     assert metrics[0].status == "failed"
     assert metrics[0].fallback_reason == "model unavailable"
+
+
+def test_realtime_pipeline_processes_10ms_frames_and_aggregates_metrics() -> None:
+    class FrameStage:
+        name = "fake_realtime"
+        input_sample_rate = 16_000
+        output_sample_rate = 16_000
+        realtime = True
+
+        async def process(self, audio, context):
+            from app.core.audio_enhancement import EnhancementMetrics
+
+            return audio, EnhancementMetrics(
+                stage_name=self.name,
+                status="applied",
+                input_sample_rate=audio.sample_rate,
+                output_sample_rate=audio.sample_rate,
+                latency_ms=1.0,
+                reference_present=context.reference is not None,
+            )
+
+    audio = AudioBuffer(
+        samples=np.ones(320, dtype=np.float32), sample_rate=16_000, channels=1
+    )
+    output, metrics = asyncio.run(
+        AudioEnhancementPipeline([FrameStage()]).process_realtime(
+            audio, EnhancementContext(realtime=True), frame_samples=160
+        )
+    )
+
+    assert len(output.samples) == 320
+    assert metrics[0].status == "applied"
+    assert metrics[0].details["frame_count"] == 2
+    assert metrics[0].details["applied_frames"] == 2
