@@ -14,6 +14,13 @@ type TimelineSegment = {
   text: string;
 };
 
+type EnhancementStatus = {
+  stage_name: string;
+  status: "applied" | "not_applicable" | "failed" | "disabled";
+  latency_ms: number;
+  fallback_reason?: string | null;
+};
+
 type MeetingPromptTemplate = {
   id: string;
   name: string;
@@ -250,6 +257,7 @@ export default function UploadPage() {
   const [result, setResult] = useState<TranscriptionResult | null>(null);
   const [correction, setCorrection] = useState("");
   const [correctionTimeline, setCorrectionTimeline] = useState<TimelineSegment[]>([]);
+  const [enhancementStatus, setEnhancementStatus] = useState<EnhancementStatus[]>([]);
   const [status, setStatus] = useState("选择一个音频文件开始测试");
   const [busy, setBusy] = useState(false);
   const [topic, setTopic] = useState("");
@@ -375,6 +383,7 @@ export default function UploadPage() {
     setResult(null);
     setCorrection("");
     setCorrectionTimeline([]);
+    setEnhancementStatus([]);
     setMeeting(null);
     setActiveMeetingTask(null);
     cancelledMeetingTask.current = null;
@@ -487,8 +496,10 @@ export default function UploadPage() {
           const payload = JSON.parse(data) as {
             type: string; text?: string; token?: string; message?: string;
             index?: number; start?: number; end?: number;
+            stages?: EnhancementStatus[];
           };
           if (payload.type === "asr_final") setResult({ filename: file.name, bytes: file.size, text: payload.text ?? "" });
+          if (payload.type === "enhancement_status") setEnhancementStatus(payload.stages ?? []);
           if (payload.type === "asr_segment" && payload.index !== undefined) {
             const segment = { index: payload.index, start: payload.start ?? 0, end: payload.end ?? 0, text: payload.text ?? "" };
             setCorrectionTimeline((current) => [...current.filter((item) => item.index !== segment.index), segment].sort((a, b) => a.start - b.start));
@@ -991,6 +1002,17 @@ export default function UploadPage() {
           <article className="result-card correction-result" aria-live="polite">
             <span className="eyebrow">LLM CORRECTION STREAM</span>
             <p className="result-text">{correction}</p>
+          </article>
+        )}
+        {enhancementStatus.length > 0 && (
+          <article className="result-card" aria-live="polite">
+            <span className="eyebrow">AUDIO ENHANCEMENT</span>
+            {enhancementStatus.map((stage) => (
+              <p className="result-meta" key={stage.stage_name}>
+                {stage.stage_name} · {stage.status} · {stage.latency_ms.toFixed(1)} ms
+                {stage.fallback_reason ? ` · ${stage.fallback_reason}` : ""}
+              </p>
+            ))}
           </article>
         )}
         {correctionTimeline.length > 0 && (

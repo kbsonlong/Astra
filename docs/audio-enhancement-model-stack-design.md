@@ -157,6 +157,9 @@ JAEC 需要远端播放参考帧。前端或播放层必须把实际送往扬声
 
 该接口是上传后 SSE，不具备实时 AEC 的远端参考。第一阶段只允许 ANS 和按需 Separation；如果调用方声明没有 reference，就拒绝 `jaec_16k` 配置并返回明确诊断，而不是产生看似成功的结果。
 
+当前实现会在 VAD/ASR 前调用已配置的离线 ANS（当前支持 `ZipEnhancer 16K`），并先发送一个
+`enhancement_status` SSE 事件，包含阶段、状态、延迟和回退原因。增强解码、模型执行或重新编码失败时保留原始上传音频继续转写；该接口仍不接入需要 far-end reference 的 JAEC。
+
 #### 会议工作进程
 
 ```text
@@ -292,7 +295,7 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 ### Phase B：先接入一个 16 kHz ANS
 
 - 优先验证 ZipEnhancer 16K，FRCRN 16K 作为复杂噪声对照；
-- 只接会议离线 worker，不立即改实时 WebSocket；
+- 接入会议离线 worker 和 `/api/transcribe/stream`，不立即改实时 WebSocket；
 - 用同一份原始录音比较原始/增强两路 ASR 和人工听感。
 
 当前实现：
@@ -300,7 +303,8 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 - `backend/app/core/zipenhancer.py` 通过 ModelScope pipeline 延迟加载
   `iic/speech_zipenhancer_ans_multiloss_16k_base`，只接受已规范化的 16 kHz mono 音频；
 - `AUDIO_ENHANCEMENT_ENABLED=false`、`AUDIO_ANS_MODEL=none` 保持默认旁路；设置
-  `AUDIO_ANS_MODEL=zipenhancer_16k` 后，仅会议独立 worker 调用增强阶段，实时 WebSocket 不接入；
+  `AUDIO_ANS_MODEL=zipenhancer_16k` 后，会议独立 worker 和 `/api/transcribe/stream` 在 VAD/ASR 前调用增强阶段，实时 WebSocket 不接入；
+- `/api/transcribe/stream` 以 `enhancement_status` SSE 事件暴露阶段结果；失败时回退到原始上传音频，不阻断转写；
 - `meta.json` 与 `status.json` 记录 stage 状态、模型、延迟和回退原因；原始音频仍保留；
 - ModelScope 依赖放在 `backend/requirements-audio-enhancement.txt`，不会随基础安装强制引入，且本阶段不自动下载权重；
 - 目前已完成 fake backend 契约测试，真实权重、真实录音听感和 ASR A/B 仍需在目标 Mac mini 上验证。

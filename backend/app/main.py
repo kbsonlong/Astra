@@ -27,6 +27,7 @@ from .health import collect_health
 from .core.pipeline import VoicePipeline
 from .core.correction import parse_correction_rules
 from .core.workflow import CorrectionStage, ResemblyzerDiarizationStage
+from .core.zipenhancer import build_audio_enhancement_pipeline
 from .models.asr_client import MlxAudioAsrClient
 from .models.asr_worker import AsrWorkerClient
 from .models.llm_client import OpenAICompatLLMClient
@@ -305,6 +306,11 @@ def create_app(
             diarization=diarization,
             correction_stage=correction_stage,
             prompt_templates_path=current.meeting_prompt_templates_path,
+            enhancement=build_audio_enhancement_pipeline(
+                enabled=current.audio_enhancement_enabled,
+                ans_model=current.audio_ans_model,
+                model_dir=current.audio_enhancement_model_dir,
+            ),
             separation=build_audio_separation_stage(
                 enabled=current.audio_enhancement_enabled,
                 separation_model=current.audio_separation_model,

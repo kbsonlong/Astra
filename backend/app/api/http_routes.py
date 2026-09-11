@@ -7,6 +7,8 @@ from pathlib import Path
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
+from ..core.audio_adapter import audio_buffer_to_wav_bytes, decode_audio_bytes
+from ..core.audio_enhancement import EnhancementContext, EnhancementMetrics
 from ..core.meeting import MeetingPipeline
 from ..models.asr_client import ASRClientError
 from ..models.llm_client import LLMClientError
@@ -34,6 +36,38 @@ def _too_large_response(max_bytes: int) -> HTTPException:
 
 def _client_ip(request: Request) -> str:
     return request.client.host if request.client is not None else "unknown"
+
+
+async def _apply_stream_enhancement(
+    audio: bytes, filename: str, meeting_pipeline: object | None
+) -> tuple[bytes, list[dict[str, object]]]:
+    enhancement = getattr(meeting_pipeline, "enhancement", None)
+    if enhancement is None:
+        return audio, []
+
+    try:
+        decoded = await asyncio.to_thread(
+            decode_audio_bytes, audio, filename=filename, source="upload"
+        )
+        enhanced, metrics = await enhancement.process(
+            decoded, EnhancementContext(realtime=False)
+        )
+        payload = [item.to_dict() for item in metrics]
+        if any(item["status"] == "applied" for item in payload):
+            return await asyncio.to_thread(audio_buffer_to_wav_bytes, enhanced), payload
+        return audio, payload
+    except Exception as exc:
+        fallback = EnhancementMetrics(
+            stage_name="audio_enhancement",
+            status="failed",
+            input_sample_rate=0,
+            output_sample_rate=0,
+            latency_ms=0.0,
+            reference_present=False,
+            fallback_reason=str(exc),
+            details={"phase": "decode_or_encode"},
+        )
+        return audio, [fallback.to_dict()]
 
 
 async def _acquire_audio_slot(request: Request) -> tuple[AudioIPConcurrencyLimiter, str]:
@@ -121,6 +155,9 @@ async def transcribe_and_correct(
 
         timeline: list[dict[str, object]] = []
         meeting_pipeline = getattr(request.app.state, "meeting_pipeline", None)
+        audio, enhancement_status = await _apply_stream_enhancement(
+            audio, filename, meeting_pipeline
+        )
         vad = getattr(meeting_pipeline, "vad", None)
         if vad is not None:
             try:
@@ -153,6 +190,8 @@ async def transcribe_and_correct(
 
     async def events() -> AsyncIterator[str]:
         try:
+            if enhancement_status:
+                yield _sse({"type": "enhancement_status", "stages": enhancement_status})
             if len(timeline) == 1 and timeline[0]["end"] == 0.0:
                 yield _sse({"type": "asr_final", "text": timeline[0]["text"]})
             for segment in timeline:
