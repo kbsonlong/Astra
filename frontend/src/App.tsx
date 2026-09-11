@@ -7,8 +7,10 @@ import LoginPage from "./LoginPage";
 import {
   JAEC_SAMPLE_RATE,
   PCM_FRAME_SAMPLES,
+  PcmCollector,
   PcmFrameBuffer,
   encodePcm16Frame,
+  encodePcm16Wav,
   resamplePcm,
 } from "./audio/pcm";
 
@@ -121,6 +123,8 @@ function VoiceAssistant() {
   const ttsSources = useRef(new Set<AudioBufferSourceNode>());
   const microphoneFrames = useRef(new PcmFrameBuffer());
   const farEndFrames = useRef(new PcmFrameBuffer());
+  const recordingPcm = useRef(new PcmCollector());
+  const recordingSampleRate = useRef(JAEC_SAMPLE_RATE);
   const pcmSequence = useRef(0);
   const captureWindow = useRef(false);
   const nextTtsTime = useRef(0);
@@ -133,6 +137,7 @@ function VoiceAssistant() {
   const [transcript, setTranscript] = useState("");
   const [answer, setAnswer] = useState("");
   const [connected, setConnected] = useState(false);
+  const [recordingReady, setRecordingReady] = useState(false);
   const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => () => cleanupAudio(), []);
@@ -157,6 +162,30 @@ function VoiceAssistant() {
     analyser.current = null;
     speechStarted.current = false;
     silenceSince.current = null;
+  }
+
+  function clearLocalRecording() {
+    recordingPcm.current.clear();
+    setRecordingReady(false);
+  }
+
+  function saveLocalRecording() {
+    const samples = recordingPcm.current.toSampleRate(
+      recordingSampleRate.current,
+      JAEC_SAMPLE_RATE,
+    );
+    if (samples.length === 0) {
+      setConnectionError("当前通话没有采集到可保存的录音");
+      return;
+    }
+    const wav = encodePcm16Wav(samples, JAEC_SAMPLE_RATE);
+    const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `astra-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    setConnectionError("录音已保存到本地下载目录");
   }
 
   function resetCaptureWindow() {
@@ -236,6 +265,7 @@ function VoiceAssistant() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
     const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
+    recordingSampleRate.current = context.sampleRate;
     connection.send(JSON.stringify({
       type: "audio_format",
       format: "pcm16",
@@ -257,6 +287,8 @@ function VoiceAssistant() {
       const reference = event.inputBuffer.numberOfChannels > 1
         ? event.inputBuffer.getChannelData(1)
         : new Float32Array(microphone.length);
+      recordingPcm.current.append(microphone);
+      setRecordingReady(true);
       microphoneFrames.current.append(
         context.sampleRate === JAEC_SAMPLE_RATE
           ? microphone
@@ -269,18 +301,29 @@ function VoiceAssistant() {
       );
       const microphoneChunks = microphoneFrames.current.drain(PCM_FRAME_SAMPLES);
       const referenceChunks = farEndFrames.current.drain(PCM_FRAME_SAMPLES);
-      const frameCount = Math.min(microphoneChunks.length, referenceChunks.length);
-      for (let index = 0; index < frameCount; index += 1) {
+      // The microphone is the primary input. Some browsers expose the merged
+      // input as mono (or deliver the two inputs with a one-frame skew), so do
+      // not wait for a reference frame before sending microphone audio.
+      for (let index = 0; index < microphoneChunks.length; index += 1) {
         const sequence = pcmSequence.current;
         pcmSequence.current += 1;
-        if (captureWindow.current && stateRef.current === "LISTENING") {
+        if (
+          connection.readyState === WebSocket.OPEN
+          && captureWindow.current
+          && stateRef.current === "LISTENING"
+        ) {
           connection.send(encodePcm16Frame(
             microphoneChunks[index], sequence, "microphone", JAEC_SAMPLE_RATE,
           ));
         }
-        if (captureWindow.current || stateRef.current === "SPEAKING") {
+        const reference = referenceChunks[index];
+        if (
+          reference
+          && connection.readyState === WebSocket.OPEN
+          && (captureWindow.current || stateRef.current === "SPEAKING")
+        ) {
           connection.send(encodePcm16Frame(
-            referenceChunks[index], sequence, "reference", JAEC_SAMPLE_RATE,
+            reference, sequence, "reference", JAEC_SAMPLE_RATE,
           ));
         }
       }
@@ -301,6 +344,7 @@ function VoiceAssistant() {
   async function connect() {
     if (socket.current?.readyState === WebSocket.OPEN) return;
     setConnectionError("");
+    clearLocalRecording();
     setState("CONNECTING");
     const connection = new WebSocket(socketUrl);
     connection.onopen = () => {
@@ -421,6 +465,15 @@ function VoiceAssistant() {
             ) : (
               <button className="primary-action stop" onClick={stop}>停止通话</button>
             )}
+            <button
+              className="secondary-action"
+              type="button"
+              onClick={saveLocalRecording}
+              disabled={!recordingReady || connected}
+              title={connected ? "停止通话后保存录音" : "保存本次通话的麦克风录音"}
+            >
+              保存本地录音
+            </button>
             <span className={`status-pill ${connected ? "online" : "offline"}`}>
               <span />
               {stateLabels[state] ?? state}
