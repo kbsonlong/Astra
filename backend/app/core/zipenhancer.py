@@ -32,7 +32,7 @@ class ZipEnhancerStage:
         *,
         model_id: str = ZIPENHANCER_MODEL_ID,
         model_dir: str | Path | None = None,
-        device: str = "auto",
+        device: str = "mps",
         backend: object | None = None,
     ) -> None:
         self.model_id = model_id
@@ -163,7 +163,7 @@ def build_audio_enhancement_pipeline(
     enabled: bool,
     ans_model: str,
     model_dir: str = "",
-    device: str = "auto",
+    device: str = "mps",
 ) -> AudioEnhancementPipeline | None:
     """Build only the explicitly configured offline enhancement pipeline."""
     if not enabled or ans_model in {"", "none"}:

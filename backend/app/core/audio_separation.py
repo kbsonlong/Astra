@@ -375,7 +375,7 @@ class FLASepformerStage:
         model_id: str = FLASEPFORMER_MODEL_ID,
         model_dir: str | Path | None = None,
         window_seconds: float = FLASEPFORMER_WINDOW_SECONDS,
-        device: str = "auto",
+        device: str = "mps",
         backend: object | None = None,
     ) -> None:
         if window_seconds <= 0:
@@ -539,7 +539,7 @@ def build_audio_separation_stage(
     separation_model: str,
     model_dir: str = "",
     window_seconds: float = FLASEPFORMER_WINDOW_SECONDS,
-    device: str = "auto",
+    device: str = "mps",
 ) -> AudioSeparationStage | None:
     if not enabled or separation_model in {"", "none"}:
         return None

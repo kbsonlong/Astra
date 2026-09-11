@@ -256,7 +256,7 @@ class Settings:
     audio_separation_window_seconds: float = 30.0
     audio_overlap_detector_model: str = "heuristic"
     audio_overlap_model_dir: str = "~/.astra/models/overlap-detection/pyannote-osd"
-    audio_enhancement_device: str = "auto"
+    audio_enhancement_device: str = "mps"
     audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
     audio_enhancement_max_queue: int = 2
     audio_enhancement_frame_timeout_ms: float = 80.0

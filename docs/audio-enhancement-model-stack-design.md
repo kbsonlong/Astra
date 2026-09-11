@@ -195,7 +195,7 @@ AUDIO_SEPARATION_TRIGGER=manual       # manual|overlap|always
 AUDIO_SEPARATION_WINDOW_SECONDS=30
 AUDIO_OVERLAP_DETECTOR_MODEL=heuristic # heuristic|pyannote_osd
 AUDIO_OVERLAP_MODEL_DIR=~/.astra/models/overlap-detection/pyannote-osd
-AUDIO_ENHANCEMENT_DEVICE=auto         # auto|cpu|mps|cuda; FLASepformer MPS requires explicit mps
+AUDIO_ENHANCEMENT_DEVICE=mps          # auto|cpu|mps|cuda; MPS is the default on Apple Silicon
 AUDIO_ENHANCEMENT_MODEL_DIR=~/.astra/models/audio-enhancement
 AUDIO_ENHANCEMENT_MAX_QUEUE=2
 AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS=80
@@ -301,8 +301,8 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 | warm | 2 秒 | 3 | 19.142 秒 | 4.342 | 2 |
 | MPS cold（含模型加载） | 30 秒 | 1 | 10.553 秒 | 2.394 | 2 |
 
-本次运行检测到 MPS 可用；当 `AUDIO_ENHANCEMENT_DEVICE=auto` 时仍保留 CPU 基线，
-因为 ModelScope 默认设备在该环境不会选择 MPS。显式设置 `mps` 后，FLASepformer 会先以
+本次运行检测到 MPS 可用；当前默认 `AUDIO_ENHANCEMENT_DEVICE=mps`，同时保留 CPU 基线，
+因为 ModelScope 默认设备在该环境不会选择 MPS。设置 `mps` 后，FLASepformer 会先以
 CPU 构造 ModelScope pipeline，再将模型和输入设备迁移到 MPS。CPU RTF 大于 1，结论是
 该实现适合作为受控的离线分离分支，不满足实时处理承诺；本次 MPS cold RTF 也大于 1，
 仍需 warm/p95 和长音频数据后才能评估资源收益。缩短窗口在短音频上还会因重复调用模型增加开销。
@@ -311,7 +311,7 @@ CPU 构造 ModelScope pipeline，再将模型和输入设备迁移到 MPS。CPU 
 
 ## 8. 分阶段实施计划
 
-### Phase A：接口和 benchmark，不改变默认行为
+### Phase A：接口和 benchmark，默认设备采用 MPS
 
 - 新增 `AudioBuffer`、`EnhancementContext`、`AudioEnhancementStage` 和 `EnhancementMetrics`；
 - 实现 `PassthroughStage`，将现有 decode/VAD/ASR 接到 stage seam；

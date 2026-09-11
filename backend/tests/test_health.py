@@ -134,6 +134,7 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "AUDIO_ANS_MODEL", "AUDIO_AEC_MODEL", "AUDIO_SEPARATION_MODEL",
         "AUDIO_SEPARATION_TRIGGER", "AUDIO_SEPARATION_WINDOW_SECONDS",
         "AUDIO_OVERLAP_DETECTOR_MODEL", "AUDIO_OVERLAP_MODEL_DIR",
+        "AUDIO_ENHANCEMENT_DEVICE",
         "AUDIO_ENHANCEMENT_MODEL_DIR", "AUDIO_ENHANCEMENT_MAX_QUEUE",
         "AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS",
         "MEETING_MAX_CONCURRENT_JOBS", "TRAINING_MAX_CONCURRENT_JOBS",
@@ -161,6 +162,7 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "AUDIO_SEPARATION_WINDOW_SECONDS=12.5\n"
         "AUDIO_OVERLAP_DETECTOR_MODEL=pyannote_osd\n"
         "AUDIO_OVERLAP_MODEL_DIR=/models/overlap\n"
+        "AUDIO_ENHANCEMENT_DEVICE=mps\n"
         "AUDIO_ENHANCEMENT_MODEL_DIR=/models/audio\n"
         "AUDIO_ENHANCEMENT_MAX_QUEUE=3\n"
         "AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS=90.5\n"
@@ -198,6 +200,7 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
     assert loaded.audio_separation_window_seconds == 12.5
     assert loaded.audio_overlap_detector_model == "pyannote_osd"
     assert loaded.audio_overlap_model_dir == "/models/overlap"
+    assert loaded.audio_enhancement_device == "mps"
     assert loaded.audio_enhancement_model_dir == "/models/audio"
     assert loaded.audio_enhancement_max_queue == 3
     assert loaded.audio_enhancement_frame_timeout_ms == 90.5
