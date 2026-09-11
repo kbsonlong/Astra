@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 
@@ -18,7 +19,9 @@ FLASEPFORMER_MODEL_ID = "iic/speech_flatsepreformer_separation_temporal_8k_base_
 FLASEPFORMER_SAMPLE_RATE = 8_000
 FLASEPFORMER_SPEAKERS = 2
 FLASEPFORMER_WINDOW_SECONDS = 30.0
+PYANNOTE_OVERLAP_MODEL_ID = "pyannote/overlapped-speech-detection"
 SeparationStatus = Literal["applied", "not_applicable", "failed", "disabled"]
+OverlapStatus = Literal["ok", "failed"]
 
 
 @dataclass(frozen=True)
@@ -28,10 +31,12 @@ class OverlapDetection:
     active_frames: int
     candidate_frames: int
     threshold: float
+    status: OverlapStatus = "ok"
     details: dict[str, object] | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "status": self.status,
             "suspected": self.suspected,
             "score": self.score,
             "active_frames": self.active_frames,
@@ -203,6 +208,122 @@ class SpectralOverlapDetector:
             if all(abs(int(candidate) - item) >= distance for item in selected):
                 selected.append(int(candidate))
         return np.asarray(selected, dtype=np.int64)
+
+
+class PyannoteOverlapDetector:
+    """Dedicated neural overlap detector backed by a local pyannote pipeline."""
+
+    name = "pyannote_osd"
+
+    def __init__(
+        self,
+        *,
+        model_dir: str | Path | None = None,
+        model_id: str = PYANNOTE_OVERLAP_MODEL_ID,
+        min_overlap_seconds: float = 0.2,
+        min_score: float = 0.02,
+        backend: object | None = None,
+    ) -> None:
+        if min_overlap_seconds <= 0 or not 0 < min_score <= 1:
+            raise ValueError("pyannote overlap thresholds are invalid")
+        self.model_dir = str(Path(model_dir).expanduser()) if model_dir else ""
+        self.model_id = model_id
+        self.min_overlap_seconds = min_overlap_seconds
+        self.min_score = min_score
+        self._backend = backend
+
+    def _load_backend(self) -> object:
+        if self._backend is not None:
+            return self._backend
+        if not self.model_dir:
+            raise RuntimeError(
+                "pyannote overlap detection requires a local pipeline directory; "
+                "accept the Hugging Face model terms and set AUDIO_OVERLAP_MODEL_DIR"
+            )
+        model_path = Path(self.model_dir)
+        if not model_path.is_dir():
+            raise RuntimeError(
+                f"pyannote overlap pipeline directory does not exist: {model_path}"
+            )
+        offline_keys = ("HF_HUB_OFFLINE", "TRANSFORMERS_OFFLINE")
+        previous_offline = {key: os.environ.get(key) for key in offline_keys}
+        os.environ.update({key: "1" for key in offline_keys})
+        try:
+            try:
+                from pyannote.audio import Pipeline
+                import torch
+            except (ImportError, ModuleNotFoundError) as exc:
+                raise RuntimeError(
+                    "pyannote overlap detection requires the optional pyannote.audio backend"
+                ) from exc
+            pipeline = Pipeline.from_pretrained(str(model_path))
+            if pipeline is None:
+                raise RuntimeError(f"cannot load pyannote pipeline: {model_path}")
+            pipeline.to(torch.device("cpu"))
+        finally:
+            for key, value in previous_offline.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+        self._backend = pipeline
+        return pipeline
+
+    @staticmethod
+    def _timeline_duration(result: Any) -> float:
+        get_timeline = getattr(result, "get_timeline", None)
+        if not callable(get_timeline):
+            raise RuntimeError("pyannote overlap output has no timeline")
+        timeline = get_timeline().support()
+        duration = 0.0
+        for segment in timeline:
+            duration += max(0.0, float(segment.end) - float(segment.start))
+        return duration
+
+    def detect(self, audio: AudioBuffer) -> OverlapDetection:
+        if audio.channels != 1:
+            raise ValueError("pyannote overlap detection requires mono audio")
+        backend = self._load_backend()
+        with tempfile.TemporaryDirectory(prefix="astra_pyannote_osd_") as directory:
+            wav_path = Path(directory) / "input.wav"
+            wav_path.write_bytes(audio_buffer_to_wav_bytes(audio))
+            result = backend(str(wav_path))  # type: ignore[operator]
+        overlap_seconds = self._timeline_duration(result)
+        duration_seconds = len(np.asarray(audio.samples)) / audio.sample_rate
+        score = overlap_seconds / duration_seconds if duration_seconds else 0.0
+        active_frames = max(1, round(duration_seconds / 0.01))
+        candidate_frames = round(overlap_seconds / 0.01)
+        return OverlapDetection(
+            status="ok",
+            suspected=(
+                overlap_seconds >= self.min_overlap_seconds
+                and score >= self.min_score
+            ),
+            score=round(score, 4),
+            active_frames=active_frames,
+            candidate_frames=candidate_frames,
+            threshold=self.min_score,
+            details={
+                "detector": self.name,
+                "model_id": self.model_id,
+                "sample_rate": audio.sample_rate,
+                "overlap_seconds": round(overlap_seconds, 3),
+                "min_overlap_seconds": self.min_overlap_seconds,
+                "eligible_frames": active_frames,
+            },
+        )
+
+
+def build_overlap_detector(
+    *,
+    model: str = "heuristic",
+    model_dir: str = "",
+) -> OverlapDetector:
+    if model in {"", "heuristic"}:
+        return SpectralOverlapDetector()
+    if model in {"pyannote_osd", PYANNOTE_OVERLAP_MODEL_ID}:
+        return PyannoteOverlapDetector(model_dir=model_dir or None)
+    raise ValueError(f"unsupported overlap detector model: {model}")
 
 
 @dataclass(frozen=True)

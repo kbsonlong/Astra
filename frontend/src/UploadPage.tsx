@@ -33,6 +33,7 @@ type PromptEditorState = {
 };
 
 type OverlapDetection = {
+  status?: "ok" | "failed";
   suspected: boolean;
   score: number;
   active_frames: number;
@@ -60,7 +61,13 @@ function OverlapDetectionView({ detection }: { detection: OverlapDetection }) {
     <div className={"overlap-detection " + (detection.suspected ? "is-suspected" : "is-clear")}>
       <div className="overlap-detection-head">
         <strong>重叠检测</strong>
-        <span>{detection.suspected ? "疑似重叠，已触发分离" : "未发现明显重叠"}</span>
+        <span>
+          {detection.status === "failed"
+            ? "专用检测器不可用，未触发分离"
+            : detection.suspected
+              ? "疑似重叠，已触发分离"
+              : "未发现明显重叠"}
+        </span>
       </div>
       <div className="overlap-meter-wrap">
         <div

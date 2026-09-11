@@ -116,6 +116,8 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_separation_model": current.audio_separation_model,
         "audio_separation_trigger": current.audio_separation_trigger,
         "audio_separation_window_seconds": current.audio_separation_window_seconds,
+        "audio_overlap_detector_model": current.audio_overlap_detector_model,
+        "audio_overlap_model_dir": current.audio_overlap_model_dir,
         "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
         "version": current.version,
     }
@@ -251,7 +253,10 @@ def create_app(
     app.state.meeting_pipeline = meeting_pipeline
     if enable_meeting and meeting_pipeline is None:
         from .core.meeting import MeetingPipeline
-        from .core.audio_separation import build_audio_separation_stage
+        from .core.audio_separation import (
+            build_audio_separation_stage,
+            build_overlap_detector,
+        )
 
         # 会议转写要忠实输出: 不复用带 hotwords/system_prompt 的语音
         # 对话 client(热词会诱导模型复读注入)。用干净配置的 MlxAudio
@@ -303,6 +308,10 @@ def create_app(
                 window_seconds=current.audio_separation_window_seconds,
             ),
             separation_trigger=current.audio_separation_trigger,
+            overlap_detector=build_overlap_detector(
+                model=current.audio_overlap_detector_model,
+                model_dir=current.audio_overlap_model_dir,
+            ),
         )
     app.include_router(auth_router)
     app.include_router(ws_router)

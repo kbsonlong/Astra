@@ -51,6 +51,7 @@ def _build_pipeline(prompt_templates_path: str = ""):
     from app.core.meeting import MeetingPipeline
     from app.core.zipenhancer import build_audio_enhancement_pipeline
     from app.core.audio_separation import build_audio_separation_stage
+    from app.core.audio_separation import build_overlap_detector
     from app.models.asr_client import MlxAudioAsrClient
     from app.models.llm_client import OpenAICompatLLMClient
 
@@ -124,6 +125,10 @@ def _build_pipeline(prompt_templates_path: str = ""):
             window_seconds=s.audio_separation_window_seconds,
         ),
         separation_trigger=s.audio_separation_trigger,
+        overlap_detector=build_overlap_detector(
+            model=s.audio_overlap_detector_model,
+            model_dir=s.audio_overlap_model_dir,
+        ),
     )
 
 

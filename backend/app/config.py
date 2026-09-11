@@ -254,6 +254,8 @@ class Settings:
     audio_separation_model: str = "none"
     audio_separation_trigger: str = "manual"
     audio_separation_window_seconds: float = 30.0
+    audio_overlap_detector_model: str = "heuristic"
+    audio_overlap_model_dir: str = "~/.astra/models/overlap-detection/pyannote-osd"
     audio_enhancement_model_dir: str = "~/.astra/models/audio-enhancement"
     qwen3_training_config_path: str = "~/.astra/qwen3-asr-training.json"
     config_path: str = ".env"
@@ -423,6 +425,12 @@ class Settings:
             ),
             audio_separation_window_seconds=_positive_float_env(
                 "AUDIO_SEPARATION_WINDOW_SECONDS", cls.audio_separation_window_seconds
+            ),
+            audio_overlap_detector_model=os.getenv(
+                "AUDIO_OVERLAP_DETECTOR_MODEL", cls.audio_overlap_detector_model
+            ),
+            audio_overlap_model_dir=os.getenv(
+                "AUDIO_OVERLAP_MODEL_DIR", cls.audio_overlap_model_dir
             ),
             audio_enhancement_model_dir=os.getenv(
                 "AUDIO_ENHANCEMENT_MODEL_DIR", cls.audio_enhancement_model_dir

@@ -24,6 +24,7 @@ from .audio_adapter import (
 from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
 from .audio_separation import (
     AudioSeparationStage,
+    OverlapDetection,
     OverlapDetector,
     SpectralOverlapDetector,
 )
@@ -455,9 +456,24 @@ class MeetingPipeline:
                 if any(item["status"] == "applied" for item in enhancement_metrics):
                     Path(wav).write_bytes(audio_buffer_to_wav_bytes(audio_buffer))
             if needs_overlap_detection and audio_buffer is not None:
-                detection = await asyncio.to_thread(
-                    self.overlap_detector.detect, audio_buffer
-                )
+                try:
+                    detection = await asyncio.to_thread(
+                        self.overlap_detector.detect, audio_buffer
+                    )
+                except Exception as exc:
+                    detector_name = getattr(
+                        self.overlap_detector, "name", "overlap_detector"
+                    )
+                    logger.warning("overlap detector failed, keep mixed audio: %s", exc)
+                    detection = OverlapDetection(
+                        status="failed",
+                        suspected=False,
+                        score=0.0,
+                        active_frames=0,
+                        candidate_frames=0,
+                        threshold=1.0,
+                        details={"detector": detector_name, "error": str(exc)},
+                    )
                 overlap_detection = detection.to_dict()
                 separation_requested = detection.suspected
             use_separation = self.separation is not None and separation_requested

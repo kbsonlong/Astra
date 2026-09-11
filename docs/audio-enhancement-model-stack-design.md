@@ -171,6 +171,8 @@ AUDIO_AEC_MODEL=none                  # none|jaec_16k|dfsmn_aec_16k
 AUDIO_SEPARATION_MODEL=none           # none|flasepformer_8k|mossformer2_8k
 AUDIO_SEPARATION_TRIGGER=manual       # manual|overlap|always
 AUDIO_SEPARATION_WINDOW_SECONDS=30
+AUDIO_OVERLAP_DETECTOR_MODEL=heuristic # heuristic|pyannote_osd
+AUDIO_OVERLAP_MODEL_DIR=~/.astra/models/overlap-detection/pyannote-osd
 AUDIO_ENHANCEMENT_DEVICE=auto         # auto|cpu|mps|cuda
 AUDIO_ENHANCEMENT_MODEL_DIR=~/.astra/models/audio-enhancement
 AUDIO_ENHANCEMENT_MAX_QUEUE=2
@@ -336,6 +338,7 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
 - 会议 API 增加 `separate=true` 表单字段，前端会议工作台提供“启用 FLASepformer 双说话人分离”选项；产物写入 `separated/source-0.wav`、`source-1.wav`，原始混合音频仍保留。
 - `AUDIO_SEPARATION_TRIGGER=manual` 时只在请求显式 `separate=true` 执行；`always` 对每个离线会议执行；`overlap` 使用离线短时频谱双峰启发式，仅在疑似重叠时启动分离。
 - `overlap` 检测结果会写入 `meta.json`/`status.json`；当前触发器结合低频双峰、频谱平坦度、谐波关系排除和连续候选帧约束，不是说话人数识别或准确的重叠时间戳，误检会增加一次离线分离成本，漏检仍回退混合音频 ASR。
+- `AUDIO_OVERLAP_DETECTOR_MODEL=pyannote_osd` 时改用 `pyannote/overlapped-speech-detection` 专用模型；模型目录必须提前准备，加载失败会记录 `status=failed` 并回退混合音频，不会阻断会议任务。
 - 分离失败会回退到原始混合音频 VAD/ASR，并在 `meta.json`/`status.json` 记录失败原因；实时 WebSocket 不启用该 stage。
 - 当前模型卡声明该 checkpoint 面向干净条件下的 Libri2Mix 双说话人、固定输出两路，并采用 CC BY-NC 4.0；不能据此宣称中文、任意人数、噪声/混响会议的通用效果。
 
@@ -351,6 +354,22 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_flasepformer.py \
 ```
 
 脚本输出两路 `/tmp/astra-flasepformer-smoke/source-*.wav`，并报告窗口数、总耗时和 RTF。
+
+专用 overlap 模型（可选）准备：
+
+```bash
+.venv/bin/pip install -r backend/requirements-overlap-detection.txt
+# 先在 Hugging Face 接受 pyannote/overlapped-speech-detection 的使用条件，
+# 再把 pipeline 及其依赖模型准备到下列目录；不要把 HF_TOKEN 写入仓库。
+HF_TOKEN=... PYTHONPATH=backend .venv/bin/python -c \
+  'import os; from huggingface_hub import snapshot_download; snapshot_download("pyannote/overlapped-speech-detection", local_dir=os.path.expanduser("~/.astra/models/overlap-detection/pyannote-osd"), token=os.environ["HF_TOKEN"])'
+PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_overlap_detector.py \
+  --model-dir ~/.astra/models/overlap-detection/pyannote-osd \
+  --input /path/to/meeting.wav
+```
+
+模型卡标注 MIT，但访问需要同意模型条件；本地运行还应确保 pipeline 引用的依赖模型已进入 Hugging Face cache。设置
+`AUDIO_OVERLAP_DETECTOR_MODEL=pyannote_osd` 后，worker 会强制使用本地目录，不在请求路径联网下载。
 
 ### Phase E：产品化选择器
 

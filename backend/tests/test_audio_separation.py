@@ -8,8 +8,10 @@ from app.core.audio_enhancement import AudioBuffer, EnhancementContext
 from app.core.audio_separation import (
     FLASepformerStage,
     OverlapDetection,
+    PyannoteOverlapDetector,
     SpectralOverlapDetector,
     SeparationMetrics,
+    build_overlap_detector,
     build_audio_separation_stage,
 )
 from app.core.meeting import MeetingPipeline
@@ -115,6 +117,50 @@ def test_spectral_overlap_detector_distinguishes_two_prominent_voice_band_tones(
     assert noise_result.details["noise_rejections"] > 0
 
 
+class FakePyannoteSegment:
+    def __init__(self, start: float, end: float) -> None:
+        self.start = start
+        self.end = end
+
+
+class FakePyannoteTimeline:
+    def support(self) -> list[FakePyannoteSegment]:
+        return [FakePyannoteSegment(0.25, 0.65)]
+
+
+class FakePyannoteOutput:
+    def get_timeline(self) -> FakePyannoteTimeline:
+        return FakePyannoteTimeline()
+
+
+class FakePyannoteBackend:
+    def __call__(self, path: str) -> FakePyannoteOutput:
+        assert Path(path).is_file()
+        return FakePyannoteOutput()
+
+
+def test_pyannote_overlap_detector_converts_timeline_to_detection() -> None:
+    detector = PyannoteOverlapDetector(
+        backend=FakePyannoteBackend(),
+        min_overlap_seconds=0.2,
+    )
+    result = detector.detect(_audio(8_000))
+
+    assert result.status == "ok"
+    assert result.suspected
+    assert result.score == 0.4
+    assert result.details["detector"] == "pyannote_osd"
+    assert result.details["overlap_seconds"] == 0.4
+
+
+def test_build_overlap_detector_defaults_to_heuristic() -> None:
+    assert isinstance(build_overlap_detector(), SpectralOverlapDetector)
+    assert isinstance(
+        build_overlap_detector(model="pyannote_osd", model_dir="/models/osd"),
+        PyannoteOverlapDetector,
+    )
+
+
 class FakeOverlapDetector:
     def __init__(self, suspected: bool) -> None:
         self.suspected = suspected
@@ -127,6 +173,13 @@ class FakeOverlapDetector:
             candidate_frames=10 if self.suspected else 0,
             threshold=0.55,
         )
+
+
+class FailingOverlapDetector:
+    name = "pyannote_osd"
+
+    def detect(self, audio: AudioBuffer) -> OverlapDetection:
+        raise RuntimeError("model terms or local pipeline are not ready")
 
 
 class FakeMeetingSeparation:
@@ -216,6 +269,7 @@ def test_meeting_pipeline_overlap_trigger_runs_detector_before_separation() -> N
     )
 
     assert result.overlap_detection == {
+        "status": "ok",
         "suspected": True,
         "score": 1.0,
         "active_frames": 10,
@@ -251,5 +305,35 @@ def test_meeting_pipeline_overlap_trigger_keeps_mixed_audio_when_clear() -> None
     )
 
     assert result.overlap_detection["suspected"] is False
+    assert result.separation_metrics == []
+    assert len(calls) == 1
+
+
+def test_meeting_pipeline_records_detector_failure_and_falls_back() -> None:
+    pipeline = MeetingPipeline(
+        asr=None,
+        diarization=None,
+        separation=FakeMeetingSeparation(),
+        separation_trigger="overlap",
+        overlap_detector=FailingOverlapDetector(),
+    )
+    calls: list[str] = []
+
+    async def fake_transcribe(wav: str, *, progress=None):
+        calls.append(wav)
+        return "zh", [Segment(start=0.0, end=0.1, text="mixed")]
+
+    pipeline.transcribe = fake_transcribe  # type: ignore[method-assign]
+    result = asyncio.run(
+        pipeline.process(
+            audio_buffer_to_wav_bytes(_audio(1_600)),
+            filename="meeting.wav",
+            summarize=False,
+            do_translate=False,
+        )
+    )
+
+    assert result.overlap_detection["status"] == "failed"
+    assert result.overlap_detection["details"]["detector"] == "pyannote_osd"
     assert result.separation_metrics == []
     assert len(calls) == 1
