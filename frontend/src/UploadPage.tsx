@@ -12,11 +12,20 @@ type TimelineSegment = {
   start: number;
   end: number;
   text: string;
+  source_index?: number;
 };
 
 type EnhancementStatus = {
   stage_name: string;
   status: "applied" | "not_applicable" | "failed" | "disabled";
+  latency_ms: number;
+  fallback_reason?: string | null;
+};
+
+type SeparationStatus = {
+  stage_name: string;
+  status: "applied" | "not_applicable" | "failed" | "disabled";
+  output_count: number;
   latency_ms: number;
   fallback_reason?: string | null;
 };
@@ -258,9 +267,11 @@ export default function UploadPage() {
   const [correction, setCorrection] = useState("");
   const [correctionTimeline, setCorrectionTimeline] = useState<TimelineSegment[]>([]);
   const [enhancementStatus, setEnhancementStatus] = useState<EnhancementStatus[]>([]);
+  const [separationStatus, setSeparationStatus] = useState<SeparationStatus | null>(null);
   const [status, setStatus] = useState("选择一个音频文件开始测试");
   const [busy, setBusy] = useState(false);
   const [topic, setTopic] = useState("");
+  const [streamSeparate, setStreamSeparate] = useState(false);
   const [separateSpeakers, setSeparateSpeakers] = useState(false);
   const [promptTemplates, setPromptTemplates] = useState<MeetingPromptTemplate[]>([]);
   const [promptTemplate, setPromptTemplate] = useState("standard");
@@ -384,6 +395,7 @@ export default function UploadPage() {
     setCorrection("");
     setCorrectionTimeline([]);
     setEnhancementStatus([]);
+    setSeparationStatus(null);
     setMeeting(null);
     setActiveMeetingTask(null);
     cancelledMeetingTask.current = null;
@@ -470,11 +482,16 @@ export default function UploadPage() {
     setResult(null);
     setCorrection("");
     setCorrectionTimeline([]);
+    setEnhancementStatus([]);
+    setSeparationStatus(null);
     setStatus("正在转写并流式修正...");
     const form = new FormData();
     form.append("file", file);
     try {
-      const response = await fetch("/api/transcribe/stream", { method: "POST", body: form });
+      const streamPath = streamSeparate
+        ? "/api/transcribe/stream?separate=true"
+        : "/api/transcribe/stream";
+      const response = await fetch(streamPath, { method: "POST", body: form });
       if (!response.ok) {
         const payload = await response.json() as { detail?: string };
         throw new Error(payload.detail ?? "流式修正失败");
@@ -495,13 +512,21 @@ export default function UploadPage() {
           if (data === "[DONE]") continue;
           const payload = JSON.parse(data) as {
             type: string; text?: string; token?: string; message?: string;
-            index?: number; start?: number; end?: number;
+            index?: number; start?: number; end?: number; source_index?: number;
             stages?: EnhancementStatus[];
+            stage?: SeparationStatus;
           };
           if (payload.type === "asr_final") setResult({ filename: file.name, bytes: file.size, text: payload.text ?? "" });
           if (payload.type === "enhancement_status") setEnhancementStatus(payload.stages ?? []);
+          if (payload.type === "separation_status" && payload.stage) setSeparationStatus(payload.stage);
           if (payload.type === "asr_segment" && payload.index !== undefined) {
-            const segment = { index: payload.index, start: payload.start ?? 0, end: payload.end ?? 0, text: payload.text ?? "" };
+            const segment = {
+              index: payload.index,
+              start: payload.start ?? 0,
+              end: payload.end ?? 0,
+              text: payload.text ?? "",
+              source_index: payload.source_index,
+            };
             setCorrectionTimeline((current) => [...current.filter((item) => item.index !== segment.index), segment].sort((a, b) => a.start - b.start));
           }
           if (payload.type === "correction_token") setCorrection((current) => current + (payload.token ?? ""));
@@ -842,6 +867,10 @@ export default function UploadPage() {
               取消会议处理
             </button>
           )}
+          <label className="field-checkbox stream-option">
+            <input type="checkbox" checked={streamSeparate} onChange={(event) => setStreamSeparate(event.target.checked)} />
+            <span>流式修正启用 FLASepformer 分离</span>
+          </label>
         </section>
       </form>
 
@@ -1015,12 +1044,22 @@ export default function UploadPage() {
             ))}
           </article>
         )}
+        {separationStatus && (
+          <article className="result-card" aria-live="polite">
+            <span className="eyebrow">STREAM SEPARATION</span>
+            <p className="result-meta">
+              {separationStatus.stage_name} · {separationStatus.status} · {separationStatus.output_count} 路 · {separationStatus.latency_ms.toFixed(1)} ms
+              {separationStatus.fallback_reason ? ` · ${separationStatus.fallback_reason}` : ""}
+            </p>
+          </article>
+        )}
         {correctionTimeline.length > 0 && (
           <article className="result-card correction-timeline" aria-live="polite">
             <span className="eyebrow">CORRECTION TIMELINE</span>
             {correctionTimeline.map((segment) => (
               <p className="timeline-line" key={segment.index}>
                 <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
+                {segment.source_index !== undefined && <strong> 来源 {segment.source_index + 1}</strong>}
                 {segment.text}
               </p>
             ))}

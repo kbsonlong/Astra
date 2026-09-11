@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.core.audio_adapter import audio_buffer_to_wav_bytes
 from app.core.audio_enhancement import AudioBuffer, AudioEnhancementPipeline, EnhancementMetrics
+from app.core.audio_separation import SeparationMetrics
 from app.main import create_app
 from app.models.asr_client import ASRClientError
 
@@ -69,6 +70,27 @@ class FakeEnhancementStage:
             output_sample_rate=audio.sample_rate,
             latency_ms=1.0,
             reference_present=context.reference is not None,
+        )
+
+
+class FakeStreamSeparationStage:
+    name = "fake_separation"
+    input_sample_rate = 8_000
+    output_sample_rate = 8_000
+    realtime = False
+
+    async def process(self, audio, context):
+        track = np.zeros(len(audio.samples), dtype=np.float32)
+        return [
+            AudioBuffer(track, 8_000, 1, source="separated"),
+            AudioBuffer(track, 8_000, 1, source="separated"),
+        ], SeparationMetrics(
+            stage_name=self.name,
+            status="applied",
+            input_sample_rate=audio.sample_rate,
+            output_sample_rate=audio.sample_rate,
+            latency_ms=2.0,
+            output_count=2,
         )
 
 
@@ -149,6 +171,30 @@ def test_transcribe_stream_route_applies_enhancement_before_asr() -> None:
         '"type": "asr_final"'
     )
     assert pipeline.asr.audio == audio
+
+
+def test_transcribe_stream_route_can_run_separation_before_asr() -> None:
+    pipeline = EnhancedPipeline()
+    app = create_app(
+        settings=Settings(transcribe_max_upload_bytes=25 * 1024 * 1024),
+        pipeline=pipeline,
+    )
+    app.state.meeting_pipeline.vad = None
+    app.state.meeting_pipeline.separation = FakeStreamSeparationStage()
+    audio = audio_buffer_to_wav_bytes(
+        AudioBuffer(samples=np.zeros(1600, dtype=np.float32), sample_rate=16_000, channels=1)
+    )
+
+    response = TestClient(app).post(
+        "/api/transcribe/stream?separate=true",
+        files={"file": ("test.wav", audio, "audio/wav")},
+    )
+
+    assert response.status_code == 200
+    assert '"type": "separation_status"' in response.text
+    assert '"output_count": 2' in response.text
+    assert response.text.count('"type": "asr_segment"') == 2
+    assert response.text.count('"source_index":') == 2
 
 
 def test_transcribe_route_returns_service_unavailable_for_sdk_error() -> None:

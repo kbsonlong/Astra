@@ -4,11 +4,16 @@ import tempfile
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 
-from ..core.audio_adapter import audio_buffer_to_wav_bytes, decode_audio_bytes
+from ..core.audio_adapter import (
+    audio_buffer_to_wav_bytes,
+    decode_audio_bytes,
+    resample_audio_buffer,
+)
 from ..core.audio_enhancement import EnhancementContext, EnhancementMetrics
+from ..core.audio_separation import SeparationMetrics
 from ..core.meeting import MeetingPipeline
 from ..models.asr_client import ASRClientError
 from ..models.llm_client import LLMClientError
@@ -68,6 +73,63 @@ async def _apply_stream_enhancement(
             details={"phase": "decode_or_encode"},
         )
         return audio, [fallback.to_dict()]
+
+
+async def _transcribe_stream_audio(
+    audio: bytes,
+    filename: str,
+    asr: object,
+    vad: object | None,
+    *,
+    source_index: int | None = None,
+    index_offset: int = 0,
+) -> list[dict[str, object]]:
+    timeline: list[dict[str, object]] = []
+    if vad is not None:
+        try:
+            with tempfile.TemporaryDirectory(prefix="astra_stream_") as directory:
+                source = Path(directory) / Path(filename).name
+                source.write_bytes(audio)
+                wav_path, _ = await asyncio.to_thread(MeetingPipeline.decode_to_wav, source)
+                chunks = await vad.detect(wav_path)  # type: ignore[attr-defined]
+                for chunk_index, chunk in enumerate(chunks):
+                    text = await asr.transcribe(  # type: ignore[attr-defined]
+                        chunk.audio, filename=f"stream-{index_offset + chunk_index}.wav"
+                    )
+                    text = (text or "").strip()
+                    if text:
+                        segment: dict[str, object] = {
+                            "index": index_offset + chunk_index,
+                            "start": chunk.start,
+                            "end": chunk.end,
+                            "text": text,
+                        }
+                        if source_index is not None:
+                            segment["source_index"] = source_index
+                        timeline.append(segment)
+        except Exception:
+            # VAD/afconvert is optional; keep whole-file transcription usable.
+            timeline = []
+
+    if timeline:
+        return timeline
+    text = await asr.transcribe(audio, filename=filename)  # type: ignore[attr-defined]
+    segment = {"index": index_offset, "start": 0.0, "end": 0.0, "text": text}
+    if source_index is not None:
+        segment["source_index"] = source_index
+    return [segment]
+
+
+def _stream_separation_failure(reason: str) -> dict[str, object]:
+    return SeparationMetrics(
+        stage_name="separation",
+        status="failed",
+        input_sample_rate=0,
+        output_sample_rate=0,
+        latency_ms=0.0,
+        output_count=0,
+        fallback_reason=reason,
+    ).to_dict()
 
 
 async def _acquire_audio_slot(request: Request) -> tuple[AudioIPConcurrencyLimiter, str]:
@@ -132,7 +194,9 @@ async def transcribe_audio(request: Request, file: UploadFile = File(...)) -> di
 
 @router.post("/transcribe/stream")
 async def transcribe_and_correct(
-    request: Request, file: UploadFile = File(...)
+    request: Request,
+    file: UploadFile = File(...),
+    separate: bool = Query(False),
 ) -> StreamingResponse:
     limiter, ip = await _acquire_audio_slot(request)
     try:
@@ -159,31 +223,71 @@ async def transcribe_and_correct(
             audio, filename, meeting_pipeline
         )
         vad = getattr(meeting_pipeline, "vad", None)
-        if vad is not None:
+        separation_status: dict[str, object] | None = None
+        overlap_status: dict[str, object] | None = None
+        separation = getattr(meeting_pipeline, "separation", None)
+        separation_trigger = getattr(meeting_pipeline, "separation_trigger", "manual")
+        separation_requested = separate or separation_trigger == "always"
+        decoded = None
+        if separation is not None and separation_trigger == "overlap" and not separate:
             try:
-                with tempfile.TemporaryDirectory(prefix="astra_stream_") as directory:
-                    source = Path(directory) / Path(filename).name
-                    source.write_bytes(audio)
-                    wav_path, _ = await asyncio.to_thread(MeetingPipeline.decode_to_wav, source)
-                    chunks = await vad.detect(wav_path)
-                    for index, chunk in enumerate(chunks):
-                        text = await asr.transcribe(chunk.audio, filename=f"stream-{index}.wav")
-                        text = (text or "").strip()
-                        if text:
-                            timeline.append(
-                                {"index": index, "start": chunk.start, "end": chunk.end, "text": text}
+                decoded = await asyncio.to_thread(decode_audio_bytes, audio, filename=filename)
+                detection = await asyncio.to_thread(
+                    meeting_pipeline.overlap_detector.detect, decoded
+                )
+                overlap_status = detection.to_dict()
+                separation_requested = detection.suspected
+            except Exception as exc:
+                overlap_status = {
+                    "status": "failed",
+                    "suspected": False,
+                    "score": 0.0,
+                    "threshold": 1.0,
+                    "details": {"error": str(exc)},
+                }
+
+        if separation_requested:
+            try:
+                if separation is None:
+                    raise RuntimeError("stream separation is not configured")
+                if decoded is None:
+                    decoded = await asyncio.to_thread(
+                        decode_audio_bytes, audio, filename=filename
+                    )
+                separated_input = await asyncio.to_thread(
+                    resample_audio_buffer, decoded, separation.input_sample_rate
+                )
+                tracks, metrics = await separation.process(
+                    separated_input, EnhancementContext(realtime=False)
+                )
+                separation_status = metrics.to_dict()
+                if metrics.status == "applied" and tracks:
+                    for source_index, track in enumerate(tracks):
+                        track_for_asr = await asyncio.to_thread(
+                            resample_audio_buffer, track, 16_000
+                        )
+                        track_audio = await asyncio.to_thread(
+                            audio_buffer_to_wav_bytes, track_for_asr
+                        )
+                        timeline.extend(
+                            await _transcribe_stream_audio(
+                                track_audio,
+                                f"stream-source-{source_index}.wav",
+                                asr,
+                                vad,
+                                source_index=source_index,
+                                index_offset=len(timeline),
                             )
-            except Exception:
-                # VAD/afconvert is an enhancement; keep whole-file transcription usable
-                # when local audio conversion or the optional VAD model is unavailable.
+                        )
+            except Exception as exc:
+                separation_status = _stream_separation_failure(str(exc))
                 timeline = []
 
         if not timeline:
             try:
-                text = await asr.transcribe(audio, filename=filename)
+                timeline = await _transcribe_stream_audio(audio, filename, asr, vad)
             except ASRClientError as exc:
                 raise HTTPException(status_code=503, detail=str(exc)) from exc
-            timeline = [{"index": 0, "start": 0.0, "end": 0.0, "text": text}]
     except Exception:
         await limiter.release(ip)
         raise
@@ -192,6 +296,10 @@ async def transcribe_and_correct(
         try:
             if enhancement_status:
                 yield _sse({"type": "enhancement_status", "stages": enhancement_status})
+            if overlap_status is not None:
+                yield _sse({"type": "overlap_status", **overlap_status})
+            if separation_status is not None:
+                yield _sse({"type": "separation_status", "stage": separation_status})
             if len(timeline) == 1 and timeline[0]["end"] == 0.0:
                 yield _sse({"type": "asr_final", "text": timeline[0]["text"]})
             for segment in timeline:
@@ -199,7 +307,16 @@ async def transcribe_and_correct(
                 start = float(segment["start"])
                 end = float(segment["end"])
                 segment_text = str(segment["text"])
-                yield _sse({"type": "asr_segment", "index": index, "start": start, "end": end, "text": segment_text})
+                payload: dict[str, object] = {
+                    "type": "asr_segment",
+                    "index": index,
+                    "start": start,
+                    "end": end,
+                    "text": segment_text,
+                }
+                if "source_index" in segment:
+                    payload["source_index"] = segment["source_index"]
+                yield _sse(payload)
                 corrected = ""
                 messages = [
                     {"role": "system", "content": settings.llm_correction_system_prompt},

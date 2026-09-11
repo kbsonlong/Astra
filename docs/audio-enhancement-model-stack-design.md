@@ -160,6 +160,11 @@ JAEC 需要远端播放参考帧。前端或播放层必须把实际送往扬声
 当前实现会在 VAD/ASR 前调用已配置的离线 ANS（当前支持 `ZipEnhancer 16K`），并先发送一个
 `enhancement_status` SSE 事件，包含阶段、状态、延迟和回退原因。增强解码、模型执行或重新编码失败时保留原始上传音频继续转写；该接口仍不接入需要 far-end reference 的 JAEC。
 
+请求带 `separate=true`，或服务端分离触发器为 `always` 时，会在 ANS 后将音频重采样到
+8 kHz，调用已配置的 FLASepformer，再把每条分离音轨重采样回 16 kHz 后分别送入 VAD/ASR。
+结果通过 `separation_status` SSE 事件报告，并在 `asr_segment` 中带 `source_index`；分离失败时回退到混合音频转写。
+`AUDIO_SEPARATION_TRIGGER=overlap` 时，stream 先复用重叠检测器，只有疑似重叠才启动分离。
+
 #### 会议工作进程
 
 ```text
@@ -355,10 +360,11 @@ PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_jaec.py \
 - `backend/app/core/audio_separation.py` 接入 `iic/speech_flatsepreformer_separation_temporal_8k_base_libri2mix100`，要求本地权重目录，不在请求路径自动下载。
 - 输入先显式重采样为 8 kHz mono，按 `AUDIO_SEPARATION_WINDOW_SECONDS`（默认 30 秒）切窗，输出两路 8 kHz PCM；会议 worker 再将每路重采样到 16 kHz，分别执行 VAD/ASR，并标记为 `S1`/`S2`。
 - 会议 API 增加 `separate=true` 表单字段，前端会议工作台提供“启用 FLASepformer 双说话人分离”选项；产物写入 `separated/source-0.wav`、`source-1.wav`，原始混合音频仍保留。
+- `/api/transcribe/stream` 接受 `separate=true` 查询参数，前端“流式修正”可显式启用分离；SSE 返回 `separation_status`，每个 `asr_segment` 标注 `source_index`，不持久化临时分离音轨。
 - `AUDIO_SEPARATION_TRIGGER=manual` 时只在请求显式 `separate=true` 执行；`always` 对每个离线会议执行；`overlap` 使用离线短时频谱双峰启发式，仅在疑似重叠时启动分离。
 - `overlap` 检测结果会写入 `meta.json`/`status.json`；当前触发器结合低频双峰、频谱平坦度、谐波关系排除和连续候选帧约束，不是说话人数识别或准确的重叠时间戳，误检会增加一次离线分离成本，漏检仍回退混合音频 ASR。
 - `AUDIO_OVERLAP_DETECTOR_MODEL=pyannote_osd` 时改用 `pyannote/overlapped-speech-detection` 专用模型；模型目录必须提前准备，加载失败会记录 `status=failed` 并回退混合音频，不会阻断会议任务。
-- 分离失败会回退到原始混合音频 VAD/ASR，并在 `meta.json`/`status.json` 记录失败原因；实时 WebSocket 不启用该 stage。
+- 分离失败会回退到原始混合音频 VAD/ASR，并在会议任务的 `meta.json`/`status.json` 或 stream SSE 中记录失败原因；实时 WebSocket 仍不启用该 stage。
 - 当前模型卡声明该 checkpoint 面向干净条件下的 Libri2Mix 双说话人、固定输出两路，并采用 CC BY-NC 4.0；不能据此宣称中文、任意人数、噪声/混响会议的通用效果。
 
 真实模型复测命令（不会自动下载权重）：
