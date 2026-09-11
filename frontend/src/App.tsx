@@ -5,10 +5,11 @@ import TrainingPage from "./TrainingPage";
 import SettingsPage from "./SettingsPage";
 import LoginPage from "./LoginPage";
 import {
-  encodePcm16Wav,
-  fitPcmLengthFromEnd,
   JAEC_SAMPLE_RATE,
-  PcmCollector,
+  PCM_FRAME_SAMPLES,
+  PcmFrameBuffer,
+  encodePcm16Frame,
+  resamplePcm,
 } from "./audio/pcm";
 
 type ServerEvent = {
@@ -112,19 +113,17 @@ function VoiceAssistant() {
   if (location.pathname === "/settings") return <SettingsPage />;
 
   const socket = useRef<WebSocket | null>(null);
-  const recorder = useRef<MediaRecorder | null>(null);
   const mediaStream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const analyser = useRef<AnalyserNode | null>(null);
-  const microphoneCapture = useRef<ScriptProcessorNode | null>(null);
-  const farEndCapture = useRef<ScriptProcessorNode | null>(null);
+  const pcmCapture = useRef<ScriptProcessorNode | null>(null);
+  const farEndBus = useRef<GainNode | null>(null);
   const ttsSources = useRef(new Set<AudioBufferSourceNode>());
-  const microphonePcm = useRef(new PcmCollector());
-  const farEndPcm = useRef(new PcmCollector());
+  const microphoneFrames = useRef(new PcmFrameBuffer());
+  const farEndFrames = useRef(new PcmFrameBuffer());
+  const pcmSequence = useRef(0);
   const captureWindow = useRef(false);
   const nextTtsTime = useRef(0);
-  const pendingTtsDecodes = useRef(0);
-  const ttsFinished = useRef(false);
   const monitorFrame = useRef<number | null>(null);
   const speechStarted = useRef(false);
   const silenceSince = useRef<number | null>(null);
@@ -141,19 +140,16 @@ function VoiceAssistant() {
   function cleanupAudio() {
     if (monitorFrame.current !== null) cancelAnimationFrame(monitorFrame.current);
     monitorFrame.current = null;
-    recorder.current?.stop();
-    recorder.current = null;
-    microphoneCapture.current?.disconnect();
-    microphoneCapture.current = null;
-    farEndCapture.current?.disconnect();
-    farEndCapture.current = null;
+    pcmCapture.current?.disconnect();
+    pcmCapture.current = null;
+    farEndBus.current?.disconnect();
+    farEndBus.current = null;
     stopTtsPlayback();
-    microphonePcm.current.clear();
-    farEndPcm.current.clear();
+    microphoneFrames.current.clear();
+    farEndFrames.current.clear();
+    pcmSequence.current = 0;
     captureWindow.current = false;
     nextTtsTime.current = 0;
-    pendingTtsDecodes.current = 0;
-    ttsFinished.current = false;
     mediaStream.current?.getTracks().forEach((track) => track.stop());
     mediaStream.current = null;
     void audioContext.current?.close();
@@ -164,8 +160,8 @@ function VoiceAssistant() {
   }
 
   function resetCaptureWindow() {
-    microphonePcm.current.clear();
-    farEndPcm.current.clear();
+    microphoneFrames.current.clear();
+    farEndFrames.current.clear();
     captureWindow.current = true;
   }
 
@@ -176,37 +172,6 @@ function VoiceAssistant() {
     }
     ttsSources.current.clear();
     nextTtsTime.current = 0;
-  }
-
-  function finishTtsCaptureIfIdle() {
-    if (
-      ttsFinished.current
-      && pendingTtsDecodes.current === 0
-      && ttsSources.current.size === 0
-      && !speechStarted.current
-    ) {
-      farEndPcm.current.clear();
-      ttsFinished.current = false;
-    }
-  }
-
-  function sendFarEndReference(connection: WebSocket) {
-    const context = audioContext.current;
-    if (!context || !captureWindow.current) return;
-    const microphone = microphonePcm.current.toSampleRate(context.sampleRate);
-    const farEnd = farEndPcm.current.toSampleRate(context.sampleRate);
-    captureWindow.current = false;
-    microphonePcm.current.clear();
-    farEndPcm.current.clear();
-    ttsFinished.current = false;
-    if (microphone.length === 0 || farEnd.length === 0) return;
-
-    // JAEC consumes equal-length 16 kHz mono WAVs. Missing far-end samples are
-    // silence, which preserves the microphone timeline for short TTS chunks.
-    const aligned = fitPcmLengthFromEnd(farEnd, microphone.length);
-    connection.send(JSON.stringify({ type: "audio_channel", channel: "reference" }));
-    connection.send(encodePcm16Wav(aligned, JAEC_SAMPLE_RATE));
-    connection.send(JSON.stringify({ type: "audio_channel", channel: "microphone" }));
   }
 
   function monitorMicrophone() {
@@ -248,7 +213,7 @@ function VoiceAssistant() {
         if (now - silenceSince.current >= SILENCE_MS) {
           const connection = socket.current;
           if (connection?.readyState === WebSocket.OPEN) {
-            sendFarEndReference(connection);
+            captureWindow.current = false;
             connection.send(JSON.stringify({ type: "speech_end" }));
             stateRef.current = "REASONING";
             setState("REASONING");
@@ -265,53 +230,71 @@ function VoiceAssistant() {
   }
 
   async function startMicrophone(connection: WebSocket) {
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("当前浏览器不支持麦克风录音，请使用 HTTPS 或 localhost");
     }
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
     const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
+    connection.send(JSON.stringify({
+      type: "audio_format",
+      format: "pcm16",
+      sample_rate: JAEC_SAMPLE_RATE,
+      frame_samples: PCM_FRAME_SAMPLES,
+    }));
     const source = context.createMediaStreamSource(stream);
     const currentAnalyser = context.createAnalyser();
     currentAnalyser.fftSize = 1024;
     source.connect(currentAnalyser);
-    const currentMicrophoneCapture = context.createScriptProcessor(4096, 1, 1);
-    currentMicrophoneCapture.onaudioprocess = (event) => {
-      if (captureWindow.current && stateRef.current === "LISTENING") {
-        microphonePcm.current.append(event.inputBuffer.getChannelData(0));
+    const currentFarEndBus = context.createGain();
+    currentFarEndBus.connect(context.destination);
+    const merger = context.createChannelMerger(2);
+    source.connect(merger, 0, 0);
+    currentFarEndBus.connect(merger, 0, 1);
+    const currentPcmCapture = context.createScriptProcessor(4096, 2, 2);
+    currentPcmCapture.onaudioprocess = (event) => {
+      const microphone = event.inputBuffer.getChannelData(0);
+      const reference = event.inputBuffer.numberOfChannels > 1
+        ? event.inputBuffer.getChannelData(1)
+        : new Float32Array(microphone.length);
+      microphoneFrames.current.append(
+        context.sampleRate === JAEC_SAMPLE_RATE
+          ? microphone
+          : resamplePcm(microphone, context.sampleRate, JAEC_SAMPLE_RATE),
+      );
+      farEndFrames.current.append(
+        context.sampleRate === JAEC_SAMPLE_RATE
+          ? reference
+          : resamplePcm(reference, context.sampleRate, JAEC_SAMPLE_RATE),
+      );
+      const microphoneChunks = microphoneFrames.current.drain(PCM_FRAME_SAMPLES);
+      const referenceChunks = farEndFrames.current.drain(PCM_FRAME_SAMPLES);
+      const frameCount = Math.min(microphoneChunks.length, referenceChunks.length);
+      for (let index = 0; index < frameCount; index += 1) {
+        const sequence = pcmSequence.current;
+        pcmSequence.current += 1;
+        if (captureWindow.current && stateRef.current === "LISTENING") {
+          connection.send(encodePcm16Frame(
+            microphoneChunks[index], sequence, "microphone", JAEC_SAMPLE_RATE,
+          ));
+        }
+        if (captureWindow.current || stateRef.current === "SPEAKING") {
+          connection.send(encodePcm16Frame(
+            referenceChunks[index], sequence, "reference", JAEC_SAMPLE_RATE,
+          ));
+        }
       }
     };
+    merger.connect(currentPcmCapture);
     const silentSink = context.createGain();
     silentSink.gain.value = 0;
-    source.connect(currentMicrophoneCapture);
-    currentMicrophoneCapture.connect(silentSink);
+    currentPcmCapture.connect(silentSink);
     silentSink.connect(context.destination);
-
-    const currentFarEndCapture = context.createScriptProcessor(4096, 1, 1);
-    currentFarEndCapture.onaudioprocess = (event) => {
-      if (captureWindow.current || stateRef.current === "SPEAKING") {
-        farEndPcm.current.append(event.inputBuffer.getChannelData(0));
-      }
-    };
-    currentFarEndCapture.connect(context.destination);
     audioContext.current = context;
     analyser.current = currentAnalyser;
-    microphoneCapture.current = currentMicrophoneCapture;
-    farEndCapture.current = currentFarEndCapture;
+    pcmCapture.current = currentPcmCapture;
+    farEndBus.current = currentFarEndBus;
     resetCaptureWindow();
-
-    const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-      ? "audio/webm;codecs=opus"
-      : "audio/webm";
-    const currentRecorder = new MediaRecorder(stream, { mimeType });
-    currentRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0 && connection.readyState === WebSocket.OPEN) {
-        connection.send(event.data);
-      }
-    };
-    currentRecorder.onerror = () => setConnectionError("浏览器录音失败，请检查麦克风权限");
-    recorder.current = currentRecorder;
-    currentRecorder.start(250);
     monitorFrame.current = requestAnimationFrame(monitorMicrophone);
   }
 
@@ -358,18 +341,13 @@ function VoiceAssistant() {
     if (event.type === "asr_final") setTranscript(event.text ?? "");
     if (event.type === "llm_token") setAnswer((current) => current + (event.token ?? ""));
     if (event.type === "tts_start") {
-      farEndPcm.current.clear();
       captureWindow.current = false;
-      ttsFinished.current = false;
     }
     if (event.type === "tts_chunk" && event.audio_b64) {
       void playTtsChunk(event);
     }
     if (event.type === "tts_end") {
-      microphonePcm.current.clear();
       captureWindow.current = true;
-      ttsFinished.current = true;
-      finishTtsCaptureIfIdle();
       stateRef.current = "LISTENING";
       setState("LISTENING");
     }
@@ -378,13 +356,12 @@ function VoiceAssistant() {
   async function playTtsChunk(event: ServerEvent) {
     const context = audioContext.current;
     if (!context || !event.audio_b64) return;
-    pendingTtsDecodes.current += 1;
     const bytes = Uint8Array.from(atob(event.audio_b64), (char) => char.charCodeAt(0));
     try {
       const audioBuffer = await context.decodeAudioData(bytes.buffer.slice(0));
       const source = context.createBufferSource();
       source.buffer = audioBuffer;
-      const farEnd = farEndCapture.current;
+      const farEnd = farEndBus.current;
       if (farEnd) source.connect(farEnd);
       else source.connect(context.destination);
       const startAt = Math.max(context.currentTime, nextTtsTime.current);
@@ -394,11 +371,9 @@ function VoiceAssistant() {
       source.onended = () => {
         ttsSources.current.delete(source);
         source.disconnect();
-        finishTtsCaptureIfIdle();
       };
-    } finally {
-      pendingTtsDecodes.current -= 1;
-      finishTtsCaptureIfIdle();
+    } catch {
+      setConnectionError("无法解码语音回答");
     }
   }
 

@@ -139,6 +139,20 @@ class AudioEnhancementStage(Protocol):
 
 JAEC 需要远端播放参考帧。前端或播放层必须把实际送往扬声器的 PCM 复制到 `reference` 通道，而不是把网络收到的压缩包或 TTS 请求文本当作参考。
 
+实时 WebSocket 的 PCM frame 使用固定二进制头，避免把 WebM/Opus 分片交给 AEC：
+
+| 字段 | 长度 | 说明 |
+|---|---:|---|
+| magic | 4 bytes | `ASTR` |
+| version | 1 byte | `1` |
+| channel | 1 byte | `0`=microphone，`1`=reference |
+| sequence | 4 bytes | little-endian 无符号序号，用于近端/远端对齐 |
+| sample_rate | 2 bytes | 当前固定 `16000` |
+| sample_count | 2 bytes | 当前固定 `160`，即 10 ms |
+| payload | `sample_count * 2` bytes | little-endian PCM16 mono |
+
+连接建立后客户端发送 `audio_format` 命令声明该协议。服务端按序号配对两路 frame，缺失的 reference frame 补静音，`speech_end` 时再组装为 ASR 使用的 WAV；未声明该格式的旧客户端仍按原 WebM/Opus 兼容路径处理。
+
 #### `/api/transcribe/stream`
 
 该接口是上传后 SSE，不具备实时 AEC 的远端参考。第一阶段只允许 ANS 和按需 Separation；如果调用方声明没有 reference，就拒绝 `jaec_16k` 配置并返回明确诊断，而不是产生看似成功的结果。

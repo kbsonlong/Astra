@@ -1,4 +1,33 @@
 export const JAEC_SAMPLE_RATE = 16_000;
+export const PCM_FRAME_SAMPLES = 160;
+const PCM_FRAME_MAGIC = "ASTR";
+const PCM_FRAME_VERSION = 1;
+const PCM_FRAME_HEADER_BYTES = 14;
+
+export class PcmFrameBuffer {
+  private pending = new Float32Array();
+
+  append(samples: Float32Array): void {
+    if (samples.length === 0) return;
+    const next = new Float32Array(this.pending.length + samples.length);
+    next.set(this.pending);
+    next.set(samples, this.pending.length);
+    this.pending = next;
+  }
+
+  drain(frameSamples = PCM_FRAME_SAMPLES): Float32Array[] {
+    const frames: Float32Array[] = [];
+    while (this.pending.length >= frameSamples) {
+      frames.push(this.pending.slice(0, frameSamples));
+      this.pending = this.pending.slice(frameSamples);
+    }
+    return frames;
+  }
+
+  clear(): void {
+    this.pending = new Float32Array();
+  }
+}
 
 export class PcmCollector {
   private readonly chunks: Float32Array[] = [];
@@ -60,6 +89,33 @@ export function fitPcmLengthFromEnd(samples: Float32Array, targetLength: number)
   const output = new Float32Array(targetLength);
   output.set(samples.subarray(Math.max(0, samples.length - targetLength)));
   return output;
+}
+
+export function encodePcm16Frame(
+  samples: Float32Array,
+  sequence: number,
+  channel: "microphone" | "reference",
+  sampleRate = JAEC_SAMPLE_RATE,
+): ArrayBuffer {
+  const buffer = new ArrayBuffer(PCM_FRAME_HEADER_BYTES + samples.length * 2);
+  const view = new DataView(buffer);
+  for (let index = 0; index < PCM_FRAME_MAGIC.length; index += 1) {
+    view.setUint8(index, PCM_FRAME_MAGIC.charCodeAt(index));
+  }
+  view.setUint8(4, PCM_FRAME_VERSION);
+  view.setUint8(5, channel === "microphone" ? 0 : 1);
+  view.setUint32(6, sequence >>> 0, true);
+  view.setUint16(10, sampleRate, true);
+  view.setUint16(12, samples.length, true);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = Math.max(-1, Math.min(1, samples[index]));
+    view.setInt16(
+      PCM_FRAME_HEADER_BYTES + index * 2,
+      sample < 0 ? sample * 0x8000 : sample * 0x7fff,
+      true,
+    );
+  }
+  return buffer;
 }
 
 export function encodePcm16Wav(samples: Float32Array, sampleRate = JAEC_SAMPLE_RATE): ArrayBuffer {

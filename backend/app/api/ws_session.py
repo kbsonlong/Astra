@@ -5,6 +5,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from pydantic import ValidationError
 
 from .auth import authorize_websocket
+from ..core.pcm_protocol import decode_pcm_frame
 from ..core.session_manager import Session
 from ..core.pipeline import VoicePipeline
 from ..schemas.ws import ClientMessage, StateChange
@@ -92,7 +93,18 @@ async def session_websocket(websocket: WebSocket) -> None:
             if message["type"] == "websocket.disconnect":
                 break
             if message.get("bytes") is not None:
-                if not session.append_audio(message["bytes"], source=audio_channel):
+                if session.pcm_mode:
+                    try:
+                        frame = decode_pcm_frame(message["bytes"])
+                    except ValueError as exc:
+                        await websocket.send_json(
+                            {"type": "error", "code": "invalid_pcm_frame", "message": str(exc)}
+                        )
+                        continue
+                    accepted = session.append_pcm_frame(frame)
+                else:
+                    accepted = session.append_audio(message["bytes"], source=audio_channel)
+                if not accepted:
                     await websocket.send_json(
                         {
                             "type": "error",
@@ -121,9 +133,34 @@ async def session_websocket(websocket: WebSocket) -> None:
                     )
                     continue
                 audio_channel = command.channel
+            elif command.type == "audio_format":
+                if (
+                    command.format != "pcm16"
+                    or command.sample_rate is None
+                    or command.frame_samples is None
+                    or not session.configure_pcm(
+                        sample_rate=command.sample_rate,
+                        frame_samples=command.frame_samples,
+                    )
+                ):
+                    await websocket.send_json(
+                        {"type": "error", "code": "invalid_audio_format"}
+                    )
+                    continue
+                await websocket.send_json(
+                    {
+                        "type": "audio_format_ready",
+                        "format": "pcm16",
+                        "sample_rate": session.pcm_sample_rate,
+                        "frame_samples": session.pcm_frame_samples,
+                    }
+                )
             elif command.type == "speech_end":
-                audio = session.take_audio()
-                reference = session.take_reference()
+                if session.pcm_mode:
+                    audio, reference = session.take_pcm_pair()
+                else:
+                    audio = session.take_audio()
+                    reference = session.take_reference()
                 generation_id = session.speech_end()
                 if pipeline is not None:
                     generation_task = asyncio.create_task(

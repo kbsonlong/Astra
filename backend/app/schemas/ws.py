@@ -10,10 +10,14 @@ class ClientMessage(BaseModel):
         "interrupt",
         "end_session",
         "audio_channel",
+        "audio_format",
     ]
     generation_id: int | None = None
     reason: Literal["vad", "manual"] | None = None
     channel: Literal["microphone", "reference"] | None = None
+    format: Literal["pcm16"] | None = None
+    sample_rate: int | None = None
+    frame_samples: int | None = None
 
 
 class StateChange(BaseModel):

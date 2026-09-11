@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import subprocess
 import tempfile
+import wave
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +16,32 @@ from .audio_enhancement import AudioBuffer, AudioSource
 
 class AudioFormatError(ValueError):
     """Raised when an input cannot be decoded into the enhancement format."""
+
+
+def pcm16_frames_to_wav_bytes(
+    frames: dict[int, bytes],
+    sequences: list[int],
+    *,
+    sample_rate: int,
+    frame_samples: int,
+) -> bytes:
+    """Assemble ordered PCM16 frames, filling missing sequence numbers with silence."""
+    if sample_rate <= 0 or frame_samples <= 0:
+        raise ValueError("PCM frame format is invalid")
+    silence = b"\x00" * (frame_samples * 2)
+    payload = bytearray()
+    for sequence in sequences:
+        frame = frames.get(sequence, silence)
+        if len(frame) != len(silence):
+            raise AudioFormatError("PCM frame length does not match frame_samples")
+        payload.extend(frame)
+    output = io.BytesIO()
+    with wave.open(output, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(payload)
+    return output.getvalue()
 
 
 def _validate_target_rate(target_sample_rate: int) -> None:

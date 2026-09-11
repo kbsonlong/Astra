@@ -1,12 +1,16 @@
 import asyncio
+import struct
 from collections.abc import Mapping, Sequence
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.config import Settings
 from app.main import create_app
+from app.core.pcm_protocol import PCM_FRAME_HEADER, PCM_FRAME_MAGIC, PCM_FRAME_VERSION
+from app.core.audio_adapter import decode_audio_bytes
 
 
 class FakePipeline:
@@ -120,6 +124,57 @@ def test_websocket_forwards_far_end_reference_channel() -> None:
             "state": "LISTENING",
             "generation_id": 1,
         }
+
+
+class PcmPipeline:
+    async def run(
+        self,
+        audio: bytes,
+        messages: Sequence[Mapping[str, str]],
+        generation_id: int,
+        emit,
+        reference: bytes | None = None,
+    ) -> tuple[str, str]:
+        assert len(decode_audio_bytes(audio).samples) == 160
+        assert reference is not None
+        assert len(decode_audio_bytes(reference, source="reference").samples) == 160
+        return "用户说的", "好的"
+
+
+def _pcm_frame(sequence: int, channel: int, value: int) -> bytes:
+    samples = np.full(160, value, dtype="<i2").tobytes()
+    return PCM_FRAME_HEADER.pack(
+        PCM_FRAME_MAGIC, PCM_FRAME_VERSION, channel, sequence, 16_000, 160
+    ) + samples
+
+
+def test_websocket_accepts_10ms_pcm_frames() -> None:
+    client = TestClient(create_app(pipeline=PcmPipeline()))
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "start_session"})
+        websocket.receive_json()
+        websocket.send_json(
+            {
+                "type": "audio_format",
+                "format": "pcm16",
+                "sample_rate": 16_000,
+                "frame_samples": 160,
+            }
+        )
+        assert websocket.receive_json() == {
+            "type": "audio_format_ready",
+            "format": "pcm16",
+            "sample_rate": 16_000,
+            "frame_samples": 160,
+        }
+        assert websocket.receive_json()["state"] == "LISTENING"
+        websocket.send_bytes(_pcm_frame(0, 0, 1000))
+        websocket.send_bytes(_pcm_frame(0, 1, 500))
+        websocket.send_json({"type": "speech_end"})
+
+        assert websocket.receive_json()["state"] == "REASONING"
+        assert websocket.receive_json()["state"] == "LISTENING"
 
 
 class BlockingPipeline:
