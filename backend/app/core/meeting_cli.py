@@ -117,12 +117,14 @@ def _build_pipeline(prompt_templates_path: str = ""):
             enabled=s.audio_enhancement_enabled,
             ans_model=s.audio_ans_model,
             model_dir=s.audio_enhancement_model_dir,
+            device=s.audio_enhancement_device,
         ),
         separation=build_audio_separation_stage(
             enabled=s.audio_enhancement_enabled,
             separation_model=s.audio_separation_model,
             model_dir=s.audio_enhancement_model_dir,
             window_seconds=s.audio_separation_window_seconds,
+            device=s.audio_enhancement_device,
         ),
         separation_trigger=s.audio_separation_trigger,
         overlap_detector=build_overlap_detector(

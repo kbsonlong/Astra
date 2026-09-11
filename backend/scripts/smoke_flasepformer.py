@@ -23,6 +23,7 @@ def main() -> int:
         default=Path("/tmp/astra-flasepformer-smoke"),
     )
     parser.add_argument("--window-seconds", type=float, default=30.0)
+    parser.add_argument("--device", choices=("auto", "cpu", "mps", "cuda"), default="auto")
     args = parser.parse_args()
 
     model_dir = args.model_dir.expanduser().resolve()
@@ -41,6 +42,7 @@ def main() -> int:
         FLASepformerStage(
             model_dir=model_dir,
             window_seconds=args.window_seconds,
+            device=args.device,
         ).process(audio, EnhancementContext(realtime=False))
     )
     elapsed = time.perf_counter() - started
@@ -56,6 +58,7 @@ def main() -> int:
             {
                 "model_dir": str(model_dir),
                 "input": str(input_path),
+                "device": args.device,
                 "outputs": outputs,
                 "input_sample_rate": audio.sample_rate,
                 "input_samples": len(audio.samples),

@@ -80,6 +80,26 @@ def test_build_audio_separation_stage_is_disabled_by_default() -> None:
     assert stage.name == "flasepformer_8k"
 
 
+def test_build_audio_separation_stage_passes_device() -> None:
+    stage = build_audio_separation_stage(
+        enabled=True,
+        separation_model="flasepformer_8k",
+        device="mps",
+    )
+
+    assert isinstance(stage, FLASepformerStage)
+    assert stage.device == "mps"
+
+
+def test_flasepformer_rejects_unknown_device() -> None:
+    try:
+        FLASepformerStage(device="tpu")
+    except ValueError as exc:
+        assert "unsupported FLASepformer device" in str(exc)
+    else:
+        raise AssertionError("unknown device should be rejected")
+
+
 def test_spectral_overlap_detector_distinguishes_two_prominent_voice_band_tones() -> None:
     sample_rate = 16_000
     time_axis = np.arange(sample_rate, dtype=np.float32) / sample_rate

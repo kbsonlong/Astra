@@ -195,7 +195,7 @@ AUDIO_SEPARATION_TRIGGER=manual       # manual|overlap|always
 AUDIO_SEPARATION_WINDOW_SECONDS=30
 AUDIO_OVERLAP_DETECTOR_MODEL=heuristic # heuristic|pyannote_osd
 AUDIO_OVERLAP_MODEL_DIR=~/.astra/models/overlap-detection/pyannote-osd
-AUDIO_ENHANCEMENT_DEVICE=auto         # auto|cpu|mps|cuda
+AUDIO_ENHANCEMENT_DEVICE=auto         # auto|cpu|mps|cuda; FLASepformer MPS requires explicit mps
 AUDIO_ENHANCEMENT_MODEL_DIR=~/.astra/models/audio-enhancement
 AUDIO_ENHANCEMENT_MAX_QUEUE=2
 AUDIO_ENHANCEMENT_FRAME_TIMEOUT_MS=80
@@ -299,10 +299,13 @@ JAEC 还应尽可能记录 TDE 的估计延迟、LP 回声能量/抵消结果和
 | cold（含模型加载） | 30 秒 | 1 | 18.586 秒 | 4.216 | 2 |
 | warm | 30 秒 | 1 | 14.508 秒 | 3.291 | 2 |
 | warm | 2 秒 | 3 | 19.142 秒 | 4.342 | 2 |
+| MPS cold（含模型加载） | 30 秒 | 1 | 10.553 秒 | 2.394 | 2 |
 
-本次运行检测到 MPS 可用，但 `FLASepformerStage` 当前 ModelScope backend 固定以 CPU
-加载，因此没有可比较的 MPS 推理数据。当前 CPU RTF 大于 1，结论是该实现适合作为受控的
-离线分离分支，不满足实时处理承诺；缩短窗口在短音频上还会因重复调用模型增加开销。
+本次运行检测到 MPS 可用；当 `AUDIO_ENHANCEMENT_DEVICE=auto` 时仍保留 CPU 基线，
+因为 ModelScope 默认设备在该环境不会选择 MPS。显式设置 `mps` 后，FLASepformer 会先以
+CPU 构造 ModelScope pipeline，再将模型和输入设备迁移到 MPS。CPU RTF 大于 1，结论是
+该实现适合作为受控的离线分离分支，不满足实时处理承诺；本次 MPS cold RTF 也大于 1，
+仍需 warm/p95 和长音频数据后才能评估资源收益。缩短窗口在短音频上还会因重复调用模型增加开销。
 该结果只代表当前机器、checkpoint 和官方样本，不能替代中文会议长音频的 p95 延迟、峰值内存
 和质量指标。
 
@@ -393,10 +396,13 @@ PYTHONPATH=backend .venv/bin/python -c \
   'import os; from modelscope import snapshot_download; snapshot_download("iic/speech_flatsepreformer_separation_temporal_8k_base_libri2mix100", local_dir=os.path.expanduser("~/.astra/models/audio-enhancement/flasepformer_8k"), allow_patterns=["configuration.json", "pytorch_model.pt"])'
 PYTHONPATH=backend .venv/bin/python backend/scripts/smoke_flasepformer.py \
   --model-dir ~/.astra/models/audio-enhancement/flasepformer_8k \
-  --input /path/to/8k-mono-mix.wav
+  --input /path/to/8k-mono-mix.wav \
+  --device auto
 ```
 
 脚本输出两路 `/tmp/astra-flasepformer-smoke/source-*.wav`，并报告窗口数、总耗时和 RTF。
+将 `--device` 设为 `mps` 可验证 Apple Silicon MPS 路径；若 MPS 算子或模型迁移失败，
+脚本应明确失败，不自动伪装成 CPU 成功。
 
 专用 overlap 模型（可选）准备：
 

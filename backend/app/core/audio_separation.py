@@ -375,13 +375,17 @@ class FLASepformerStage:
         model_id: str = FLASEPFORMER_MODEL_ID,
         model_dir: str | Path | None = None,
         window_seconds: float = FLASEPFORMER_WINDOW_SECONDS,
+        device: str = "auto",
         backend: object | None = None,
     ) -> None:
         if window_seconds <= 0:
             raise ValueError("FLASepformer window_seconds must be greater than 0")
+        if device not in {"auto", "cpu", "mps", "cuda"}:
+            raise ValueError(f"unsupported FLASepformer device: {device}")
         self.model_id = model_id
         self.model_dir = str(Path(model_dir).expanduser()) if model_dir else ""
         self.window_seconds = window_seconds
+        self.device = device
         self._backend = backend
 
     def _load_backend(self) -> object:
@@ -402,11 +406,28 @@ class FLASepformerStage:
         model_path = Path(self.model_dir)
         if not model_path.is_dir():
             raise RuntimeError(f"FLASepformer model directory does not exist: {model_path}")
+        if self.device == "mps":
+            import torch
+
+            if not torch.backends.mps.is_available():
+                raise RuntimeError("FLASepformer MPS requested but MPS is unavailable")
+            # ModelScope's device validator does not accept mps. Construct and
+            # load through CPU, then move both the model and pipeline input
+            # device explicitly after initialization.
+            pipeline_options = {"device": "cpu"}
+        else:
+            pipeline_options = {} if self.device == "auto" else {"device": self.device}
         self._backend = pipeline(
             Tasks.speech_separation,
             model=str(model_path),
-            device="cpu",
+            **pipeline_options,
         )
+        if self.device == "mps":
+            import torch
+
+            mps_device = torch.device("mps")
+            self._backend.device = mps_device  # type: ignore[attr-defined]
+            self._backend.model.to(mps_device)  # type: ignore[attr-defined]
         return self._backend
 
     def _infer(self, wav_bytes: bytes) -> list[np.ndarray]:
@@ -502,6 +523,7 @@ class FLASepformerStage:
             details={
                 "backend": "modelscope",
                 "model_id": self.model_id,
+                "device": self.device,
                 "window_seconds": self.window_seconds,
                 "window_samples": window_samples,
                 "window_count": window_count,
@@ -517,9 +539,14 @@ def build_audio_separation_stage(
     separation_model: str,
     model_dir: str = "",
     window_seconds: float = FLASEPFORMER_WINDOW_SECONDS,
+    device: str = "auto",
 ) -> AudioSeparationStage | None:
     if not enabled or separation_model in {"", "none"}:
         return None
     if separation_model != "flasepformer_8k":
         raise ValueError(f"unsupported audio separation model: {separation_model}")
-    return FLASepformerStage(model_dir=model_dir or None, window_seconds=window_seconds)
+    return FLASepformerStage(
+        model_dir=model_dir or None,
+        window_seconds=window_seconds,
+        device=device,
+    )

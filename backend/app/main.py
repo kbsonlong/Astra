@@ -119,6 +119,7 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_separation_window_seconds": current.audio_separation_window_seconds,
         "audio_overlap_detector_model": current.audio_overlap_detector_model,
         "audio_overlap_model_dir": current.audio_overlap_model_dir,
+        "audio_enhancement_device": current.audio_enhancement_device,
         "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
         "audio_enhancement_max_queue": current.audio_enhancement_max_queue,
         "audio_enhancement_frame_timeout_ms": current.audio_enhancement_frame_timeout_ms,
@@ -310,12 +311,14 @@ def create_app(
                 enabled=current.audio_enhancement_enabled,
                 ans_model=current.audio_ans_model,
                 model_dir=current.audio_enhancement_model_dir,
+                device=current.audio_enhancement_device,
             ),
             separation=build_audio_separation_stage(
                 enabled=current.audio_enhancement_enabled,
                 separation_model=current.audio_separation_model,
                 model_dir=current.audio_enhancement_model_dir,
                 window_seconds=current.audio_separation_window_seconds,
+                device=current.audio_enhancement_device,
             ),
             separation_trigger=current.audio_separation_trigger,
             overlap_detector=build_overlap_detector(
