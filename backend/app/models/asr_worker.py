@@ -83,6 +83,24 @@ class AsrWorkerClient:
         ready = getattr(self._client, "is_ready", None)
         return bool(ready and ready())
 
+    def capabilities(self) -> dict[str, object]:
+        """透传底层 ASR client 的能力声明 (VoiceStudio 路线图方向二)。"""
+        fn = getattr(self._client, "capabilities", None)
+        if callable(fn):
+            return dict(fn())
+        return {"engine": "unknown"}
+
+    def is_available(self) -> tuple[bool, str]:
+        """可用性探测: worker 状态优先, 再透传底层 client。"""
+        if self._failed is not None:
+            return False, "asr worker has failed"
+        if self._stopping:
+            return False, "asr worker is stopping"
+        fn = getattr(self._client, "is_available", None)
+        if callable(fn):
+            return fn()
+        return bool(self.is_ready()), "ready" if self.is_ready() else "not ready"
+
     @property
     def queue_depth(self) -> int:
         return self._queue.qsize()

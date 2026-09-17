@@ -37,6 +37,15 @@ def clean_repeated_punctuation(text: str) -> str:
     return cleaned
 
 
+def _diarizes_inline(asr: object) -> bool:
+    """探测 ASR 后端是否声明自带内联说话人分离。"""
+    fn = getattr(asr, "diarizes_inline", None)
+    try:
+        return bool(fn()) if callable(fn) else False
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
 @dataclass
 class Segment:
     start: float
@@ -94,6 +103,16 @@ class VADStage(Protocol):
 
 class ASRStage(Protocol):
     async def transcribe(self, audio: bytes, filename: str = "speech.wav") -> str: ...
+
+
+class InlineDiarizingASR(Protocol):
+    """自带说话人内联分离的 ASR (如 FunASR cam++)。整段 wav 一次产出分段。"""
+
+    def diarizes_inline(self) -> bool: ...
+
+    async def transcribe_segments(
+        self, wav: str, *, filename: str = "speech.wav"
+    ) -> tuple[str, list["Segment"]]: ...
 
 
 class PunctuationStage(Protocol):
@@ -158,6 +177,76 @@ class AsrWorkflowStage:
     def is_ready(self) -> bool:
         ready = getattr(self.asr, "is_ready", None)
         return bool(ready()) if callable(ready) else True
+
+
+class InlineAsrDiarizeStage:
+    """整段 ASR 阶段；可选地保留后端产生的内联说话人标签。
+
+    FunASR 即使关闭 cam++ 仍应作为选定的 ASR 后端运行，因此该阶段不以
+    ``diarizes_inline()`` 作为启用条件。``diarized_inline`` 仅描述输出是否含
+    内联说话人标签，供声纹注册映射阶段决定是否执行。
+    """
+
+    name = "asr"
+
+    def __init__(self, asr: InlineDiarizingASR, *, diarized_inline: bool) -> None:
+        self.asr = asr
+        self.diarized_inline = diarized_inline
+        self.engine_name = asr.__class__.__name__
+
+    async def run(self, context: WorkflowContext) -> None:
+        language, segments = await self.asr.transcribe_segments(
+            str(context.wav), filename=context.filename
+        )
+        if language:
+            context.language = language
+        context.segments = [seg for seg in segments if (seg.text or "").strip()]
+        context.metadata["asr_full_audio"] = True
+        context.metadata["diarized_inline"] = self.diarized_inline
+
+    def is_ready(self) -> bool:
+        ready = getattr(self.asr, "is_ready", None)
+        return bool(ready()) if callable(ready) else True
+
+
+class SegmentAudioWorkflowStage:
+    """按整段 ASR 的时间戳物化训练/审校所需的单段 WAV。"""
+
+    name = "segment_audio"
+    engine_name = "source_wav"
+
+    async def run(self, context: WorkflowContext) -> None:
+        if not context.metadata.get("asr_full_audio") or not context.segments:
+            return
+        if all(segment.audio is not None for segment in context.segments):
+            return
+        try:
+            await asyncio.to_thread(
+                self._attach_audio, str(context.wav), context.segments
+            )
+        except Exception as exc:
+            # 转写结果仍可使用；训练导出会明确跳过无法物化的片段。
+            logger.warning("inline ASR segment audio extraction failed, skip: %s", exc)
+
+    @staticmethod
+    def _attach_audio(wav: str, segments: list[Segment]) -> None:
+        from scipy.io import wavfile
+
+        sample_rate, data = wavfile.read(wav)
+        total_samples = data.shape[0]
+        for segment in segments:
+            if segment.audio is not None:
+                continue
+            start = max(0, int(segment.start * sample_rate))
+            end = min(total_samples, int(segment.end * sample_rate))
+            if end <= start:
+                continue
+            buffer = io.BytesIO()
+            wavfile.write(buffer, sample_rate, data[start:end])
+            segment.audio = buffer.getvalue()
+
+    def is_ready(self) -> bool:
+        return True
 
 
 class PunctuationWorkflowStage:
@@ -280,6 +369,85 @@ class DiarizationWorkflowStage:
     def is_ready(self) -> bool:
         ready = getattr(self.diarization, "is_ready", None)
         return bool(ready()) if callable(ready) else True
+
+
+class SpeakerRegistryMappingStage:
+    """把内联分离产生的 ``Speaker N`` 标签映射到已注册声纹 (方向三)。
+
+    仅在 ASR 已内联分离 (metadata['diarized_inline']) 且提供 profile_store 时生效。
+    按内联说话人标签分组, 用该说话人所有片段拼接的音频算 embedding, 经
+    ``profile_store.match`` 匹配已注册档案, 写回 speaker_id/name/similarity。
+    匹配失败保留原始 ``Speaker N`` 标签, 不阻断流程。
+    """
+
+    name = "speaker_registry"
+
+    def __init__(self, profile_store: SpeakerProfileStore | None) -> None:
+        self.profile_store = profile_store
+        self.engine_name = "speaker_registry"
+
+    async def run(self, context: WorkflowContext) -> None:
+        if self.profile_store is None:
+            return
+        if not context.metadata.get("diarized_inline"):
+            return
+        if not context.segments:
+            return
+        try:
+            await asyncio.to_thread(
+                self._map_blocking, str(context.wav), context.segments
+            )
+        except Exception as exc:
+            logger.warning("speaker registry mapping failed, skip: %s", exc)
+
+    def _map_blocking(self, wav: str, segments: list[Segment]) -> None:
+        import numpy as np
+        from resemblyzer import VoiceEncoder
+        from scipy.io import wavfile
+
+        sr, data = wavfile.read(wav)
+        if data.ndim > 1:
+            data = data.mean(axis=1)
+        if np.issubdtype(data.dtype, np.integer):
+            data = data.astype(np.float32) / (np.iinfo(data.dtype).max + 1)
+
+        by_speaker: dict[str, list[Segment]] = {}
+        for segment in segments:
+            label = segment.speaker or "Speaker 1"
+            by_speaker.setdefault(label, []).append(segment)
+
+        encoder = VoiceEncoder(device="cpu")
+        for label, group in by_speaker.items():
+            parts = []
+            for segment in group:
+                start = max(0, int(segment.start * sr))
+                end = min(data.shape[0], int(segment.end * sr))
+                if end > start:
+                    parts.append(data[start:end])
+            if not parts:
+                continue
+            merged = np.concatenate(parts)[: int(sr * 30)]
+            if merged.shape[0] < int(0.4 * sr):
+                continue
+            try:
+                embedding = encoder.embed_utterance(merged)
+            except Exception:
+                continue
+            match = (
+                self.profile_store.match(embedding)
+                if self.profile_store is not None
+                else None
+            )
+            if match is None:
+                continue
+            for segment in group:
+                segment.speaker_id = match.speaker_id
+                segment.speaker_name = match.display_name
+                segment.speaker_similarity = match.similarity
+                segment.speaker_confidence = match.confidence
+
+    def is_ready(self) -> bool:
+        return True
 
 
 class WorkflowEngine:
@@ -575,23 +743,45 @@ class AudioWorkflow:
         correction: WorkflowStage | None = None,
         text_cleanup: WorkflowStage | None = None,
         language: str = "zh",
+        inline_asr: InlineDiarizingASR | None = None,
+        speaker_store: SpeakerProfileStore | None = None,
     ) -> None:
         self.vad = vad
         self.asr = asr
         self.punctuation = punctuation or PassthroughPunctuation()
         self.diarization = diarization
         self.language = language
+        self.inline_asr = inline_asr
+        self.speaker_store = speaker_store
         builder = WorkflowBuilder(language=language)
-        builder.use(VadWorkflowStage(vad))
-        builder.use(AsrWorkflowStage(asr))
-        builder.use(PunctuationWorkflowStage(self.punctuation))
-        if diarization is not None:
-            builder.use(DiarizationWorkflowStage(diarization))
+        use_full_audio_asr = inline_asr is not None
+        use_inline_diarization = (
+            use_full_audio_asr and _diarizes_inline(inline_asr)
+        )
+        if use_full_audio_asr:
+            # FunASR 整段 ASR 始终替代 VAD+逐段 ASR；cam++ 标签仅控制注册映射。
+            builder.use(
+                InlineAsrDiarizeStage(
+                    inline_asr, diarized_inline=use_inline_diarization
+                )
+            )
+            builder.use(PunctuationWorkflowStage(self.punctuation))
+            builder.use(SegmentAudioWorkflowStage())
+            if use_inline_diarization:
+                builder.use(SpeakerRegistryMappingStage(speaker_store))
+        else:
+            builder.use(VadWorkflowStage(vad))
+            builder.use(AsrWorkflowStage(asr))
+            builder.use(PunctuationWorkflowStage(self.punctuation))
+            if diarization is not None:
+                builder.use(DiarizationWorkflowStage(diarization))
         if correction is not None and text_cleanup is not None:
             raise ValueError("use correction or text_cleanup, not both")
         self.correction = correction or text_cleanup
         if self.correction is not None:
             builder.use(self.correction)
+        self._use_full_audio_asr = use_full_audio_asr
+        self._use_inline = use_inline_diarization
         self.engine = builder.build()
 
     async def run(self, wav: str | Path, *, filename: str = "speech.wav") -> WorkflowResult:
@@ -601,6 +791,8 @@ class AudioWorkflow:
         result = self.engine.stage_status()
         if self.correction is None:
             result["correction"] = {"enabled": False, "ok": True}
-        if self.diarization is None:
+        if self._use_full_audio_asr and not self._use_inline:
+            result["sd"] = {"enabled": False, "ok": True}
+        elif self.diarization is None and not self._use_inline:
             result["sd"] = {"enabled": False, "ok": True}
         return result

@@ -172,3 +172,32 @@ async def test_injected_loaders_are_not_cached() -> None:
     assert await client.transcribe(b"wav") == "hi"
     assert await client.transcribe(b"wav") == "hi"
     assert loads == ["uncached-model", "uncached-model"]
+
+
+def test_asr_capabilities_and_availability() -> None:
+    client = MlxAudioAsrClient(
+        "mlx-community/Qwen3-ASR-0.6B-4bit",
+        hotwords=("大佬",),
+    )
+    caps = client.capabilities()
+    assert caps["engine"] == "mlx_audio"
+    assert caps["model"] == "mlx-community/Qwen3-ASR-0.6B-4bit"
+    assert "zh" in caps["languages"]
+    assert caps["hotwords"] is True
+    assert caps["diarize"] is False
+
+    # 注入 loader 路径视为可用
+    injected = MlxAudioAsrClient(
+        "test-model",
+        load_audio=lambda p: [0.0],
+        load_model=lambda m: object(),
+        generate_transcription=lambda **k: object(),
+    )
+    available, reason = injected.is_available()
+    assert available is True and reason == "ready"
+
+    # 未配置模型 -> 不可用, 原因不含本地路径
+    empty = MlxAudioAsrClient("")
+    ok, why = empty.is_available()
+    assert ok is False
+    assert "ASR_MODEL" in why

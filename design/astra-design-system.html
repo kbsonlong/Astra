@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-page-node-id="IhG33aWVo5GryRxYIsFGPU">
+<head data-page-node-id="oMzZc5ufiJJd2GGGq8YDDq">
+<meta charset="UTF-8" data-page-node-id="69c23SBqxO5mXeTk166ySW">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="V11Uai5TzCS4Afd7AMxIu4">
+<title>Astra 设计系统 · Astra Design System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" data-page-node-id="t2eVDSpWwNLpm4dcltXedh">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin data-page-node-id="NsVzPgVTZlNnIf2a4LYwp3">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet" data-page-node-id="2vli9aTQS7OPa8bt5CeqyY">
+<style>
+/* ============================================================================
+   ASTRA DESIGN SYSTEM · 令牌层
+   方向：档案室 + 精密仪器 (Archival Instrument)
+   双主题：暖纸（浅） / 深夜书房（深）
+   ========================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* ---------- 原始令牌：暖中性 · 纸 ---------- */
+  --paper-0:   oklch(0.995 0.003 75);
+  --paper-50:  oklch(0.975 0.006 75);
+  --paper-100: oklch(0.955 0.008 75);
+  --paper-200: oklch(0.915 0.010 75);
+  --paper-300: oklch(0.865 0.012 75);
+  --paper-400: oklch(0.720 0.013 70);
+  --paper-500: oklch(0.600 0.014 65);
+  --paper-600: oklch(0.480 0.014 60);
+  --paper-700: oklch(0.420 0.015 60);
+  --paper-800: oklch(0.280 0.014 58);
+  --paper-900: oklch(0.200 0.013 55);
+
+  /* ---------- 原始令牌：靛墨（主色） ---------- */
+  --ink-100: oklch(0.955 0.022 248);
+  --ink-300: oklch(0.870 0.040 248);
+  --ink-500: oklch(0.560 0.090 248);
+  --ink-600: oklch(0.450 0.085 248);
+  --ink-700: oklch(0.380 0.090 248);
+
+  /* ---------- 原始令牌：朱砂（信号） ---------- */
+  --vermilion-100: oklch(0.950 0.030 45);
+  --vermilion-300: oklch(0.850 0.070 45);
+  --vermilion-500: oklch(0.550 0.170 42);
+  --vermilion-600: oklch(0.440 0.155 42);
+
+  /* ---------- 语义令牌 · 浅色（暖纸） ---------- */
+  --bg-canvas:     var(--paper-50);
+  --bg-surface:    var(--paper-0);
+  --bg-sunken:     var(--paper-100);
+  --bg-elevated:   var(--paper-0);
+  --bg-inset:      oklch(0.940 0.009 75);
+
+  --border-subtle:  var(--paper-200);
+  --border-default: oklch(0.880 0.011 75);
+  --border-strong:  var(--paper-300);
+
+  --text-primary:   var(--paper-900);
+  --text-secondary: var(--paper-700);
+  --text-tertiary:  var(--paper-600);
+  --text-disabled:  oklch(0.680 0.012 70);
+  --text-on-accent: oklch(0.990 0.004 75);
+
+  --accent:            var(--ink-600);
+  --accent-hover:      var(--ink-700);
+  --accent-text:       var(--ink-600);
+  --accent-soft:       var(--ink-100);
+  --accent-soft-border: var(--ink-300);
+
+  --live:         var(--vermilion-500);
+  --live-text:    var(--vermilion-600);
+  --live-soft:    var(--vermilion-100);
+  --live-border:  var(--vermilion-300);
+
+  --success:        oklch(0.470 0.100 165);
+  --success-text:   oklch(0.440 0.100 165);
+  --success-soft:   oklch(0.950 0.030 165);
+  --success-border: oklch(0.850 0.060 165);
+
+  --warning:        oklch(0.580 0.130 72);
+  --warning-text:   oklch(0.450 0.115 70);
+  --warning-soft:   oklch(0.960 0.040 80);
+  --warning-border: oklch(0.860 0.080 78);
+
+  --danger:        oklch(0.480 0.170 15);
+  --danger-text:   oklch(0.450 0.165 15);
+  --danger-soft:   oklch(0.950 0.030 15);
+  --danger-border: oklch(0.850 0.070 15);
+
+  /* 实心危险按钮：深色主题下 --danger 太亮，白字只有 2.4:1，必须单独取色 */
+  --btn-danger-bg:       oklch(0.480 0.170 15);
+  --btn-danger-bg-hover: oklch(0.420 0.170 15);
+  --btn-danger-fg:       oklch(0.990 0.004 75);
+
+  --focus-ring: oklch(0.450 0.085 248 / 0.45);
+
+  /* 层次：浅色靠阴影 */
+  --shadow-sm: 0 1px 2px oklch(0.200 0.013 55 / 0.06);
+  --shadow-md: 0 2px 4px -1px oklch(0.200 0.013 55 / 0.05), 0 6px 16px -4px oklch(0.200 0.013 55 / 0.09);
+  --shadow-lg: 0 4px 8px -2px oklch(0.200 0.013 55 / 0.06), 0 16px 40px -8px oklch(0.200 0.013 55 / 0.14);
+
+  /* ---------- 排版 ---------- */
+  --font-display: "Newsreader", "Songti SC", "Noto Serif CJK SC", "Source Han Serif SC", Georgia, serif;
+  --font-ui: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, monospace;
+
+  --text-2xs:  0.6875rem; /* 11px 刻度、标签 */
+  --text-xs:   0.75rem;   /* 12px 元数据 */
+  --text-sm:   0.8125rem; /* 13px 密集 UI */
+  --text-base: 0.875rem;  /* 14px 界面基准 */
+  --text-read: 1rem;      /* 16px 阅读正文 */
+  --text-lg:   1.125rem;  /* 18px */
+  --text-xl:   1.375rem;  /* 22px */
+  --text-2xl:  1.75rem;   /* 28px */
+  --text-3xl:  2.25rem;   /* 36px */
+
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.7;
+
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 700;
+
+  /* ---------- 空间：4px 基准 ---------- */
+  --space-1: 0.25rem;  --space-2: 0.5rem;   --space-3: 0.75rem;
+  --space-4: 1rem;     --space-5: 1.25rem;  --space-6: 1.5rem;
+  --space-8: 2rem;     --space-10: 2.5rem;  --space-12: 3rem;
+  --space-16: 4rem;    --space-20: 5rem;
+
+  /* ---------- 圆角：收紧，取仪器感而非气泡感 ---------- */
+  --radius-xs: 3px;
+  --radius-sm: 5px;
+  --radius-md: 7px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 999px;
+
+  /* ---------- 动效 ---------- */
+  --dur-instant: 90ms;
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --dur-deliberate: 480ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  --z-nav: 40; --z-overlay: 60; --z-toast: 80;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* 深色：暖棕黑，而非蓝黑 */
+  --bg-canvas:   oklch(0.165 0.008 60);
+  --bg-surface:  oklch(0.205 0.009 60);
+  --bg-sunken:   oklch(0.145 0.008 60);
+  --bg-elevated: oklch(0.245 0.010 60);
+  --bg-inset:    oklch(0.185 0.008 60);
+
+  --border-subtle:  oklch(0.265 0.010 60);
+  --border-default: oklch(0.315 0.011 60);
+  --border-strong:  oklch(0.400 0.012 60);
+
+  --text-primary:   oklch(0.945 0.010 75);
+  --text-secondary: oklch(0.775 0.012 70);
+  --text-tertiary:  oklch(0.655 0.014 65);
+  --text-disabled:  oklch(0.480 0.012 60);
+  --text-on-accent: oklch(0.160 0.020 250);
+
+  --accent:            oklch(0.745 0.100 248);
+  --accent-hover:      oklch(0.820 0.090 248);
+  --accent-text:       oklch(0.800 0.090 248);
+  --accent-soft:       oklch(0.280 0.045 248);
+  --accent-soft-border: oklch(0.380 0.060 248);
+
+  --live:        oklch(0.755 0.150 48);
+  --live-text:   oklch(0.790 0.130 48);
+  --live-soft:   oklch(0.290 0.070 45);
+  --live-border: oklch(0.400 0.090 45);
+
+  --success:        oklch(0.720 0.110 165);
+  --success-text:   oklch(0.760 0.100 165);
+  --success-soft:   oklch(0.270 0.045 165);
+  --success-border: oklch(0.380 0.060 165);
+
+  --warning:        oklch(0.800 0.130 78);
+  --warning-text:   oklch(0.820 0.120 78);
+  --warning-soft:   oklch(0.290 0.055 72);
+  --warning-border: oklch(0.400 0.075 72);
+
+  --danger:        oklch(0.680 0.160 25);
+  --danger-text:   oklch(0.740 0.140 25);
+  --danger-soft:   oklch(0.290 0.070 20);
+  --danger-border: oklch(0.400 0.095 20);
+
+  /* 深色下实心危险按钮反而要压暗，才能让白字达到 4.8:1 */
+  --btn-danger-bg:       oklch(0.470 0.155 22);
+  --btn-danger-bg-hover: oklch(0.400 0.150 22);
+  --btn-danger-fg:       oklch(0.990 0.006 75);
+
+  --focus-ring: oklch(0.745 0.100 248 / 0.55);
+
+  /* 深色不用阴影，靠表面亮度拉开层次 */
+  --shadow-sm: 0 0 0 1px oklch(0.100 0.008 60 / 0.5);
+  --shadow-md: 0 0 0 1px oklch(0.100 0.008 60 / 0.5), 0 4px 14px -4px oklch(0.050 0 0 / 0.6);
+  --shadow-lg: 0 0 0 1px oklch(0.100 0.008 60 / 0.5), 0 16px 40px -8px oklch(0.050 0 0 / 0.7);
+
+  /* 浅字压深底，行高放宽 */
+  --lh-normal: 1.56;
+  --lh-relaxed: 1.78;
+}
+
+/* ============================================================================
+   文档外壳
+   ========================================================================= */
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--lh-normal);
+  color: var(--text-primary);
+  background: var(--bg-canvas);
+  font-kerning: normal;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+}
+
+a { color: var(--accent-text); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-xs);
+}
+
+/* 顶栏 */
+.topbar {
+  position: sticky; top: 0; z-index: var(--z-nav);
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  background: var(--bg-canvas);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.brand { display: flex; align-items: baseline; gap: var(--space-3); margin-right: auto; }
+.brand__mark {
+  font-family: var(--font-display);
+  font-size: var(--text-xl);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.brand__sub {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+}
+.topbar__actions { display: flex; align-items: center; gap: var(--space-2); }
+
+/* 布局 */
+.shell {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: var(--space-10);
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-6) var(--space-20);
+}
+.sidenav {
+  position: sticky; top: 76px; align-self: start;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.sidenav__title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-tertiary);
+  padding: 0 var(--space-3) var(--space-2);
+}
+.sidenav a {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.sidenav a:hover { background: var(--bg-sunken); color: var(--text-primary); }
+.sidenav a.is-active { color: var(--accent-text); border-left-color: var(--accent); background: var(--accent-soft); }
+
+/* 章节 */
+.section { padding-bottom: var(--space-12); scroll-margin-top: 80px; }
+.section + .section { border-top: 1px solid var(--border-subtle); padding-top: var(--space-10); }
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-2);
+}
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.012em; margin: 0; }
+h1 { font-size: var(--text-3xl); line-height: var(--lh-tight); margin-bottom: var(--space-3); }
+h2 { font-size: var(--text-2xl); line-height: var(--lh-tight); margin-bottom: var(--space-4); }
+h3 { font-size: var(--text-lg); line-height: var(--lh-snug); margin: var(--space-8) 0 var(--space-3); font-weight: 600; }
+h4 { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 600; letter-spacing: 0; margin: var(--space-6) 0 var(--space-2); }
+p { margin: 0 0 var(--space-4); color: var(--text-secondary); max-width: 68ch; }
+p.lead { font-size: var(--text-read); color: var(--text-secondary); line-height: var(--lh-relaxed); }
+
+code, .mono { font-family: var(--font-mono); font-size: 0.92em; }
+code {
+  background: var(--bg-inset);
+  padding: 0.1em 0.36em;
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+}
+
+/* ============================================================================
+   文档级组件
+   ========================================================================= */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 500;
+  padding: 0 var(--space-4); height: 34px;
+  border: 1px solid transparent; border-radius: var(--radius-md);
+  cursor: pointer; white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+/* 禁用态用显式令牌而非整体降透明度，避免深色下糊成一团 */
+.btn:disabled {
+  background: var(--bg-inset); color: var(--text-disabled);
+  border-color: var(--border-default); cursor: not-allowed; box-shadow: none;
+}
+
+.btn--primary { background: var(--accent); color: var(--text-on-accent); }
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+
+.btn--secondary { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-default); }
+.btn--secondary:hover:not(:disabled) { background: var(--bg-sunken); border-color: var(--border-strong); }
+
+.btn--ghost { background: transparent; color: var(--text-secondary); }
+.btn--ghost:hover:not(:disabled) { background: var(--bg-sunken); color: var(--text-primary); }
+
+.btn--danger { background: var(--btn-danger-bg); color: var(--btn-danger-fg); }
+.btn--danger:hover:not(:disabled) { background: var(--btn-danger-bg-hover); }
+
+.btn--sm { height: 28px; font-size: var(--text-xs); padding: 0 var(--space-3); }
+.btn--lg { height: 42px; font-size: var(--text-base); padding: 0 var(--space-6); }
+
+.btn__spinner {
+  width: 13px; height: 13px; flex: none;
+  border: 1.6px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: spin 640ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* 卡片 */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+.card--flush { padding: 0; overflow: hidden; }
+
+/* 令牌展示 */
+.grid { display: grid; gap: var(--space-4); }
+.grid--2 { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.grid--3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.grid--4 { grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); }
+
+.swatch {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+.swatch__chip { height: 56px; }
+.swatch__meta { padding: var(--space-2) var(--space-3) var(--space-3); }
+.swatch__name { font-size: var(--text-xs); font-weight: 600; display: block; }
+.swatch__val {
+  font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary);
+  display: block; margin-top: 2px; word-break: break-all;
+}
+
+/* 表格 */
+.table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.table th {
+  text-align: left; font-weight: 600; font-size: var(--text-xs);
+  text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+.table td {
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: top;
+  color: var(--text-secondary);
+}
+.table td:first-child { color: var(--text-primary); font-weight: 500; }
+.table tbody tr:last-child td { border-bottom: none; }
+.table .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.pass, .fail {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 600;
+  padding: 1px 7px; border-radius: var(--radius-full);
+}
+.pass { background: var(--success-soft); color: var(--success-text); border: 1px solid var(--success-border); }
+.fail { background: var(--warning-soft); color: var(--warning-text); border: 1px solid var(--warning-border); }
+
+/* 说明块 */
+.note {
+  border-left: 2px solid var(--accent);
+  background: var(--accent-soft);
+  padding: var(--space-3) var(--space-4);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  margin: var(--space-4) 0;
+}
+.note p:last-child { margin-bottom: 0; }
+.note strong { color: var(--text-primary); }
+
+.do-dont { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); margin: var(--space-4) 0; }
+.do-dont > div { border-radius: var(--radius-md); padding: var(--space-4); border: 1px solid var(--border-subtle); background: var(--bg-surface); }
+.do-dont h4 { margin-top: 0; display: flex; align-items: center; gap: var(--space-2); }
+.do-dont ul { margin: 0; padding-left: 1.1em; font-size: var(--text-sm); color: var(--text-secondary); }
+.do-dont li { margin-bottom: var(--space-1); }
+.tag-do { color: var(--success-text); }
+.tag-dont { color: var(--danger-text); }
+
+/* 组件展台 */
+.stage {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+  display: flex; flex-wrap: wrap; gap: var(--space-4); align-items: center;
+}
+.stage--stack { flex-direction: column; align-items: stretch; }
+.stage--grid { display: grid; }
+.stage__label {
+  width: 100%; font-family: var(--font-mono); font-size: var(--text-2xs);
+  text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-tertiary);
+  margin-bottom: var(--space-1);
+}
+
+/* 状态徽章 */
+.badge {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  height: 24px; padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 500;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.badge__dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; }
+.badge--neutral { background: var(--bg-inset); color: var(--text-secondary); border-color: var(--border-default); }
+.badge--accent  { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft-border); }
+.badge--live    { background: var(--live-soft); color: var(--live-text); border-color: var(--live-border); }
+.badge--success { background: var(--success-soft); color: var(--success-text); border-color: var(--success-border); }
+.badge--warning { background: var(--warning-soft); color: var(--warning-text); border-color: var(--warning-border); }
+.badge--danger  { background: var(--danger-soft); color: var(--danger-text); border-color: var(--danger-border); }
+
+@keyframes pulse-ring {
+  0%   { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70%  { box-shadow: 0 0 0 5px transparent; opacity: 1; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+.badge--live .badge__dot { animation: pulse-ring 1.6s var(--ease-out) infinite; }
+
+/* 表单 */
+.field { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; }
+.field__label { font-size: var(--text-sm); font-weight: 500; color: var(--text-primary); display: flex; align-items: center; gap: var(--space-2); }
+.field__hint { font-size: var(--text-xs); color: var(--text-tertiary); }
+.field__error { font-size: var(--text-xs); color: var(--danger-text); display: flex; align-items: center; gap: 5px; }
+
+.input, .textarea, .select {
+  font-family: var(--font-ui); font-size: var(--text-base);
+  color: var(--text-primary); background: var(--bg-surface);
+  border: 1px solid var(--border-default); border-radius: var(--radius-md);
+  padding: 0 var(--space-3); height: 36px; width: 100%;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.textarea { height: auto; padding: var(--space-3); line-height: var(--lh-normal); resize: vertical; min-height: 84px; }
+.input::placeholder, .textarea::placeholder { color: var(--text-tertiary); }
+.input:focus, .textarea:focus, .select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+.input:disabled, .textarea:disabled { background: var(--bg-sunken); color: var(--text-disabled); cursor: not-allowed; }
+.input--invalid { border-color: var(--danger); }
+.input--mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+
+/* 开关 */
+.switch {
+  position: relative; width: 38px; height: 22px; flex: none;
+  border-radius: var(--radius-full); border: 1px solid var(--border-strong);
+  background: var(--bg-sunken); cursor: pointer; padding: 0;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--bg-surface); box-shadow: var(--shadow-sm);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: var(--text-on-accent); }
+
+/* 进度 */
+.progress { height: 4px; border-radius: var(--radius-full); background: var(--bg-inset); overflow: hidden; }
+.progress__bar { height: 100%; background: var(--accent); border-radius: inherit; transition: width var(--dur-slow) var(--ease-out); }
+.progress__bar--indeterminate {
+  width: 35%;
+  animation: indeterminate 1.5s var(--ease-in-out) infinite;
+}
+@keyframes indeterminate {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(340%); }
+}
+
+/* 阶段步进器 */
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step { display: grid; grid-template-columns: 22px 1fr auto; gap: var(--space-3); align-items: start; position: relative; padding-bottom: var(--space-4); }
+.step:last-child { padding-bottom: 0; }
+.step::before {
+  content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 1px; background: var(--border-default);
+}
+.step:last-child::before { display: none; }
+.step__mark {
+  width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center;
+  font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 600;
+  border: 1px solid var(--border-default); background: var(--bg-surface); color: var(--text-tertiary);
+  z-index: 1;
+}
+.step--done .step__mark { background: var(--success); border-color: var(--success); color: var(--bg-surface); }
+.step--active .step__mark { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.step__name { font-size: var(--text-sm); font-weight: 500; }
+.step--pending .step__name { color: var(--text-tertiary); font-weight: 400; }
+.step__time { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+/* 骨架屏 */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-inset) 25%, var(--bg-sunken) 37%, var(--bg-inset) 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+/* 空状态 */
+.empty {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-10) var(--space-6); text-align: center;
+  border: 1px dashed var(--border-default); border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+}
+.empty__icon { color: var(--text-tertiary); }
+.empty__title { font-size: var(--text-sm); font-weight: 600; color: var(--text-primary); }
+.empty__desc { font-size: var(--text-xs); color: var(--text-tertiary); max-width: 34ch; }
+
+/* 提示条 */
+.alert {
+  display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md); border: 1px solid; font-size: var(--text-sm);
+}
+.alert__body { flex: 1; min-width: 0; }
+.alert__title { font-weight: 600; color: var(--text-primary); }
+.alert__desc { color: var(--text-secondary); font-size: var(--text-xs); margin-top: 2px; }
+.alert--danger  { background: var(--danger-soft);  border-color: var(--danger-border);  color: var(--danger-text); }
+.alert--warning { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-text); }
+.alert--success { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
+.alert--info    { background: var(--accent-soft);  border-color: var(--accent-soft-border); color: var(--accent-text); }
+
+/* 签名元素：声纹罗盘 */
+.dial-demo { display: flex; align-items: center; gap: var(--space-8); flex-wrap: wrap; }
+
+/* 签名元素：时间脊柱 */
+.spine-demo { display: grid; gap: var(--space-4); }
+.spine-row {
+  display: grid; grid-template-columns: 76px 1fr; gap: var(--space-4);
+  position: relative; padding-left: var(--space-1);
+}
+.spine-row::before {
+  content: ""; position: absolute; left: 76px; top: 0; bottom: -16px; width: 1px; background: var(--border-subtle);
+}
+.spine-row:last-child::before { display: none; }
+.spine-time {
+  font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums; text-align: right; padding-top: 2px;
+  position: relative;
+}
+.spine-time::after {
+  content: ""; position: absolute; right: -20px; top: 8px;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong);
+}
+.spine-body { padding-left: var(--space-5); }
+.spine-speaker { font-size: var(--text-xs); font-weight: 600; color: var(--accent-text); margin-bottom: 3px; }
+.spine-text { font-size: var(--text-sm); line-height: var(--lh-relaxed); color: var(--text-secondary); }
+
+/* 签名元素：勘校对照 */
+.emend { font-size: var(--text-sm); line-height: var(--lh-relaxed); }
+.emend__orig {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+  text-decoration-thickness: 1.5px;
+  display: block;
+  margin-bottom: var(--space-1);
+}
+.emend__orig::before {
+  content: "原文";
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em;
+  color: var(--text-tertiary); text-decoration: none; display: inline-block;
+  margin-right: var(--space-2); padding: 0 5px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-xs);
+  vertical-align: 1px;
+}
+.emend__fix { color: var(--text-primary); display: block; }
+.emend__fix::before {
+  content: "修正";
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em;
+  color: var(--success-text); display: inline-block;
+  margin-right: var(--space-2); padding: 0 5px;
+  border: 1px solid var(--success-border); border-radius: var(--radius-xs);
+  vertical-align: 1px;
+}
+
+/* 签名元素：朱砂印 */
+.seal-demo { display: flex; gap: var(--space-6); align-items: center; flex-wrap: wrap; }
+
+/* 排版样张 */
+.type-spec { display: grid; gap: var(--space-5); }
+.type-row {
+  display: grid; grid-template-columns: 128px 1fr; gap: var(--space-4);
+  align-items: baseline; padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.type-row:last-child { border-bottom: none; }
+.type-row__meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); line-height: 1.6; }
+
+/* 间距可视化 */
+.space-row { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-2); }
+.space-row__bar { height: 14px; background: var(--accent-soft); border: 1px solid var(--accent-soft-border); border-radius: var(--radius-xs); }
+.space-row__label { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); width: 92px; flex: none; }
+
+/* 响应式 */
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; gap: var(--space-6); }
+  .sidenav { position: static; flex-direction: row; flex-wrap: wrap; }
+  .sidenav__title { display: none; }
+  .do-dont { grid-template-columns: 1fr; }
+  .type-row { grid-template-columns: 1fr; gap: var(--space-1); }
+}
+@media (max-width: 640px) {
+  .topbar { padding: var(--space-3) var(--space-4); }
+  .shell { padding: var(--space-6) var(--space-4) var(--space-16); }
+  h1 { font-size: var(--text-2xl); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body data-page-node-id="jzCEvbMy9bxSJU2UXjD0IA">
+
+<header class="topbar" data-page-node-id="zXVnlbsKFNnNk1TM3ieWbG">
+  <div class="brand" data-page-node-id="pCyW03N1yS4TPkkktPpxyV">
+    <span class="brand__mark" data-page-node-id="AE8L2JG2VxwApr1U5CAgfB">Astra</span>
+    <span class="brand__sub" data-page-node-id="HCTZyB7rZ8uY8rpzoijDST">Design System v1.0</span>
+  </div>
+  <div class="topbar__actions" data-page-node-id="N40xOha5oGV0jv62wBFDMw">
+    <a class="btn btn--ghost btn--sm" href="./astra-prototype.html" data-page-node-id="BEAfiGBhB4jtO1KnYPkpTD">查看高保真原型 →</a>
+    <button class="btn btn--secondary btn--sm" id="themeToggle" aria-label="切换深浅主题" data-page-node-id="EjcGNWxrc28bPXN6znxDku">
+      <span id="themeIcon" data-page-node-id="FG1DF61PpXwDcW29XCx5Fk">◐</span><span id="themeLabel" data-page-node-id="nDYClPykPwkOMGBIYM3JVs">深色</span>
+    </button>
+  </div>
+</header>
+
+<div class="shell" data-page-node-id="xJGJCglMXr51OSMZI7FNrM">
+
+  <nav class="sidenav" aria-label="目录" data-page-node-id="82MHhJPGXzTsW9YCq3zjtq">
+    <span class="sidenav__title" data-page-node-id="D34DVRL3EWNiHBIttIRJgz">目录</span>
+    <a href="#context" data-page-node-id="o3EXYzPw9v4DaLiDoTsXDW">设计上下文</a>
+    <a href="#principles" data-page-node-id="8OD383aO8SjirqZJc8H021">设计原则</a>
+    <a href="#color" data-page-node-id="6CVaPb40uAFQ504XHk88cW">色彩系统</a>
+    <a href="#type" data-page-node-id="d9JD5miJ4DXtem5gD6XDPr">排版系统</a>
+    <a href="#space" data-page-node-id="0nmpDrG0ZKyUs8IHLZn1V2">空间与层次</a>
+    <a href="#motion" data-page-node-id="kjHQstLvJAsCoAa9jDXF9h">动效系统</a>
+    <a href="#components" data-page-node-id="dEiF2JyarBWDU8uUeOzPox">组件库</a>
+    <a href="#signature" data-page-node-id="vUZQ8XCrjGtWMKM6JWnyAp">签名元素</a>
+    <a href="#a11y" data-page-node-id="gwEYogGPsY7TizwVVHghIA">无障碍标准</a>
+    <a href="#handoff" data-page-node-id="Wbq6kfH1cIgT0aWJT6uBtI">交接说明</a>
+  </nav>
+
+  <main data-page-node-id="cqrZemiBM0QUEPkylUHmTe">
+
+    <!-- ================= 设计上下文 ================= -->
+    <section class="section" id="context" data-page-node-id="SG3BEpPjynY2Df1zX19wqt">
+      <div class="eyebrow" data-page-node-id="r6dst9B0WsWuIy2hTScVoE">00 · Context</div>
+      <h1 data-page-node-id="xCzknDFTDDBL3tl440wfZQ">把语音变成可追溯的档案</h1>
+      <p class="lead" data-page-node-id="6avESS8mbwrpQlyziZF0aB">
+        Astra 是运行在个人 Mac mini 上的本地会议总结助手。音频、模型推理和会议产物全部留在本机，
+        用户从浏览器完成实时语音对话或上传会议录音，得到带时间戳、说话人和审核痕迹的转写与纪要。
+      </p>
+
+      <div class="grid grid--3" style="margin-top:var(--space-6)" data-page-node-id="v5YDedNMv4bxpQCb1Dti9P">
+        <div class="card" data-page-node-id="PvcYZ0reEsLFPEwLpn66Eb">
+          <h4 style="margin-top:0" data-page-node-id="b2nyQwZjXLu8wnO0uCFgMe">目标用户</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="I6a4OeWm1wYjpjCBkBb71F">
+            会议参与者、资料整理者、团队管理员、模型维护者。均为同一台 Mac mini 上的本机使用者，
+            不是公网多租户用户，不存在账号与权限体系。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="qzF40BSA9J8TJSD06eqvJb">
+          <h4 style="margin-top:0" data-page-node-id="yauMCHDDNcQshEl3eiWHuL">核心任务</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="Dx6Rm7opldp4sSJ3fIjrtS">
+            ① 说话即得回答；② 录音变逐字稿；③ 逐字稿变结构化纪要；
+            ④ 复核不确定的说话人与纠错；⑤ 用已批准数据微调模型。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="s1U4YoBnXuFj6zjVV93FFk">
+          <h4 style="margin-top:0" data-page-node-id="WAwUnjKyQinNFPTylX4LDI">使用情境</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="H6iVG3ZbnKycPucewikcD2">
+            长时间注视高密度文本（逐字稿、日志）；等待长任务（VAD→ASR→声纹→纪要）时离开再回来；
+            对隐私敏感，明确知道数据没出本机。
+          </p>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="DGPYAvhQXRymRNDBPaYnVh">品牌调性</h3>
+      <p data-page-node-id="yBrvduyco5IzTaBl0ttqgo">
+        <strong data-page-node-id="ot7OHaeHwEjKL2uB5O9Ntd">档案室 + 精密仪器。</strong> 这个产品的价值不在于「很智能」，而在于「很可靠、可追溯、可复核」。
+        视觉上它应该像一台好的录音设备，也像一份被认真整理过的会议档案：克制、精确、有纸张的暖意，
+        而不是又一个发着霓虹光的 AI 面板。
+      </p>
+
+      <div class="do-dont" data-page-node-id="sbkMHwFAFtNbmofWlOeh9T">
+        <div data-page-node-id="rsdNr1hFr9STFQrCNaFHwF">
+          <h4 data-page-node-id="M2IYuyd91PN6mRFLSFwp9M"><span class="tag-do" data-page-node-id="NrlCplG50jzpDrCioxhmRt">◆</span> 我们要的</h4>
+          <ul data-page-node-id="JCnPHem2RKRnqRrVWe477R">
+            <li data-page-node-id="kPtOVAsMOJCdsLB8aPqVXt">暖中性纸色底，长时间阅读不刺眼</li>
+            <li data-page-node-id="TSDzgMHdoFbJeWzwJ3wscX">衬线体承担标题，给文档以权威感</li>
+            <li data-page-node-id="umYWXodH6lLBK0i6m5IRWx">等宽体承担时间戳、任务 ID、日志</li>
+            <li data-page-node-id="M8BbAXDUbe4I31oCqHs9rp">朱砂色作为「正在录制 / 正在处理」的信号</li>
+            <li data-page-node-id="fQVYNr11Mf9PepgsyNBBTF">收紧的圆角、克制的阴影，取仪器感</li>
+            <li data-page-node-id="LazjHoKuhNNFqQRNCxLGf6">状态永远带文字与图形，不靠颜色单独表达</li>
+          </ul>
+        </div>
+        <div data-page-node-id="utMuaqCywVIFryNiF1hEUA">
+          <h4 data-page-node-id="rETBfdGfS9DoAz4jeYLAXp"><span class="tag-dont" data-page-node-id="cR1p0yezqFOb9jgybA6B9U">◇</span> 我们要避开的</h4>
+          <ul data-page-node-id="xu7jDWN3eaYZAG9UPUzXBG">
+            <li data-page-node-id="jK9uN3ZGjZgdbIrU1f7HIW">纯黑底 + 紫蓝渐变 + 霓虹青的「AI 三件套」</li>
+            <li data-page-node-id="F5eAbNLqBhogTfMZ9rLLoM">Inter / Roboto 这类无个性的默认字体</li>
+            <li data-page-node-id="Dinakczei3S1ksExKXE8Bu">毛玻璃滥用、发光描边、无意义的火花线</li>
+            <li data-page-node-id="SFmQXUwzD5c0FSjg5qLghu">万物皆卡片、卡片套卡片</li>
+            <li data-page-node-id="0rhpwlFdsUdJuJV2hsVzby">把所有按钮都设成主按钮</li>
+            <li data-page-node-id="Fbp5uKuxjBxg5HHSkgRRPL">纯黑 #000 与纯白 #fff 的大面积铺陈</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 设计原则 ================= -->
+    <section class="section" id="principles" data-page-node-id="JqG746zGC2gA7GNsEFb5K9">
+      <div class="eyebrow" data-page-node-id="IJTrlGmBODIRbQLUT5xwCg">01 · Principles</div>
+      <h2 data-page-node-id="3ot7myt0ZBnIwFlSJOBnF2">五条设计原则</h2>
+      <p data-page-node-id="4j6JNqNjGE2rOrRat3zmCo">每一条都对应产品里真实存在的痛点，不是装饰性口号。</p>
+
+      <div class="grid grid--2" style="margin-top:var(--space-5)" data-page-node-id="xhcoVr1yqwMFoZxK862YKP">
+        <div class="card" data-page-node-id="aIDnBv3cD5gmw69CgtDySh">
+          <h4 style="margin-top:0" data-page-node-id="tsXkgr4R2653o05OAHHkRV">1 · 状态永远可见</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="sQPkvj4iPbxX0KGwcCjyjp">
+            会议任务要跑 VAD、ASR、标点、声纹分离、纠错、纪要六段。用户离开又回来时必须一眼知道
+            「跑到哪了、还剩什么、是不是卡住了」。进度不是一根抽象进度条，而是有名字的阶段。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="nI0DqLNnJnQ7P9DYCb5nqq">
+          <h4 style="margin-top:0" data-page-node-id="fUQweRR9Ww6HvXsaAq7AdA">2 · 证据链不断裂</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="7mlHh62Ali1XkjO2SBNH9N">
+            每个片段都同时呈现时间戳、说话人、原文与修正文本。用户永远能回答
+            「这句话是谁在几分几秒说的，模型原来识别成什么，我改成了什么」。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="n8cbBOqmi9dnFULg1h8KbR">
+          <h4 style="margin-top:0" data-page-node-id="pZIgr5hvz9efNK9IhPHGrD">3 · 语音是主角</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="814PQaRYdoYrsOqhwpNDGg">
+            实时对话页里，麦克风状态是页面的视觉重心，不是工具栏上的一个小圆点。
+            用户不看文字也应该知道「它在听」「它在想」「它在说」。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="PdjlRjYqmLKDUZNLglTp5Y">
+          <h4 style="margin-top:0" data-page-node-id="i7iE2L6jAk9tUagQP50o1m">4 · 密度服务阅读</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="iAAcCaaYqBk4gyKC2KtqKY">
+            界面外壳用 14px 密集排版以容纳更多信息；逐字稿和纪要正文放宽到 16px、行高 1.7，
+            因为那是要逐字读的内容。两种密度各有各的理由。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="G5AZsa0qRdAmAgiAJ0l2ZA">
+          <h4 style="margin-top:0" data-page-node-id="pUtWZverBVRwypkhjFd6zh">5 · 本地就该有本地的样子</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="vbBW41OWUa35aKS3hKMz6j">
+            不出现云端同步、协作邀请、分享链接这类暗示数据外流的元素。字体、图标、资源全部可离线，
+            因为产品本身跑在局域网里。
+          </p>
+        </div>
+        <div class="card" data-page-node-id="ZegAgEvTpcjNvjao3s3nzn">
+          <h4 style="margin-top:0" data-page-node-id="cIklLJsHZ6AZVsNbBWEWag">6 · 失败必须可操作</h4>
+          <p style="font-size:var(--text-sm); margin:0" data-page-node-id="Cyhw0tdsVuGbEiJkBigG4B">
+            任务失败时不给一句「出错了」，而是给出失败阶段、错误摘要和日志路径，
+            并把「重试」和「查看日志」作为并排的一级动作。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 色彩系统 ================= -->
+    <section class="section" id="color" data-page-node-id="2A6yqz58lWIq5LfRCFcvra">
+      <div class="eyebrow" data-page-node-id="D5VPLAJve0J9sgXKTVgtll">02 · Color</div>
+      <h2 data-page-node-id="EZsmgqPjEE32BLE9sD1Dwv">色彩系统</h2>
+      <p data-page-node-id="tr6Zv9eW7MRnzwSZTzVd0v">
+        中性色是<strong data-page-node-id="ZFLfeZvp9jhswwo3JXqxTo">暖纸色</strong>（色相 55–75，极低彩度），不是灰、也不是蓝灰。主色是
+        <strong data-page-node-id="cVSmYeqKo8cscrCg59mWxG">靛墨</strong>（色相 248，低彩度深蓝），读起来像钢笔墨水而不是科技蓝。信号色是
+        <strong data-page-node-id="i9BrtvYj1W2Ag4DZSBYYjO">朱砂</strong>（色相 42），用于「正在录制 / 正在处理」。所有色值使用 OKLCH 定义，
+        保证明度步进在感知上均匀。
+      </p>
+
+      <h3 data-page-node-id="ZqLi6ma5hQ0OuTyfHx6dFP">中性色阶 · 暖纸</h3>
+      <div class="grid grid--4" data-page-node-id="P3z7D1LATCaIHIbVBzLCtC">
+        <div class="swatch" data-page-node-id="pugyh6wISkRBOzAt5DyBql"><div class="swatch__chip" style="background:var(--paper-0)" data-page-node-id="uLWEa9wxSRTEiTN1rF1uM9"></div><div class="swatch__meta" data-page-node-id="hU7GEAp7aRGyeLyqCt1A30"><span class="swatch__name" data-page-node-id="KIdoCEL8OjDo6sOlJk5iuT">paper-0</span><span class="swatch__val" data-page-node-id="WVZxCEDLfHEEp8SwlZTnqV">oklch(0.995 0.003 75)</span></div></div>
+        <div class="swatch" data-page-node-id="NGDwhbTxpdlqzZDD4vUPpl"><div class="swatch__chip" style="background:var(--paper-50)" data-page-node-id="qAc04fQondC171FmrDtWvu"></div><div class="swatch__meta" data-page-node-id="WNm6IVmhaGKamqL3i8Itwy"><span class="swatch__name" data-page-node-id="goEIWM5WKzomC8pO18l9VD">paper-50</span><span class="swatch__val" data-page-node-id="HhInI1QSAz4lE9v7WneHV5">oklch(0.975 0.006 75)</span></div></div>
+        <div class="swatch" data-page-node-id="qvzbegDnrjheCg7SvsJDpM"><div class="swatch__chip" style="background:var(--paper-100)" data-page-node-id="w2M4ESHNptmP9ZX9M2PCqx"></div><div class="swatch__meta" data-page-node-id="1kzPcPkLcJkkxqtH9CJi8T"><span class="swatch__name" data-page-node-id="gJ84nLTjmGxVCNwy02iRWT">paper-100</span><span class="swatch__val" data-page-node-id="DHUytEzEahAW7tGAstTH9B">oklch(0.955 0.008 75)</span></div></div>
+        <div class="swatch" data-page-node-id="TESHtjTgMxCCB2Xxuj3rAA"><div class="swatch__chip" style="background:var(--paper-200)" data-page-node-id="77AdH5c3LnlkrKy4HlkD9E"></div><div class="swatch__meta" data-page-node-id="DqHrArkJSxHqNsUZoYiQqQ"><span class="swatch__name" data-page-node-id="86stIeLstKoIY4DeC7YcBH">paper-200</span><span class="swatch__val" data-page-node-id="484cRZINgH4FiN3cNeJAra">oklch(0.915 0.010 75)</span></div></div>
+        <div class="swatch" data-page-node-id="a4Cg2T1pmeF9HxkEPnYv5S"><div class="swatch__chip" style="background:var(--paper-300)" data-page-node-id="Cy1y7oIEn0p4rWFZTtjB4O"></div><div class="swatch__meta" data-page-node-id="zENxkKz93noAgU002bK9Ez"><span class="swatch__name" data-page-node-id="9tuks3vKpx5Fsmbl8DxDK5">paper-300</span><span class="swatch__val" data-page-node-id="sT2zEHh8aBdz6eR7pjzs7R">oklch(0.865 0.012 75)</span></div></div>
+        <div class="swatch" data-page-node-id="fDjUySuVmoFYWPFLjpLBuZ"><div class="swatch__chip" style="background:var(--paper-400)" data-page-node-id="qN6ooRYqQcgdlbBLz2jW3Z"></div><div class="swatch__meta" data-page-node-id="o8oNxQYrRKHyhInVEnVwoT"><span class="swatch__name" data-page-node-id="1KUd42OZO68ivkaQdfR9zA">paper-400</span><span class="swatch__val" data-page-node-id="mQiEqNtXteygHFnAnRwFJm">oklch(0.720 0.013 70)</span></div></div>
+        <div class="swatch" data-page-node-id="Bs2Tp8Dwsbrjicu3ofeuLT"><div class="swatch__chip" style="background:var(--paper-600)" data-page-node-id="iifdbsc2Mm7j3AWeqTgEn3"></div><div class="swatch__meta" data-page-node-id="SqVMbXGp5G0SbsvF04mTGV"><span class="swatch__name" data-page-node-id="DJFnj9EvOv0qig2jGOgjGu">paper-600</span><span class="swatch__val" data-page-node-id="IvtoXsKU0OH7wTVvhBHOdH">oklch(0.480 0.014 60)</span></div></div>
+        <div class="swatch" data-page-node-id="6RwtWXbW8VSjc33V2ajmZE"><div class="swatch__chip" style="background:var(--paper-800)" data-page-node-id="I0hfFBQSf5fmK9Rq355zhB"></div><div class="swatch__meta" data-page-node-id="XkTuLljncYqNBI6PlioEih"><span class="swatch__name" data-page-node-id="iTQ9hWhareB8hZbgY01rEd">paper-800</span><span class="swatch__val" data-page-node-id="kM9QFki9y9gamHK0WiPXDd">oklch(0.280 0.014 58)</span></div></div>
+        <div class="swatch" data-page-node-id="AkCIHC2eITApV47TUMwgfD"><div class="swatch__chip" style="background:var(--paper-900)" data-page-node-id="fjcimWSFsdljd1zMOtiKOR"></div><div class="swatch__meta" data-page-node-id="RGHmhUaEKn8ggb8rDRj0BF"><span class="swatch__name" data-page-node-id="G7A2nZO9i20pjCgiaKCDR9">paper-900</span><span class="swatch__val" data-page-node-id="4sTd47S8KZ0F4KONsprlHY">oklch(0.200 0.013 55)</span></div></div>
+      </div>
+
+      <h3 data-page-node-id="dyS7zEM8ZAa8YfG2ENsQEC">主色 · 靛墨</h3>
+      <div class="grid grid--4" data-page-node-id="bTx8CiKsX3D9ylbU7hkJDK">
+        <div class="swatch" data-page-node-id="ESNFHHlHTFrMrQELbwGXDz"><div class="swatch__chip" style="background:var(--ink-100)" data-page-node-id="AgzFC9jhxpAvaeZvRCuLIl"></div><div class="swatch__meta" data-page-node-id="Jdaf9tgS7ad03Vku1Q4OnN"><span class="swatch__name" data-page-node-id="1OF2Wt5akZGxkNzH7Ot4hp">ink-100</span><span class="swatch__val" data-page-node-id="DW4Cm5egrrgORg0Q93HDgi">oklch(0.955 0.022 248)</span></div></div>
+        <div class="swatch" data-page-node-id="fitFRI4Cj0BoPHIEteAzkU"><div class="swatch__chip" style="background:var(--ink-300)" data-page-node-id="9QVgbh4eFH9c2BdUgVTXX4"></div><div class="swatch__meta" data-page-node-id="UKNrbjK8YA9oUlIJku9X4M"><span class="swatch__name" data-page-node-id="OZgl0OF90vE8h1YCzmJqi7">ink-300</span><span class="swatch__val" data-page-node-id="9VSkiAGrsEHQmJW7sbjOpQ">oklch(0.870 0.040 248)</span></div></div>
+        <div class="swatch" data-page-node-id="zoC2OdB5J9EqglZqF75IPI"><div class="swatch__chip" style="background:var(--ink-500)" data-page-node-id="rEWVva7Hn6s77Z8VBzCYLi"></div><div class="swatch__meta" data-page-node-id="bEmONP84ZADqLZkYN49HVh"><span class="swatch__name" data-page-node-id="7FpOt3jMCDUrKWB9w8AVCJ">ink-500</span><span class="swatch__val" data-page-node-id="G6C3r29ojti2CxRyFvrAGC">oklch(0.560 0.090 248)</span></div></div>
+        <div class="swatch" data-page-node-id="xRjBMc4Ew1zUGWPlHEjgEm"><div class="swatch__chip" style="background:var(--ink-600)" data-page-node-id="aYUKw599P9866ikFhoTfqC"></div><div class="swatch__meta" data-page-node-id="itpmSbrnEG4b8CaQAa8y8h"><span class="swatch__name" data-page-node-id="ASQwurEML8v7ZAn67AtxVT">ink-600</span><span class="swatch__val" data-page-node-id="qgsWaw77UH95ZyKG31VJR1">oklch(0.450 0.085 248)</span></div></div>
+        <div class="swatch" data-page-node-id="kWI1NmdFqBl7fFnb1GfYGm"><div class="swatch__chip" style="background:var(--ink-700)" data-page-node-id="BggSKrlECOIk3LFOdUCEjI"></div><div class="swatch__meta" data-page-node-id="rWCnjz3fcJmoxcPQcWGbep"><span class="swatch__name" data-page-node-id="6q41MZt151LZXFcBwD3Gp9">ink-700</span><span class="swatch__val" data-page-node-id="wOhGKdehPwzVfPjZKue99y">oklch(0.380 0.090 248)</span></div></div>
+      </div>
+
+      <h3 data-page-node-id="hzBfMkUS45Jcg4riknrbo9">信号色 · 朱砂</h3>
+      <div class="grid grid--4" data-page-node-id="1IJ0OCwa352s9sLv5n8G8C">
+        <div class="swatch" data-page-node-id="irz9DKa2b5a5rC1Wtozs4J"><div class="swatch__chip" style="background:var(--vermilion-100)" data-page-node-id="CnMy8Fh0q4huk5W28yF4IO"></div><div class="swatch__meta" data-page-node-id="8pl2EXHwKDsp9XcGvwyFid"><span class="swatch__name" data-page-node-id="e8n1FEe7SUeNT59Ip8MlXd">vermilion-100</span><span class="swatch__val" data-page-node-id="InEwA60dbqANmO0gtV5yMV">oklch(0.950 0.030 45)</span></div></div>
+        <div class="swatch" data-page-node-id="06LkIQkPQCR5MHe3nzeRIy"><div class="swatch__chip" style="background:var(--vermilion-300)" data-page-node-id="hNIUIpeGjRhFKnGzl0aVls"></div><div class="swatch__meta" data-page-node-id="th1jUyvExZ6XQFYehDKhVt"><span class="swatch__name" data-page-node-id="fJeJm8vi6nc1HOcqBNrS65">vermilion-300</span><span class="swatch__val" data-page-node-id="NzzDHCnkQHGGrAW7nUzbwU">oklch(0.850 0.070 45)</span></div></div>
+        <div class="swatch" data-page-node-id="CrwUDaDrIeDdRdpkSuzuxy"><div class="swatch__chip" style="background:var(--vermilion-500)" data-page-node-id="yd1yyxPDEkkV3W2dHLJjTG"></div><div class="swatch__meta" data-page-node-id="Hd9uDxKDrTpQ9c4jKgNux1"><span class="swatch__name" data-page-node-id="JTV8xGXHaiZur63L47B7Dp">vermilion-500</span><span class="swatch__val" data-page-node-id="0DuwlEvi67n0iLuM1F8hRF">oklch(0.550 0.170 42)</span></div></div>
+        <div class="swatch" data-page-node-id="umwpCHnpeufiWo7IXGcQ1R"><div class="swatch__chip" style="background:var(--vermilion-600)" data-page-node-id="genYlGB0kvqeTVh9j8DfEg"></div><div class="swatch__meta" data-page-node-id="tiYWyaabGFE43647ibuIyl"><span class="swatch__name" data-page-node-id="xNW4qiW4TFZn4x80Mz8Ewh">vermilion-600</span><span class="swatch__val" data-page-node-id="TjYa6wuWtaIndV2yaPnCun">oklch(0.440 0.155 42)</span></div></div>
+      </div>
+
+      <h3 data-page-node-id="EATQIP8jAdcbizdrFuDyBX">语义令牌对照</h3>
+      <p data-page-node-id="AQbZnFxbZFaNHMejSNZ3vB">
+        语义层是组件唯一应该引用的层。切换主题时只重定义语义层，原始色阶保持不变。
+        下表左列是令牌名，可在任意主题下自动取到当前主题的正确值。
+      </p>
+      <div class="card card--flush" data-page-node-id="APwHAUpIEgQAQXpI4Ijapx">
+        <table class="table" data-page-node-id="UIkWQ4xu8m7bYYHui7MfEQ">
+          <thead data-page-node-id="KaMta4cCFEqrMSbtAj033Z">
+            <tr data-page-node-id="jWRY6tz4Dsl9zjCegOUxjB"><th style="width:34%" data-page-node-id="B1tAZdS2UUwVsLBZW3A1oL">语义令牌</th><th style="width:33%" data-page-node-id="SB7zoLQMtadjEzVEzCnoJh">浅色 · 暖纸</th><th style="width:33%" data-page-node-id="0WiVVaSMdaH6tzUeQDb7PN">深色 · 深夜书房</th></tr>
+          </thead>
+          <tbody data-page-node-id="drokRMGXFbajlc1qIpmD8j">
+            <tr data-page-node-id="KSiA6a2rE42K0x88nY2Nyf"><td data-page-node-id="lucOrCQVrXFgUzpEOrwTBP">--bg-canvas</td><td class="num" data-page-node-id="qI0LVmxc3bzqib93Vl2nvo">oklch(0.975 0.006 75)</td><td class="num" data-page-node-id="5x5nfxs7uIhSUQRyzkrOFM">oklch(0.165 0.008 60)</td></tr>
+            <tr data-page-node-id="AxtBS3FVk8RNbZ7r98XhdQ"><td data-page-node-id="NKmGKXkbLre7lCEHhW8T6c">--bg-surface</td><td class="num" data-page-node-id="WlqYbt9NnT4jjQ1XGB7sFM">oklch(0.995 0.003 75)</td><td class="num" data-page-node-id="uBySkiVbqOvRFh1OKtDqDp">oklch(0.205 0.009 60)</td></tr>
+            <tr data-page-node-id="aw9qaR7k77NbGCIMennPZy"><td data-page-node-id="U5PHG1itxi2W19xjfjH2x2">--bg-sunken</td><td class="num" data-page-node-id="BYs177q73zhlOSt96370tp">oklch(0.955 0.008 75)</td><td class="num" data-page-node-id="LftqnqqxBe8NunYb2mI6jF">oklch(0.145 0.008 60)</td></tr>
+            <tr data-page-node-id="A7oaZViVGd6Rk7ESvHzuIt"><td data-page-node-id="JzTXJI0y8yBz3nlT1hejF6">--bg-elevated</td><td class="num" data-page-node-id="aIf8Ok1nU6RcsPiTVGqulh">oklch(0.995 0.003 75)</td><td class="num" data-page-node-id="JAMcq5rPnGJSBlMalLGjGV">oklch(0.245 0.010 60)</td></tr>
+            <tr data-page-node-id="b30WbI83A1brem5NCYXgjV"><td data-page-node-id="osssrCAdOaEgxHGvjkQGc2">--border-subtle</td><td class="num" data-page-node-id="u9Fp6MN03IImvs7e3PIpn6">oklch(0.915 0.010 75)</td><td class="num" data-page-node-id="K7Gj82X6XBXNuro0Dlv2Uf">oklch(0.265 0.010 60)</td></tr>
+            <tr data-page-node-id="40Wa8DBHFAKhG0wBvG9Zli"><td data-page-node-id="vXzuLqfLIZvnyBuU4MngC7">--border-default</td><td class="num" data-page-node-id="1l4usZ7Rv6XJ973sJYLymR">oklch(0.880 0.011 75)</td><td class="num" data-page-node-id="1EOwgD75h6EKHEV1c9kWuu">oklch(0.315 0.011 60)</td></tr>
+            <tr data-page-node-id="lWhDrD5tbyFXMOifINrQVM"><td data-page-node-id="PSMvXHfgVLdN94bcP6HwkM">--text-primary</td><td class="num" data-page-node-id="VAf6KdHXUfKKoG29VJrO2A">oklch(0.200 0.013 55)</td><td class="num" data-page-node-id="GprEgewFGcI0JdQEoP2IEF">oklch(0.945 0.010 75)</td></tr>
+            <tr data-page-node-id="CmJHFRCs1Y2YpJKNbR9rgE"><td data-page-node-id="v88BQ9gSeqplrntxmgeIPF">--text-secondary</td><td class="num" data-page-node-id="k3jfkBewRXPuCVEnEWQyJ5">oklch(0.420 0.015 60)</td><td class="num" data-page-node-id="VmGFCFmoCtPEzlv7JizSS8">oklch(0.775 0.012 70)</td></tr>
+            <tr data-page-node-id="qBseGvxVnAn70VWIh6Vzjg"><td data-page-node-id="t7Snsw37A4I1v0JmH4MfGL">--text-tertiary</td><td class="num" data-page-node-id="HYe0byHYak3Y62EQBOiz8T">oklch(0.480 0.014 60)</td><td class="num" data-page-node-id="Iw2a09silI3SP48tEEES4W">oklch(0.655 0.014 65)</td></tr>
+            <tr data-page-node-id="BvFODv7OzYe0cywYysFoHv"><td data-page-node-id="lTfowFVf4Jsa4RH0Rn37UZ">--accent</td><td class="num" data-page-node-id="brsOZTLAoJBotuGkfPS8vi">oklch(0.450 0.085 248)</td><td class="num" data-page-node-id="19cHouvYKnGOQpGTVYsSeh">oklch(0.745 0.100 248)</td></tr>
+            <tr data-page-node-id="XrYuePIEFFz5SLT65gvUD7"><td data-page-node-id="j6z1nendKGBiafMUaWfLFk">--live</td><td class="num" data-page-node-id="GGn2jMs5nXjKFjlP5E6pGr">oklch(0.550 0.170 42)</td><td class="num" data-page-node-id="Sy20tC2nbsN93cfgMas587">oklch(0.755 0.150 48)</td></tr>
+            <tr data-page-node-id="4Cx2WgdzNREh6NTkjIIeNP"><td data-page-node-id="TAsFgcJarLBtWZLu2G8Q8n">--success</td><td class="num" data-page-node-id="vq1mhr4OQANjGUxZBrXABJ">oklch(0.470 0.100 165)</td><td class="num" data-page-node-id="YfqY4A2E7U1Mnf4Y0Jnkck">oklch(0.720 0.110 165)</td></tr>
+            <tr data-page-node-id="IFBtMAOyU2lZWCpJ9W3JHI"><td data-page-node-id="hYoJQtPhzLZITHrZc3g3HV">--warning</td><td class="num" data-page-node-id="l9so2B361eZO1mblqnvLay">oklch(0.580 0.130 72)</td><td class="num" data-page-node-id="wgilsjt4JFoGBOH2fEzX4o">oklch(0.800 0.130 78)</td></tr>
+            <tr data-page-node-id="dokWDONFLgOP49mCfImvW5"><td data-page-node-id="5EXcHEO5VUZukOTyICLfz1">--danger</td><td class="num" data-page-node-id="UHYqYnllA0laOiDRC9smSN">oklch(0.480 0.170 15)</td><td class="num" data-page-node-id="ROBARCZXXtRKyerngQzbxA">oklch(0.680 0.160 25)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note" data-page-node-id="zooZTgt2IwY8Z17icRjNik">
+        <p data-page-node-id="HWHASV0JaVWGBC84wlXmhk"><strong data-page-node-id="UfPVfJHNE19jqOhhTCLhh5">图形色与文字色是两套令牌。</strong>
+        WCAG 对图形要求 3:1、对正文要求 4.5:1。朱砂在浅色主题下作为色块是 <code data-page-node-id="Q0E8S2hh37JjDPNuns3doN">--live</code>（0.55），
+        直接当文字用则不足 4.5:1，因此额外提供 <code data-page-node-id="uUUxyxSEwDyZL9mCcK0FHS">--live-text</code>（0.47）。成功、警告同理。
+        组件里凡是「有色文字」一律引用 <code data-page-node-id="bC3XkMoJDoDJ5kyDFbXj82">*-text</code> 变体。</p>
+      </div>
+
+      <h3 data-page-node-id="HK3hUqCZfdQAHVnhDkBWQz">对比度实测</h3>
+      <div class="card card--flush" data-page-node-id="ihrXC2Hh5Vz8b77C3gXZpL">
+        <table class="table" data-page-node-id="ooAvYHzQMZKVB7R8DD5Vvg">
+          <thead data-page-node-id="KJKrADbcbSfZUDfUR3ZZTU"><tr data-page-node-id="RU9aAbi1H0UtQpQi4FZUAq"><th data-page-node-id="MldCOsSGcXDc7wjp1PgDFq">前景 / 背景</th><th style="width:110px" data-page-node-id="7wfhwBz3MeFNROsxszWmzs">浅色</th><th style="width:110px" data-page-node-id="vq0rKzFv7MTEz9916ZsM8h">深色</th><th style="width:150px" data-page-node-id="Ih65CtzmRimHpbemBAnDxf">AA 要求</th></tr></thead>
+          <tbody data-page-node-id="eFDGY8L2V3K93My5ey8W7Y">
+            <tr data-page-node-id="qgSt5KNgQJWFJz89awa4FQ"><td data-page-node-id="e6FvrpWABICswdAWWmKTMs">正文 text-primary / canvas</td><td class="num" data-page-node-id="YNfZrAXNgnziTpoUTImhQv">≈13.0:1 <span class="pass" data-page-node-id="C9lsOjE0W2W0YqHaN5tsQf">通过</span></td><td class="num" data-page-node-id="ktmc8YaIta2EjcR61Ux1dL">≈12.7:1 <span class="pass" data-page-node-id="dvwDGzKH2PHPikGoB8zuwm">通过</span></td><td class="num" data-page-node-id="SPr3CHk6ErisYV2LGuolen">4.5:1</td></tr>
+            <tr data-page-node-id="ySmgQQ9B6gIYftIW9zgIC5"><td data-page-node-id="TVzQADDhEyPtfPswLG8DL1">次级 text-secondary / canvas</td><td class="num" data-page-node-id="UnaNY0uwB2coUIASnc5UK7">≈5.6:1 <span class="pass" data-page-node-id="WuOzEZwXwH1LfgkX9ydH0O">通过</span></td><td class="num" data-page-node-id="iqAlvC9cLW7av1rIXL80JB">≈8.0:1 <span class="pass" data-page-node-id="glkDwdGpmIo3DlWQPvblOm">通过</span></td><td class="num" data-page-node-id="MpdY10enJZPtIDBgURhuM4">4.5:1</td></tr>
+            <tr data-page-node-id="vgZ8Dpf21oypc7i5bUG1zt"><td data-page-node-id="LLlSG9cWuCDVT9SD6DwFmi">三级 text-tertiary / canvas</td><td class="num" data-page-node-id="wZzvrEbYXPGBOQMvy7FmMG">≈4.5:1 <span class="pass" data-page-node-id="CoVEfQNW2CRxTBPkajnoPq">通过</span></td><td class="num" data-page-node-id="epyjF0M62KDmQacNXwTm6q">≈5.5:1 <span class="pass" data-page-node-id="ZFEXGDQWMvorj4jrc6OGZz">通过</span></td><td class="num" data-page-node-id="eOhX80CiN5Vn1yh7wCDSbs">4.5:1</td></tr>
+            <tr data-page-node-id="74twzUTeqcr5QwSFolw4AG"><td data-page-node-id="IMZI710nDpxsvrnPXNO7GQ">占位符（复用 tertiary）</td><td class="num" data-page-node-id="AfbfoBA47FDblY6qS2Fn7z">≈4.5:1 <span class="pass" data-page-node-id="QTTboZPu5oXiUNifd6wveA">通过</span></td><td class="num" data-page-node-id="BEvRp32VHgfAr3C9QZD6Jg">≈5.5:1 <span class="pass" data-page-node-id="M4LnWvnrHnbyF7UKbBn2cl">通过</span></td><td class="num" data-page-node-id="NOVnGzOs2rRuewB7yUvQ1M">4.5:1</td></tr>
+            <tr data-page-node-id="QHcvCKaXtmkWRYwlmGou9Q"><td data-page-node-id="0cGyvnaycRJ6OPCxfIBuE7">主按钮文字 on-accent / accent</td><td class="num" data-page-node-id="eVmtcu0BM6PXQTPlj8dMgQ">≈5.2:1 <span class="pass" data-page-node-id="cVeSFHs9atEoD4MFPpkOHx">通过</span></td><td class="num" data-page-node-id="Bf8Xkqa9DzYuYmOyjihZYc">≈7.4:1 <span class="pass" data-page-node-id="7JjADEETUsYG22JlLZYcQp">通过</span></td><td class="num" data-page-node-id="Sh4gjszx22QFSoLGAA7tBF">4.5:1</td></tr>
+            <tr data-page-node-id="Q239xzKclSNt4Yuqg3ZSRf"><td data-page-node-id="edSJzstaN3zAGieJL42Gxh">信号文字 live-text / canvas</td><td class="num" data-page-node-id="vECCqPgOyyMemNLCn9PGZt">≈5.2:1 <span class="pass" data-page-node-id="Gu0COSs2DkBk6hcP1WjIWz">通过</span></td><td class="num" data-page-node-id="eQodfGFBJftXXiP5sDwkQf">≈7.5:1 <span class="pass" data-page-node-id="qSnYLl2t2lceZscgG4VSSy">通过</span></td><td class="num" data-page-node-id="syzbQkUAJ6qEKkssokCsAY">4.5:1</td></tr>
+            <tr data-page-node-id="YokiUPGfdknjZIH5xCP1Gm"><td data-page-node-id="70tff8hbcBcU1MjzkBeIGu">失败文字 danger-text / canvas</td><td class="num" data-page-node-id="qXLG3Gt3MH2uZABHBnyJ7G">≈5.2:1 <span class="pass" data-page-node-id="B0s8SAsa8lXGPjzFGxl1DA">通过</span></td><td class="num" data-page-node-id="ItxMr5k8xPX6arjxDhiq0Y">≈7.2:1 <span class="pass" data-page-node-id="fNoxCApAqtNuJ9SdLlGYGS">通过</span></td><td class="num" data-page-node-id="vJboaFn02YWoiK5WcsnE04">4.5:1</td></tr>
+            <tr data-page-node-id="c4hkmBjIP4Q7ShrAHwmYw6"><td data-page-node-id="ijxxteklz8sgOBBseD2SEM">徽章文字 / 同色浅底</td><td class="num" data-page-node-id="sIzGlbmtea5eLke3mssrJO">≈4.9:1 <span class="pass" data-page-node-id="ncLVnyUWPjauk9iChL3H7t">通过</span></td><td class="num" data-page-node-id="NtDyMCV8mnDjGU3g6HFNNE">≈5.0:1 <span class="pass" data-page-node-id="23p2KVLbvdq6py6Zcr87QR">通过</span></td><td class="num" data-page-node-id="NBdbYF5SxZHrDE4vqQa9Ao">4.5:1</td></tr>
+            <tr data-page-node-id="OwnkHPwcPCYvzGnRI5fcYV"><td data-page-node-id="F0rz2c2Hm4izHKqduq1SjR">实心危险按钮白字 / 按钮底</td><td class="num" data-page-node-id="uSWw8eTRGSVa8K7jCGoAQG">≈4.7:1 <span class="pass" data-page-node-id="TDPcvNs3aCXYWia9EHA0bU">通过</span></td><td class="num" data-page-node-id="R0IK5ibowl3AWwpj6RXr9s">≈4.9:1 <span class="pass" data-page-node-id="fdddNtZmLBOevWhjCpbLxi">通过</span></td><td class="num" data-page-node-id="FGsk0BKwJwZuK8PDJqIN9e">4.5:1</td></tr>
+            <tr data-page-node-id="TLiqekENglIAJFsT9s7Xuu"><td data-page-node-id="vR7zHob6TRykAlFskHjaj5">焦点环 accent / canvas</td><td class="num" data-page-node-id="PIo4zTboZKVRr5b2zJEeB1">≈5.1:1 <span class="pass" data-page-node-id="uQJzv3A3swUk5MvItPl9IJ">通过</span></td><td class="num" data-page-node-id="7XwZdCFMe4C9l7ndESWUgO">≈7.3:1 <span class="pass" data-page-node-id="MRgOH4hXUKlIW5mtotqdEY">通过</span></td><td class="num" data-page-node-id="XeDjnOuAKdyrxY8hCsxhik">3:1</td></tr>
+            <tr data-page-node-id="GEmcyllAVphw5EEg7S6QDb"><td data-page-node-id="HKQybUxKeE0FkKswKpsGzx">禁用文字 text-disabled / canvas</td><td class="num" data-page-node-id="2EyYTn6lN5VcaXnFGbxIZX">≈2.3:1 <span class="fail" data-page-node-id="3ep61BpWr0eihEsgkaHXp0">豁免</span></td><td class="num" data-page-node-id="Qbxb3OaRRX3HCTjJhK9vYj">≈3.0:1 <span class="fail" data-page-node-id="b5MCKsxVMygoqDphDSkbSv">豁免</span></td><td class="num" data-page-node-id="34enHPG3pRNIegfhpiI3WV">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="font-size:var(--text-xs); margin-top:var(--space-3)" data-page-node-id="3tajnPgNQ0lm593urtHd9q">
+        数值为按 OKLCH 明度换算的相对亮度估算，用于设计阶段的快速校验；开发实现后应以
+        WebAIM Contrast Checker 对实际渲染值复测一次。禁用态文字属于 WCAG 1.4.3 豁免范围。
+      </p>
+    </section>
+
+    <!-- ================= 排版系统 ================= -->
+    <section class="section" id="type" data-page-node-id="1HKDmGQHwcdfnxHsIHszUb">
+      <div class="eyebrow" data-page-node-id="z7ukqsKMp6QY061doHQGZl">03 · Typography</div>
+      <h2 data-page-node-id="GgCnjBCAc4XfDm94spstq1">排版系统</h2>
+      <p data-page-node-id="PAEbxgRZkzxMQuxO3NnR3F">
+        三个字体族各司其职，不再引入第四个。<strong data-page-node-id="d9zb1izPuPZ1ud8ttcReTX">Newsreader</strong> 衬线体承担标题与纪要，
+        给文档以权威感；<strong data-page-node-id="pdQHOtardBQBz1D4wC8dOz">IBM Plex Sans</strong> 承担界面，带工业仪器的技术性格且不做作；
+        <strong data-page-node-id="BEjqjyhcVFaQxv1vc2KXt8">IBM Plex Mono</strong> 承担一切数字——时间戳、任务 ID、时长、日志。
+      </p>
+
+      <div class="card" style="margin-bottom:var(--space-6)" data-page-node-id="iWyNGTZmGxKXoB7vNIVyXH">
+        <h4 style="margin-top:0" data-page-node-id="1NwWCVtJHjeltsARmXUNVo">字体栈与离线降级</h4>
+        <table class="table" data-page-node-id="YkMTblNii7LrQgDBeXSF6B">
+          <tbody data-page-node-id="taXh9rZGtP5ZmpsLOREcTF">
+            <tr data-page-node-id="85dE6a3mWFl96BMRKti1vz"><td style="width:110px" data-page-node-id="NqlHXemVpxLJpFCb4TYq4n">display</td><td class="num" style="font-size:var(--text-xs)" data-page-node-id="fGbfdWn2zNHooLKVUrVarL">Newsreader → Songti SC → Noto Serif CJK SC → Georgia, serif</td></tr>
+            <tr data-page-node-id="elf574zWqK1hB586YUnZeA"><td data-page-node-id="ANQsXgrJdZH5J1xLc8uEfX">ui</td><td class="num" style="font-size:var(--text-xs)" data-page-node-id="1NSb7H0ec8h1TH7FVsh706">IBM Plex Sans → PingFang SC → Hiragino Sans GB → Microsoft YaHei, sans-serif</td></tr>
+            <tr data-page-node-id="Ft5HQreckIPmfvRWrD2KBd"><td data-page-node-id="HCIqGejkyLMsnrYMGnm2y9">mono</td><td class="num" style="font-size:var(--text-xs)" data-page-node-id="TjZZx4EhkeD72g0n7AmiME">IBM Plex Mono → SF Mono → ui-monospace → Menlo, monospace</td></tr>
+          </tbody>
+        </table>
+        <p style="font-size:var(--text-xs); margin:var(--space-3) 0 0" data-page-node-id="n2fEe3W2yZMf95zfXFMxzm">
+          中文回退依赖系统字体（macOS 上是 PingFang SC / Songti SC），这在局域网离线场景下是刻意选择：
+          不为中文加载数 MB 的 Web 字体。若后续要统一各平台的中文观感，应自托管子集化的
+          思源黑体 / 思源宋体，而不是依赖 CDN。
+        </p>
+      </div>
+
+      <h3 data-page-node-id="dI5dHdEbDT0nHUgVOFAfKH">字号阶梯</h3>
+      <p data-page-node-id="UX1ytdfBatmNqPSGgMFbna">
+        应用界面使用固定 rem 阶梯而非流体 <code data-page-node-id="bJ8KmUi2rfmKTLyopjrCuG">clamp()</code>——固定阶梯给容器布局可预测的空间，
+        这也是 Material、Polaris、Carbon 等主流设计系统的做法。界面基准 14px，阅读正文 16px。
+      </p>
+      <div class="card" data-page-node-id="kcBMBfyHomuBhHQprMgpTY">
+        <div class="type-spec" data-page-node-id="mQKMwzG2cjBsJBwcgq63UJ">
+          <div class="type-row" data-page-node-id="8WkdBiYNFSpsW5TmoaVNiL">
+            <div class="type-row__meta" data-page-node-id="mND2TRMA4xB7AAfIP3oofU">--text-3xl<br data-page-node-id="EUCmZS93P72bvZmfO7BWZg">36px / 1.2</div>
+            <div style="font-family:var(--font-display); font-size:var(--text-3xl); line-height:var(--lh-tight)" data-page-node-id="PlBPJ42CEuLei0LdCGDgg0">会议纪要</div>
+          </div>
+          <div class="type-row" data-page-node-id="1WFK8utx3TpeFO9E4G0I08">
+            <div class="type-row__meta" data-page-node-id="TlDHDAkPgctsdUSWd250Bl">--text-2xl<br data-page-node-id="tPYiZhW7n4s0KwQO4th9GW">28px / 1.2</div>
+            <div style="font-family:var(--font-display); font-size:var(--text-2xl); line-height:var(--lh-tight)" data-page-node-id="2BahgFeoJ3pT4QPqv724ga">产品评审会 · 2026-09-10</div>
+          </div>
+          <div class="type-row" data-page-node-id="fTvMou6g3Xag5TmPMSTwmq">
+            <div class="type-row__meta" data-page-node-id="Le5sTrvglnaaHtdPG2CFEp">--text-xl<br data-page-node-id="DmDM8E2dMOojUf3ccpallR">22px / 1.2</div>
+            <div style="font-family:var(--font-display); font-size:var(--text-xl); line-height:var(--lh-tight)" data-page-node-id="IO5fijOm46Vak0iYrnrc6G">行动项与负责人</div>
+          </div>
+          <div class="type-row" data-page-node-id="h1WEDaHkdW5rxpGUvaa9XK">
+            <div class="type-row__meta" data-page-node-id="yhVnGY2WbmObGDmRqMokvo">--text-lg<br data-page-node-id="4f2hSo6lQ2G80GnDFDbs2x">18px / 1.35</div>
+            <div style="font-size:var(--text-lg); font-weight:600; line-height:var(--lh-snug)" data-page-node-id="bAIx1BkgopxIfjqtchiMhV">片段 12 · 说话人确认</div>
+          </div>
+          <div class="type-row" data-page-node-id="6BE5iOG4BfGfhKsDDY1PBd">
+            <div class="type-row__meta" data-page-node-id="TuafiTuBK2esTNkEj1ytuE">--text-read<br data-page-node-id="GuW1HxGFkgXUFIX2tMxxEG">16px / 1.7</div>
+            <div style="font-size:var(--text-read); line-height:var(--lh-relaxed)" data-page-node-id="sA0Ku1JmPsZECXK945NoXo">逐字稿和纪要正文使用这一档，行高 1.7，单行控制在 65 字符以内。</div>
+          </div>
+          <div class="type-row" data-page-node-id="0dkacZpbCoEHF91OmODFBz">
+            <div class="type-row__meta" data-page-node-id="9JGlACrkm377q5qzZCT5xR">--text-base<br data-page-node-id="ylLjyYlFHjjwH6m3sOHFXe">14px / 1.5</div>
+            <div style="font-size:var(--text-base)" data-page-node-id="ErqczKhtx5Qg7eHSqnkq1o">界面基准字号，用于按钮、表单、列表与导航。</div>
+          </div>
+          <div class="type-row" data-page-node-id="IUYPetWYMUNmKeVtLeUJmP">
+            <div class="type-row__meta" data-page-node-id="FoUMFQEey9Aw37lsXDeCPw">--text-sm<br data-page-node-id="nme24xmVGeKZYj42qqtO5K">13px / 1.5</div>
+            <div style="font-size:var(--text-sm)" data-page-node-id="jlycZW1AmikP99zA7JuMUQ">密集 UI：表格单元、卡片辅助信息、次级按钮。</div>
+          </div>
+          <div class="type-row" data-page-node-id="lJM2mvWGdt82xeELzkEVbZ">
+            <div class="type-row__meta" data-page-node-id="lYNPcIzwqucxzKRkqhkhru">--text-xs<br data-page-node-id="3UJFwzwO0kahZwQk5z5W0o">12px / 1.5</div>
+            <div style="font-size:var(--text-xs)" data-page-node-id="4RkTRmgSGKr2rqWCzKBiUg">元数据：文件名、大小、上传时间。</div>
+          </div>
+          <div class="type-row" data-page-node-id="FpdcCWsWANuiJqN8BxUxxG">
+            <div class="type-row__meta" data-page-node-id="XGdKqZ7cVd4XdQOfQhn1s8">--text-2xs<br data-page-node-id="fYQSTTcXtgK7gxCx4qi12V">11px / 1.5</div>
+            <div style="font-family:var(--font-mono); font-size:var(--text-2xs); text-transform:uppercase; letter-spacing:0.14em" data-page-node-id="JVwg2ibmQdVD7gOxscvTXt">TASK · 阶段标签 · 刻度</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="RnwKzPRxxfG0cyCa4bFr7B">数字必须对齐</h3>
+      <p data-page-node-id="X9g5K5KQKPDV7ZuZWCBqO8">
+        所有表格、时间戳、时长、百分比统一使用等宽体并开启 <code data-page-node-id="3VNuSawoyJ59tLkPzdhrSB">font-variant-numeric: tabular-nums</code>。
+        逐字稿左侧的时间轴在滚动时不能抖动，这是可读性的硬要求。
+      </p>
+      <div class="stage" data-page-node-id="i40oswMzDTBLUVFWqim5Tc">
+        <div class="stage__label" data-page-node-id="VR9ZxYCfzjDJCRzZEwHL2z">等宽 + tabular-nums</div>
+        <div class="mono" style="font-size:var(--text-sm); font-variant-numeric:tabular-nums; line-height:1.9" data-page-node-id="UDQHUHcO7ztlYmejBMrkIb">
+          00:00:04.120<br data-page-node-id="65Ks4GtLnDairJkQkm6abU">00:01:37.480<br data-page-node-id="y0oHJTPpGh3Ic2USGfhAGE">00:12:05.900<br data-page-node-id="IfDt3hNnbiWA5B1dWdmkRu">01:04:22.015
+        </div>
+        <div style="font-size:var(--text-xs); color:var(--text-tertiary); max-width:28ch" data-page-node-id="eQZbxfyQESz05It8fUy4d3">
+          等宽体的每个数字占同样宽度，时间轴左对齐后小数点自然成列。
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 空间与层次 ================= -->
+    <section class="section" id="space" data-page-node-id="540MsgeBzlP1hcF1CVs1UU">
+      <div class="eyebrow" data-page-node-id="tGYlUxw96CsGHv72Mpa3RV">04 · Space &amp; Elevation</div>
+      <h2 data-page-node-id="IfvCMYljjgG3NLyiVAYQWC">空间与层次</h2>
+      <p data-page-node-id="kB2SzgVTKXx9hFVkMZDQCR">
+        间距基于 4px 基准，但<strong data-page-node-id="9sIB4aGykWXe9GdUxx5oUr">有节奏地跳档</strong>：组件内部用 4/8/12，组件之间用 16/24，
+        区块之间用 32/48/64。避免所有间距都是 16px 的均匀感——那会让界面失去呼吸的层次。
+      </p>
+
+      <div class="card" data-page-node-id="TzPbDzVx3flaA1lf9cJagE">
+        <div class="space-row" data-page-node-id="YalOYpcBgHWP0dgRLrg3BL"><span class="space-row__label" data-page-node-id="h3fGfyytdNwBOHSRnJGZPY">--space-1 · 4</span><div class="space-row__bar" style="width:4px" data-page-node-id="xofW0IXWFpy2bke453td5E"></div></div>
+        <div class="space-row" data-page-node-id="GxZHQj7nECUFX9s8SMRfOr"><span class="space-row__label" data-page-node-id="CuZ5tKeRaG7cgOR63RHha0">--space-2 · 8</span><div class="space-row__bar" style="width:8px" data-page-node-id="iV4fCUEzhu9xUyPzKvcwjC"></div></div>
+        <div class="space-row" data-page-node-id="qPVeNJAB5cGDu28LDsaRPU"><span class="space-row__label" data-page-node-id="19CW6qj7BNAH0gdbibGFxV">--space-3 · 12</span><div class="space-row__bar" style="width:12px" data-page-node-id="eykWWBc8SAxfAkGjNOZPNX"></div></div>
+        <div class="space-row" data-page-node-id="IqOniBdzbmmfr6S1KLi2WJ"><span class="space-row__label" data-page-node-id="dcRfVFeEj8Ju8rzCpEE1Y3">--space-4 · 16</span><div class="space-row__bar" style="width:16px" data-page-node-id="6e69DFLJ7CRtgjlmAQHO9c"></div></div>
+        <div class="space-row" data-page-node-id="793VNU8J2dIWt6DJCW4dfm"><span class="space-row__label" data-page-node-id="j3DMCBwzDnjU1OPVKqSl5u">--space-6 · 24</span><div class="space-row__bar" style="width:24px" data-page-node-id="HDbZojN0cJ1XVEVFmeFIYg"></div></div>
+        <div class="space-row" data-page-node-id="ffMtUySjWk5qd0auEBluvk"><span class="space-row__label" data-page-node-id="DorknRaZE9J16EJ2MpbE9N">--space-8 · 32</span><div class="space-row__bar" style="width:32px" data-page-node-id="p8sTGO2LshCsbF7DcCkkcF"></div></div>
+        <div class="space-row" data-page-node-id="p7rtydLSayAhQBcsIMRlgJ"><span class="space-row__label" data-page-node-id="lUr04aUN3LY6jPoHXEWIj4">--space-12 · 48</span><div class="space-row__bar" style="width:48px" data-page-node-id="vir7yT6piiZCVd4ks0TWEv"></div></div>
+        <div class="space-row" data-page-node-id="mEhEcBZZk1uFHDgLWBHxi3"><span class="space-row__label" data-page-node-id="5aCADcE3J3F44DnARQboEo">--space-16 · 64</span><div class="space-row__bar" style="width:64px" data-page-node-id="DZqcQC1DNlgpXhpMMwHm71"></div></div>
+      </div>
+
+      <h3 data-page-node-id="awvHoaq1HgqYJgqzjx4HxE">圆角收紧</h3>
+      <p data-page-node-id="1U3poEsf0SaStciw9Ccftn">
+        圆角最大只到 14px，刻意避开「全站 16px 圆角 + 通用投影」的气泡感。
+        越小的元素用越小的圆角，保持仪器面板的精密观感。
+      </p>
+      <div class="grid grid--4" data-page-node-id="eGrz3APBJDiUHyZVG2AQxL">
+        <div class="card" style="text-align:center" data-page-node-id="7fxD4yXBzGEJ2V4udLL8Yt"><div style="height:44px; background:var(--accent-soft); border:1px solid var(--accent-soft-border); border-radius:var(--radius-xs); margin-bottom:var(--space-2)" data-page-node-id="zcesw5pZaecyb8HO7uDgTb"></div><span class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="WL0YqJyxwQW94lSWWzoav2">xs · 3px</span></div>
+        <div class="card" style="text-align:center" data-page-node-id="laKH2Iw63EaoHg2n4vQ544"><div style="height:44px; background:var(--accent-soft); border:1px solid var(--accent-soft-border); border-radius:var(--radius-sm); margin-bottom:var(--space-2)" data-page-node-id="5bpFPrN4T5sHRd3nM2caJW"></div><span class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="ATNTfeZtNaoAbRC5hrtOIi">sm · 5px</span></div>
+        <div class="card" style="text-align:center" data-page-node-id="lHR1WKla8Xridff55qweTo"><div style="height:44px; background:var(--accent-soft); border:1px solid var(--accent-soft-border); border-radius:var(--radius-md); margin-bottom:var(--space-2)" data-page-node-id="8GT2E1B4YQHToiqNMAQ67y"></div><span class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="pG0BSYcCCrJ9hTgkHqOBMa">md · 7px</span></div>
+        <div class="card" style="text-align:center" data-page-node-id="TNlC0EVwnIzud1uGA4VnO3"><div style="height:44px; background:var(--accent-soft); border:1px solid var(--accent-soft-border); border-radius:var(--radius-lg); margin-bottom:var(--space-2)" data-page-node-id="CnGvwhInh0WNVJWumNlsbu"></div><span class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="wdzFbIdS5lUhR98NuLCmvx">lg · 10px</span></div>
+        <div class="card" style="text-align:center" data-page-node-id="EMOaRdBAXH2a4E4rS7WdgU"><div style="height:44px; background:var(--accent-soft); border:1px solid var(--accent-soft-border); border-radius:var(--radius-xl); margin-bottom:var(--space-2)" data-page-node-id="Vvk4SaaR0hPKSNw9W79lzA"></div><span class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="szrAH9PUjHF2nfjWORsnPe">xl · 14px</span></div>
+      </div>
+
+      <h3 data-page-node-id="VXCWy9AuD70b5xV7IYActj">层次不用阴影堆叠</h3>
+      <p data-page-node-id="26NMSknjCupDMMTcjaol0e">
+        浅色主题用极轻的阴影配合 1px 边框表达抬升；深色主题<strong data-page-node-id="ByC9JQdfo30OX2DgCkTUGD">不用阴影</strong>，
+        改用更亮的表面色表达层级——这是深色模式的设计常识，直接反相会得到一团糊。
+      </p>
+      <div class="grid grid--3" data-page-node-id="ADywJNmMBGafChNJekG5sf">
+        <div class="card" style="box-shadow:var(--shadow-sm)" data-page-node-id="VEJrJR7VjmC3Yw2V86AMQB"><h4 style="margin-top:0" data-page-node-id="XdBVGf0KSlJql6gNbUJiGp">shadow-sm</h4><p style="font-size:var(--text-xs); margin:0" data-page-node-id="I0Vo9BxTGyeBgq1DpybAyn">静态卡片、内联容器</p></div>
+        <div class="card" style="box-shadow:var(--shadow-md)" data-page-node-id="bUOpQwcEH97iDPYLR6un5n"><h4 style="margin-top:0" data-page-node-id="Ef1AofOYKAzjbu6vDl2QFQ">shadow-md</h4><p style="font-size:var(--text-xs); margin:0" data-page-node-id="Jar6GJYD1bWAtmoYpaJfdG">悬浮卡片、下拉菜单、Toast</p></div>
+        <div class="card" style="box-shadow:var(--shadow-lg)" data-page-node-id="BgZ8YVndTOgdJ3ZlrPXnD4"><h4 style="margin-top:0" data-page-node-id="RRqAkh2vOoqZiWomZHMgAf">shadow-lg</h4><p style="font-size:var(--text-xs); margin:0" data-page-node-id="Brbi594ifxsoSfxd3OIPTd">模态框、抽屉、命令面板</p></div>
+      </div>
+    </section>
+
+    <!-- ================= 动效系统 ================= -->
+    <section class="section" id="motion" data-page-node-id="UOJNOHQ1asDjRSvlyxKXQq">
+      <div class="eyebrow" data-page-node-id="2JcP5q1AK2uUxAGxKk1u63">05 · Motion</div>
+      <h2 data-page-node-id="XdbH7ByVBHvSky6SruXuBc">动效系统</h2>
+      <p data-page-node-id="7SvqGoqRvUGAAKb8syPDr3">
+        动效只用来解释状态变化，不用来表演。缓动统一使用指数型 ease-out
+        （<code data-page-node-id="md2zU78vYORi6pEh9XEeZs">cubic-bezier(0.16, 1, 0.3, 1)</code>）——起步快、收尾稳，符合物理直觉。
+        禁止使用回弹 / 弹性缓动，那会让一个专业工具显得轻浮。
+      </p>
+      <div class="card card--flush" data-page-node-id="mAMOPfspSD0RTeB7Ep1Mng">
+        <table class="table" data-page-node-id="xO4Deob5GarV6DpXBkCe0a">
+          <thead data-page-node-id="nhCBRvDEDhTro8moq30cJ3"><tr data-page-node-id="qDQPheDXr1sPfBmukgvqfA"><th data-page-node-id="QemYM1cd0qp6dqfMYAVgx3">时长令牌</th><th style="width:100px" data-page-node-id="AV2fIL1VoBDvxyFFZlpNNT">数值</th><th data-page-node-id="CE5IIbfMPjpBJ1piiqyI48">用途</th></tr></thead>
+          <tbody data-page-node-id="2wG7LGUBzcLlcENxommTu5">
+            <tr data-page-node-id="TRIqmwWsr9aq1LGqGXyKHF"><td data-page-node-id="SBJf1Guxa6e1AP2UorleOg">--dur-instant</td><td class="num" data-page-node-id="7ESFf4GeNFw4WGGlvtrpUK">90ms</td><td data-page-node-id="ZcPsrhnKEkAWCvZ6A3beOt">按下反馈、开关切换、颜色变化</td></tr>
+            <tr data-page-node-id="VFPYKWvxzuPo8cxcmqDm4E"><td data-page-node-id="7AwKGuSz4fUqSsUo1YNSbP">--dur-fast</td><td class="num" data-page-node-id="QvEZZ7l9MEQKBz0CRTjQPv">140ms</td><td data-page-node-id="ZVqHYOBW4FK2HfrgoKSb6E">悬停、聚焦、徽章出现</td></tr>
+            <tr data-page-node-id="jKqvvW3A6h50wgP1CEQvRZ"><td data-page-node-id="sc8F71sno4d57ojfkaMWHQ">--dur-base</td><td class="num" data-page-node-id="X7TqePuURU23sdkFvoUfZY">200ms</td><td data-page-node-id="PIpTImE14WCT6y8CmKAxyR">面板展开、主题切换、标签页</td></tr>
+            <tr data-page-node-id="HvLzTh72OH3AfoGg1kowXJ"><td data-page-node-id="LArp0elhb7aLEKEVb0mXUK">--dur-slow</td><td class="num" data-page-node-id="TiSdsIKrkTIRDwnB2SiDt4">320ms</td><td data-page-node-id="VRxqpBoGE5xqFXYm0liomG">抽屉滑入、进度条推进</td></tr>
+            <tr data-page-node-id="70U1CGkbyYx9DNtw7YDBTD"><td data-page-node-id="s0LZeMUdoPGEpY1XYtPrZ9">--dur-deliberate</td><td class="num" data-page-node-id="IPilPWjGosArAhq8k1slir">480ms</td><td data-page-node-id="zeWx9v8xl9JYHCAn8ZAauG">阶段完成确认、印章落下</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note" data-page-node-id="s7BSjEIDYQMoKECkoMiq34">
+        <p data-page-node-id="jlqx7HOGsS2llfMjTmSSZR"><strong data-page-node-id="YRNgW3MKKn2IFsIUZiyigE">必须尊重 <code data-page-node-id="RuzCHMXJYsgznUS2gfH9kM">prefers-reduced-motion</code>。</strong>
+        系统开启「减少动态效果」时，所有动画降至 0.01ms，仅保留状态切换的最终结果。
+        唯一的例外是「正在处理」的脉动指示——它承载的是「任务还活着」这一关键信息，
+        此时改为静态的实心圆点，而不是继续脉动。</p>
+      </div>
+    </section>
+
+    <!-- ================= 组件库 ================= -->
+    <section class="section" id="components" data-page-node-id="ZMAq68ClL58g6s4OdtgYFl">
+      <div class="eyebrow" data-page-node-id="1SE8ak4Q9cPqUQnwI64iae">06 · Components</div>
+      <h2 data-page-node-id="P7d3BWKd3PFdh9u3Pwom5O">组件库</h2>
+      <p data-page-node-id="DrKXGOQTa4f6h3R5dJKKTK">每个组件展示全部交互状态。开发实现时应保证状态不缺失——缺少 focus 或 disabled 态的组件等于没有完成。</p>
+
+      <h3 data-page-node-id="UvvYEtKtr8JZpPHFNGbD26">按钮</h3>
+      <div class="stage" data-page-node-id="nKKl4UYxjsyvIGl1K4ipKI">
+        <div class="stage__label" data-page-node-id="8Kxs9a0KcxqehCOE24KUee">变体</div>
+        <button class="btn btn--primary" data-page-node-id="1IzkEKJFVCdFutpPqANkh0">生成纪要</button>
+        <button class="btn btn--secondary" data-page-node-id="d39EpMtd1BENTfkzgnlP5r">选择文件</button>
+        <button class="btn btn--ghost" data-page-node-id="OzxYgvGGTiYK36vSXTvVqn">取消</button>
+        <button class="btn btn--danger" data-page-node-id="FDvUBCK9Khx6jcI6CMV0mw">停止训练</button>
+      </div>
+      <div class="stage" style="margin-top:var(--space-3)" data-page-node-id="nov2gLCGcsPDypFkfvaGsz">
+        <div class="stage__label" data-page-node-id="QkLFMvhV21AVPTRX8N7dDW">尺寸 · 状态</div>
+        <button class="btn btn--primary btn--sm" data-page-node-id="YN8et0wuDuFfUsF5cNJFNF">小</button>
+        <button class="btn btn--primary" data-page-node-id="7G4F9Rgtmr2OPY0xevGgCc">中</button>
+        <button class="btn btn--primary btn--lg" data-page-node-id="FNxXtQwaiwGaJ9JITCs2TY">大</button>
+        <button class="btn btn--primary" disabled data-page-node-id="IU4Smwd0TqRwKAIGdTbWGB">禁用</button>
+        <button class="btn btn--primary" data-page-node-id="4Tgv4DK9CWpFTS3ZYB0QqL"><span class="btn__spinner" data-page-node-id="x4Tyzx7RX89LxFvEsZgbur"></span>处理中</button>
+        <button class="btn btn--secondary btn--sm" aria-pressed="true" style="border-color:var(--accent); background:var(--accent-soft); color:var(--accent-text)" data-page-node-id="TestfLAuHDITtl9ghAynkP">已选中</button>
+      </div>
+      <div class="note" data-page-node-id="KZfyJpM8kGTT6eHRgXlpW2">
+        <p data-page-node-id="5YMFsIEOmo8QHJEuKn9Sbq">一屏之内<strong data-page-node-id="DZLl1xywtPWBwx95dGOBHN">最多一个主按钮</strong>。任务详情页里主按钮是「生成纪要」，
+        那么「重试」「查看日志」都必须是次级或幽灵按钮——主按钮的唯一性本身就是信息层级。</p>
+      </div>
+
+      <h3 data-page-node-id="JNnhjj6QhuaGohBXujiw6j">状态徽章</h3>
+      <p data-page-node-id="VzsQ70A2DRvzxmC0kcN8kb">徽章同时用颜色、圆点动效和文字三重编码。色盲用户依靠文字仍能完整理解状态。</p>
+      <div class="stage" data-page-node-id="eLEHfpwBDQW1iKMmYfEsl2">
+        <div class="stage__label" data-page-node-id="mET8CPLnSPulrPg3VFmPpI">实时会话状态</div>
+        <span class="badge badge--neutral" data-page-node-id="RpIPDtwxpVFplEbV4BVEFN"><span class="badge__dot" data-page-node-id="BauQJJSMiE39p0CP4OhKC0"></span>待机</span>
+        <span class="badge badge--warning" data-page-node-id="HdOrdQ8P7MXJuxH9giGD90"><span class="badge__dot" data-page-node-id="bf9nndchOvQeRiahDqrJpA"></span>连接中</span>
+        <span class="badge badge--live" data-page-node-id="G8j7CeQaaHD5riYl62zAyv"><span class="badge__dot" data-page-node-id="iNxeRF8k2xrVC5PCXxfrJd"></span>聆听中</span>
+        <span class="badge badge--accent" data-page-node-id="pZgPzZbHs9ro5hKv0gzzXy"><span class="badge__dot" data-page-node-id="GhNe83xndV1HdJDhKBAEls"></span>思考中</span>
+        <span class="badge badge--accent" data-page-node-id="98J5J7jJJyaDQnBekr4F7u"><span class="badge__dot" data-page-node-id="Pc1SDQN0SHtnAsnj1j16sy"></span>播报中</span>
+      </div>
+      <div class="stage" style="margin-top:var(--space-3)" data-page-node-id="L6CQ4SD62IYI27AvVHgUqy">
+        <div class="stage__label" data-page-node-id="3uYJFaQUH3fUFyJLWJaNqo">任务与审核状态</div>
+        <span class="badge badge--neutral" data-page-node-id="xHjAKYOgHDGU3yTGPpSURF">已排队</span>
+        <span class="badge badge--accent" data-page-node-id="gTSExEQPvQMLlTCsVoyXBy"><span class="badge__dot" data-page-node-id="OqLgfsTjNleqhswIu2O6xy"></span>处理中</span>
+        <span class="badge badge--success" data-page-node-id="ahjLkM0kcbgTVXEZAbfTIW">已完成</span>
+        <span class="badge badge--danger" data-page-node-id="L6tKNYHHThrkNMFpJt1uxZ">失败</span>
+        <span class="badge badge--warning" data-page-node-id="xdpkQqSiWuZ5M7ifvmqpZU">待审核</span>
+        <span class="badge badge--success" data-page-node-id="YwLWol0GckwpinhWrtiVyw">已批准</span>
+        <span class="badge badge--neutral" data-page-node-id="nyB6EzPQrMBJIKQllYHMdA">内置只读</span>
+      </div>
+
+      <h3 data-page-node-id="UEYUgpKg77vyw7q5rB6jNW">表单</h3>
+      <div class="stage stage--grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))" data-page-node-id="ghj92g7kXgY1TgZqjVidcx">
+        <div class="field" data-page-node-id="Fw1zXxcLYBxJccaaRVOVOn">
+          <label class="field__label" for="d1" data-page-node-id="MzXSH2uqFfzEKvIthvrsGm">会议主题</label>
+          <input class="input" id="d1" placeholder="例如：Q3 产品评审" data-page-node-id="I9ejfUw0cw91KPUkFwkQny">
+          <span class="field__hint" data-page-node-id="EY5HSORsH2FC7cruZMVCSw">留空时由模型根据内容推断</span>
+        </div>
+        <div class="field" data-page-node-id="B21sWNYYQ0zMAAah1IRWUv">
+          <label class="field__label" for="d2" data-page-node-id="w5XIMS1incwsVT2ndAR5Gn">LLM 服务地址</label>
+          <input class="input input--mono" id="d2" value="http://192.168.3.18:8000/v1" data-page-node-id="IRLLgis6LAHZbTSD6vGuJd">
+          <span class="field__hint" data-page-node-id="QVVXZh3SXsJG32EO63IAGT">OpenAI 兼容接口</span>
+        </div>
+        <div class="field" data-page-node-id="nIPIcZUpO2Lc6WAa78EBFN">
+          <label class="field__label" for="d3" data-page-node-id="yS0K9jHvmSBovkFXkIdndA">API Key</label>
+          <input class="input input--mono" id="d3" value="••••••••••••" disabled data-page-node-id="owFDufMl3aHH4MbIDeqVnS">
+          <span class="field__hint" data-page-node-id="P0YkPn1TJp4igKknDFMlR5">已配置 · 留空则不覆盖</span>
+        </div>
+        <div class="field" data-page-node-id="0ArGHgtB1Nee93UaV9WTlG">
+          <label class="field__label" for="d4" data-page-node-id="nMARWBTAOhYqGvBGiBzbW1">切片时长（秒）</label>
+          <input class="input input--mono input--invalid" id="d4" value="0" aria-invalid="true" data-page-node-id="0USrpihNPfxQ5mIPmwdXrG">
+          <span class="field__error" data-page-node-id="givS2SawbtCATPhdpEHZqu">◆ 必须大于 0</span>
+        </div>
+        <div class="field" data-page-node-id="6vUMF76F5p8gyQAv1Zu83G">
+          <label class="field__label" for="d5" data-page-node-id="RIgW2tLAo9MKObvpgjBvDs">提示词模板</label>
+          <select class="select" id="d5" data-page-node-id="hK8NBElsSDJwFUlL6LB68E">
+            <option data-page-node-id="NJLIRS0wFVcGadcITVHoaE">标准纪要（内置）</option>
+            <option data-page-node-id="pWQ4xxV9GvhWK5zTdRliyG">决策追踪（内置）</option>
+            <option data-page-node-id="s3SHKG3nnJkhTlpmuA2Afq">精简纪要（内置）</option>
+          </select>
+        </div>
+        <div class="field" data-page-node-id="Yd6zMAEd0UARjtYsaTC6rb">
+          <span class="field__label" data-page-node-id="CSG7Xe6b3Y0CxV8gGnO6Nz">开启流式纠错</span>
+          <button class="switch" role="switch" aria-checked="true" aria-label="开启流式纠错" data-page-node-id="JuYb5LCUOCihCtDEkRVRoj"></button>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="Ak0YezWyc5Kn8E4Ju4LM0n">阶段进度</h3>
+      <p data-page-node-id="vDy3ZxYfkmuiJckiZpW42E">会议任务的六段流程必须逐段可见。用户离开十分钟回来，第一眼就能定位到当前阶段。</p>
+      <div class="grid grid--2" data-page-node-id="56biMs0fsrZmBxwRHAKZ9z">
+        <div class="card" data-page-node-id="Pk4ZUQCKzXEwCKhTWd1qqJ">
+          <div class="steps" data-page-node-id="X78tEayklfqW2TqrlOhIKv">
+            <div class="step step--done" data-page-node-id="4ia24meZUcFBbUsrQy5HC2"><span class="step__mark" data-page-node-id="3JXM4i7e6kG1c22yoqSrJt">✓</span><div data-page-node-id="EpoPJKVrcj4PRNDb3OOtAL"><div class="step__name" data-page-node-id="ERLSjHh8YMGHERG2lTiINI">语音活动检测</div></div><span class="step__time" data-page-node-id="IGndzg1h0s4tLP5IxzjaCq">2.1s</span></div>
+            <div class="step step--done" data-page-node-id="vSJIdR61PumD19p6x1H5YB"><span class="step__mark" data-page-node-id="xa7ZQJMPWy4bfWJAc22Sxi">✓</span><div data-page-node-id="En2jrZpBJ8IXdqkhCHJPmM"><div class="step__name" data-page-node-id="jPnMRMgBXZb7n0aGXzwezR">ASR 转写</div></div><span class="step__time" data-page-node-id="wySuyk4ObSeGpDsUoqP6dM">48.6s</span></div>
+            <div class="step step--done" data-page-node-id="cYXFfqvyHn23q6k1AV3uvG"><span class="step__mark" data-page-node-id="E3dTMbDVYN05GHsCtxCrWv">✓</span><div data-page-node-id="bcHgFYEDmbHEL1SCT2LgEC"><div class="step__name" data-page-node-id="oDBaVmJIaLaqpEJEOBCG4a">标点还原</div></div><span class="step__time" data-page-node-id="MDRf3Ew1V8U3STpfX73Aqh">3.4s</span></div>
+            <div class="step step--active" data-page-node-id="j4LjQDe8Bl3clRrybthcea"><span class="step__mark" data-page-node-id="QvdilRu8LeF5atiJ2Mfmfp">4</span><div data-page-node-id="kAzGgYYVkQbXeD1I5A2quT"><div class="step__name" data-page-node-id="ClVDzhLIlUthrWiEHnSltE">说话人分离</div></div><span class="step__time" data-page-node-id="08xw0SQgvsfCDMf3DKWtkG">进行中</span></div>
+            <div class="step step--pending" data-page-node-id="Yt3ygbFkLH2d2iFIjGmb88"><span class="step__mark" data-page-node-id="cb3m7zjerHaTsF3e8W5hz2">5</span><div data-page-node-id="PEINZuLIacFh4mkXpXglYg"><div class="step__name" data-page-node-id="fXmpNF0zRpHIbOmKfzzCuI">确定性纠错</div></div><span class="step__time" data-page-node-id="yXxheBS8H9mTvsLnAYxjRb">等待</span></div>
+            <div class="step step--pending" data-page-node-id="3P1CT4Xo4bFS2SHtUzyK4p"><span class="step__mark" data-page-node-id="ixJikbAKEQV55ZFwykOr7G">6</span><div data-page-node-id="c62JdqbpDidDPcTVUSOz3q"><div class="step__name" data-page-node-id="NkRiOz9ppDQsM7BkxuAAc9">分段纪要生成</div></div><span class="step__time" data-page-node-id="AXwo5qLZkmDL1HxV01ZyDl">等待</span></div>
+          </div>
+        </div>
+        <div class="card" data-page-node-id="Hq0p7EsetSnpZUd4Uqs3cS">
+          <h4 style="margin-top:0" data-page-node-id="a14fZcEXFakT20CTvjqi7l">整体进度条</h4>
+          <div class="progress" style="margin-bottom:var(--space-3)" data-page-node-id="fquCrf924g188h2i2Pub2Z"><div class="progress__bar" style="width:62%" data-page-node-id="TUTQPdNCmcSsJkYUiByXRg"></div></div>
+          <p style="font-size:var(--text-xs); margin-bottom:var(--space-6)" data-page-node-id="60oQxTQHFxgBzUHD2hrcR4">已确定进度 · 62%</p>
+          <h4 data-page-node-id="w41Wpr9YWj3YOWwofUwTsT">不确定进度（模型加载中）</h4>
+          <div class="progress" data-page-node-id="jDvbWCE3qivUdaWjVIMC5I"><div class="progress__bar progress__bar--indeterminate" data-page-node-id="hdmacuAjI6dSnt5TUUQYGH"></div></div>
+          <p style="font-size:var(--text-xs); margin:var(--space-3) 0 0" data-page-node-id="vDCLSqpA2RCNK5wA35c9vT">
+            模型首次加载无法预估时长，此时用不确定进度条而不是假的百分比。
+          </p>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="Zhvo2n1xSWUVdo87EIuTUu">反馈：提示条 · 空状态 · 骨架屏</h3>
+      <div class="stage stage--stack" data-page-node-id="Zq3TYLUNQYITb26xEH6tvb">
+        <div class="alert alert--danger" data-page-node-id="Lw1lXN2l98pXO4v1BXyx55">
+          <span data-page-node-id="Z432MAM2xGfkp1xTb2IruV">◆</span>
+          <div class="alert__body" data-page-node-id="IwouGaDMLpajRjg8MftUy6">
+            <div class="alert__title" data-page-node-id="lGuO505BlZYoP1bPwEyy0V">说话人分离阶段失败</div>
+            <div class="alert__desc" data-page-node-id="BxHA6j8GREZlxC7lX6gmdB">声纹模型未加载 · 日志：~/Astra/meetings/task_8f2a/job.log</div>
+            <div style="margin-top:var(--space-3); display:flex; gap:var(--space-2)" data-page-node-id="VK1xghoWxhZczETLrNuVCA">
+              <button class="btn btn--secondary btn--sm" data-page-node-id="bAGf0Fz15R6eTM9kbsMe55">查看日志</button>
+              <button class="btn btn--ghost btn--sm" data-page-node-id="GPIDShuDiZYJwNJe1O7eWM">重试</button>
+            </div>
+          </div>
+        </div>
+        <div class="alert alert--warning" data-page-node-id="dxKBIO18ylGYpAB0nIPoAS">
+          <span data-page-node-id="BDb5xYEBAZ3X4QAvQxGqYH">◆</span>
+          <div class="alert__body" data-page-node-id="w2PzfJes0o2zGXANw6UpIp">
+            <div class="alert__title" data-page-node-id="fQpMj5U7kChuTPxmu2vHf9">3 个声纹待审核</div>
+            <div class="alert__desc" data-page-node-id="lzXtmiQg9HbZtFhp1if5V8">审核通过后才会参与后续会议的说话人匹配</div>
+          </div>
+        </div>
+        <div class="alert alert--success" data-page-node-id="8JrvSd55MfXdSV5O3Axc3G">
+          <span data-page-node-id="khOJkfsbGlCEJSUsjAG7YM">✓</span>
+          <div class="alert__body" data-page-node-id="SiZVW5z28i2ckC9Yj7CcEE">
+            <div class="alert__title" data-page-node-id="di8K6Mk5mraE9ccByNpuCn">配置已保存并立即生效</div>
+            <div class="alert__desc" data-page-node-id="Pocve5F3EgFicHz2NuFka2">新的会议任务将使用更新后的 LLM 配置</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2" style="margin-top:var(--space-4)" data-page-node-id="rKoYB5OWHk8cSeBC0M2RH7">
+        <div class="empty" data-page-node-id="gRaR87wHKuIliDBHrYGRPh">
+          <div class="empty__icon" style="font-size:26px" data-page-node-id="s1BQH0cyNic7q0Kf9CSLbY">◎</div>
+          <div class="empty__title" data-page-node-id="TKxdyAJh7zeJogBt8ExovC">还没有会议任务</div>
+          <div class="empty__desc" data-page-node-id="YKHhwrSqrdx8JQTccu41sd">上传一段会议录音，Astra 会在本机完成转写、说话人分离和纪要生成。</div>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--space-2)" data-page-node-id="k2xXNqpzZ5DMvRbTEsiRXa">上传录音</button>
+        </div>
+        <div class="card" data-page-node-id="FaCiPp2p1EOt8pERerhGJI">
+          <h4 style="margin-top:0" data-page-node-id="xuiaYBwUIFSWxMhVwFb6wk">加载骨架</h4>
+          <div class="skeleton" style="height:12px; width:38%; margin-bottom:var(--space-3)" data-page-node-id="Ye58027pJVZndY8QWoGn4A"></div>
+          <div class="skeleton" style="height:10px; width:100%; margin-bottom:var(--space-2)" data-page-node-id="j7tZgH6I7DZzGkzYqGNv4X"></div>
+          <div class="skeleton" style="height:10px; width:92%; margin-bottom:var(--space-2)" data-page-node-id="AL63R0HsaMYQbWoiYH6zwQ"></div>
+          <div class="skeleton" style="height:10px; width:78%; margin-bottom:var(--space-5)" data-page-node-id="RRBiI8FlQXjBOQsDSnfIwA"></div>
+          <div class="skeleton" style="height:12px; width:30%; margin-bottom:var(--space-3)" data-page-node-id="tylglh1v3yJfpZHQ0TyJAA"></div>
+          <div class="skeleton" style="height:10px; width:100%; margin-bottom:var(--space-2)" data-page-node-id="iL4aCYBnP6Sis4rgx7qAcQ"></div>
+          <div class="skeleton" style="height:10px; width:64%" data-page-node-id="ieXz4AZ82CzQgaqXqDoCYE"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 签名元素 ================= -->
+    <section class="section" id="signature" data-page-node-id="IWofoz6mVTTsCMHsn50MPp">
+      <div class="eyebrow" data-page-node-id="Ese9DCF8eupraGHksE1pND">07 · Signature</div>
+      <h2 data-page-node-id="UlKfUVO8CZ9gJ0ZgKe0XwJ">四个签名元素</h2>
+      <p data-page-node-id="6nmMrSvrPvbAXEBSDgm0PV">
+        这四样东西是这个界面「让人记住」的部分。它们不是装饰，各自解决一个真实的信息表达问题。
+      </p>
+
+      <h3 data-page-node-id="ORAmzouAQLtvo8mLry9dJS">① 声纹罗盘</h3>
+      <p data-page-node-id="J8yKl9Ch5M32TV0Tt50f7a">
+        实时对话页的视觉重心。用同心圆刻度环 + 径向声纹柱表达麦克风状态，而不是一个发光的圆球。
+        刻度环呼应「仪器」，径向柱呼应「声音」。待机时刻度静止、柱体收平；聆听时柱体随音量起伏；
+        思考时刻度环缓慢旋转；播报时柱体反向由内向外推出。
+      </p>
+      <div class="stage" data-page-node-id="o2ATG4OuPS4yPSToSLWA46">
+        <div class="dial-demo" data-page-node-id="Acfbs7fHh3ljkCgsxD0kpR">
+          <svg width="150" height="150" viewBox="0 0 150 150" role="img" aria-label="声纹罗盘 · 聆听中" data-page-node-id="vP9Dw4GcAjzuFAILrzDL89">
+            <circle cx="75" cy="75" r="70" fill="none" stroke="var(--border-subtle)" stroke-width="1" data-page-node-id="hhxEK4PmmXXSaqdsaAFdlq"/>
+            <g stroke="var(--border-default)" stroke-width="1" data-page-node-id="pUAbZAIq8blGcrmRKEhAIK">
+              <line x1="75" y1="5" x2="75" y2="12" data-page-node-id="p7jNKWT8MWqNoDx0hQB74h"/><line x1="75" y1="138" x2="75" y2="145" data-page-node-id="ariioeHgBbuIZwkEpoFVIi"/>
+              <line x1="5" y1="75" x2="12" y2="75" data-page-node-id="05iQ021DLDl6WqCkgVD2p7"/><line x1="138" y1="75" x2="145" y2="75" data-page-node-id="dx6RDNXItElKjY61mFID41"/>
+            </g>
+            <circle cx="75" cy="75" r="52" fill="none" stroke="var(--live-border)" stroke-width="1" stroke-dasharray="2 5" data-page-node-id="qlED1oEDfKdkDoD1QizkaU"/>
+            <!-- 16 根径向声纹柱，内端固定在半径 30，向外生长 -->
+            <g fill="var(--live)" data-page-node-id="Aq9pakboknoZZlR9a9HLVV">
+              <g transform="rotate(0 75 75)" data-page-node-id="0FlAZUoIkGm4nkErzYNexO"><rect x="73" y="36" width="4" height="9" rx="2" opacity="0.55" data-page-node-id="xEZD7Dv4bReGhKKAzizzVC"/></g>
+              <g transform="rotate(22.5 75 75)" data-page-node-id="Hvra6bbhKTJybAobBb6NXO"><rect x="73" y="29" width="4" height="16" rx="2" opacity="0.85" data-page-node-id="dJRTbkJlXKSYdsLHJm1qWE"/></g>
+              <g transform="rotate(45 75 75)" data-page-node-id="jXn5TJsFlgvWn5whhKgSNI"><rect x="73" y="34" width="4" height="11" rx="2" opacity="0.6" data-page-node-id="oCAZoWCWDUKkpitoIjxths"/></g>
+              <g transform="rotate(67.5 75 75)" data-page-node-id="BGPSndm8VvL5YkRfAXlYir"><rect x="73" y="25" width="4" height="20" rx="2" opacity="1" data-page-node-id="lgE0CbIAp1vZ1Vq4EQEYnH"/></g>
+              <g transform="rotate(90 75 75)" data-page-node-id="qOY7ObDlcJTrRT4AMThGiN"><rect x="73" y="32" width="4" height="13" rx="2" opacity="0.7" data-page-node-id="vD52YlyAFhKB1VqwYc8Emn"/></g>
+              <g transform="rotate(112.5 75 75)" data-page-node-id="O2lZdFvvT5TyLqkc9nbJZI"><rect x="73" y="37" width="4" height="8" rx="2" opacity="0.45" data-page-node-id="T8CSxmyDNPjvlJqBTaNG4v"/></g>
+              <g transform="rotate(135 75 75)" data-page-node-id="ylfPnIFeMPB9t8Dvd9SXu2"><rect x="73" y="27" width="4" height="18" rx="2" opacity="0.9" data-page-node-id="g0t4vDcyBg0qStBCG8XGxe"/></g>
+              <g transform="rotate(157.5 75 75)" data-page-node-id="trLZLWTFsF3RzOHCoNfknw"><rect x="73" y="35" width="4" height="10" rx="2" opacity="0.6" data-page-node-id="2VITyazpcz15SE6HWUXYBS"/></g>
+              <g transform="rotate(180 75 75)" data-page-node-id="ro3VDuHNQLGMir5D5gRefp"><rect x="73" y="31" width="4" height="14" rx="2" opacity="0.75" data-page-node-id="SZLJGmFIEJ5SF1cV2zqSrl"/></g>
+              <g transform="rotate(202.5 75 75)" data-page-node-id="w4j7YJxh2FgBTIDNQgq1D4"><rect x="73" y="36" width="4" height="9" rx="2" opacity="0.5" data-page-node-id="L59iGJEbOF3K55DOQdH7kM"/></g>
+              <g transform="rotate(225 75 75)" data-page-node-id="OkvxDskBUVrCDQRgCogsQW"><rect x="73" y="26" width="4" height="19" rx="2" opacity="0.95" data-page-node-id="5Op0AwmKqeA9XbmYLTwn8s"/></g>
+              <g transform="rotate(247.5 75 75)" data-page-node-id="EsqvSxhmh1It1k3HchA8wx"><rect x="73" y="34" width="4" height="11" rx="2" opacity="0.65" data-page-node-id="vvNuFwpw2lWhL1UHBuy3Zr"/></g>
+              <g transform="rotate(270 75 75)" data-page-node-id="mFcXPnBej3UDLvM5kgSnwo"><rect x="73" y="30" width="4" height="15" rx="2" opacity="0.8" data-page-node-id="jaJICm3lYHW59b3ynLXwbd"/></g>
+              <g transform="rotate(292.5 75 75)" data-page-node-id="0XfHHu5NZQsvuK5QE1G9B6"><rect x="73" y="37" width="4" height="8" rx="2" opacity="0.45" data-page-node-id="gvFbvuv18Y3686hliNdgj2"/></g>
+              <g transform="rotate(315 75 75)" data-page-node-id="2NPCn0FD5HzAY0VIwTtCUB"><rect x="73" y="32" width="4" height="13" rx="2" opacity="0.7" data-page-node-id="1pN1URS8xKmJOe7dDPajwh"/></g>
+              <g transform="rotate(337.5 75 75)" data-page-node-id="fGJ5pMUFTszoZJ0BxyBfCu"><rect x="73" y="29" width="4" height="16" rx="2" opacity="0.85" data-page-node-id="E6KdqQPriz32ZukySdjGnK"/></g>
+            </g>
+            <circle cx="75" cy="75" r="25" fill="var(--live-soft)" stroke="var(--live)" stroke-width="1.5" data-page-node-id="bYvsNHVEn8VNLf1QK1xTub"/>
+            <text x="75" y="79" text-anchor="middle" font-family="var(--font-mono)" font-size="10" font-weight="600" fill="var(--live-text)" data-page-node-id="OGAEkaaLikpfJv21PfPQoT">聆听中</text>
+          </svg>
+          <div style="max-width:36ch" data-page-node-id="XOwd2VI5excec8tkus7r02">
+            <h4 style="margin-top:0" data-page-node-id="B3BzXb6CeVUiSa1rA4ytZc">三种状态的语言</h4>
+            <ul style="font-size:var(--text-sm); color:var(--text-secondary); padding-left:1.1em; margin:0" data-page-node-id="3w95d0HSOKbbwCYcBmEtZU">
+              <li data-page-node-id="NAx9z4X25YazlnUhlu7HGO"><strong data-page-node-id="dZIuVDGyNx2B0F3NNj9AsT">待机</strong>：外环灰色实线，内圈中性色，文字「待机」</li>
+              <li data-page-node-id="UMXyAPjDUQu9sQeYopqioQ"><strong data-page-node-id="Eg2iCABxFoJddjZdsThZln">聆听中</strong>：外环变朱砂虚线，径向柱随音量跳动</li>
+              <li data-page-node-id="ZgmliaAlYOFlzDYRk1BpqV"><strong data-page-node-id="6qGv7jW3P39j9VBxQfoRB0">思考中</strong>：刻度环整体缓慢旋转，柱体收平</li>
+              <li data-page-node-id="dGWqdUQT4TeDwiX4g6j67b"><strong data-page-node-id="Y3K5ZuVbyMDzrC2XznyrDc">播报中</strong>：柱体由内向外推出，颜色转靛墨</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="6M392hokqlk6lTY3kgmkCH">② 时间脊柱</h3>
+      <p data-page-node-id="1aZujFlSAkbtAYHYMxg6Sz">
+        逐字稿的左侧不是一列孤立的灰色数字，而是一条带刻度的连续时间轴——像磁带盒上的索引纸。
+        滚动时视觉上始终有一条「脊」把片段串起来，用户不会丢失自己在录音中的位置。
+      </p>
+      <div class="stage" data-page-node-id="CuuiDNA5rFvBpU5xbgSTq8">
+        <div class="spine-demo" style="width:100%" data-page-node-id="NfaMIloTWWmB1gQ0yOSnqT">
+          <div class="spine-row" data-page-node-id="GoD8aon7kON4NS3DYsTphe">
+            <div class="spine-time" data-page-node-id="R2Da9B2uUayq3qfQzkPGYw">00:00:04</div>
+            <div class="spine-body" data-page-node-id="gzkRTzahBZczNCvvv0gKiS"><div class="spine-speaker" data-page-node-id="K60tprAcd5hnC9ZrRyQ6EA">主持人</div><div class="spine-text" data-page-node-id="iYjZFPbKZl7gvcgz6khao3">好，那我们就开始今天的评审。先请后端同步一下进度。</div></div>
+          </div>
+          <div class="spine-row" data-page-node-id="G9aFgjChNo06MDCQebywUv">
+            <div class="spine-time" data-page-node-id="FrLWoX0bGSFJSQisxR1pXk">00:00:12</div>
+            <div class="spine-body" data-page-node-id="KDJGuo3ysIK8tGj7e9X1Hz"><div class="spine-speaker" data-page-node-id="3DCt2Qldck0d4izRGunNAk">后端 · 曾</div><div class="spine-text" data-page-node-id="ZYWp4GBnBvC12MKpEheAEe">这周主要完成了长音频切片和拼接，超过阈值会自动分块，然后按顺序拼回来。</div></div>
+          </div>
+          <div class="spine-row" data-page-node-id="q0szfUGe0K6dcAcghwuQE0">
+            <div class="spine-time" data-page-node-id="29iuzhTU6EV4GjfQfQviKo">00:01:03</div>
+            <div class="spine-body" data-page-node-id="Gj4ixngZjvxZCDEyF8TFrW"><div class="spine-speaker" data-page-node-id="GQ8O1MowSW6BJoqpeqC6oT">待确认声纹 #3</div><div class="spine-text" data-page-node-id="BCey7aoxDLOuIDxply4rOC">那我这边下周补一下真实音频的回归集。</div></div>
+          </div>
+        </div>
+      </div>
+
+      <h3 data-page-node-id="H4OyZiLYNqd7BZhhuvMmj5">③ 勘校对照</h3>
+      <p data-page-node-id="pFxaFCenRr5bhAhbgvJ7Nd">
+        原文与修正文本不并排成两列（窄屏会崩），而是<strong data-page-node-id="P0AKSo8moLRkGaH49zJHAX">上下叠放</strong>：上面是划掉的原文，
+        下面是修正结果，各带一枚等宽体标签。这个形式借自手稿校勘，一眼就能读出「改了什么」。
+      </p>
+      <div class="stage" data-page-node-id="txLxq4E9A6KdCeARLk2dy8">
+        <div class="emend" style="width:100%; max-width:52ch" data-page-node-id="nXIlfjDrJ5VzErIC13cTNx">
+          <span class="emend__orig" data-page-node-id="5kvAOfEoOgpCzWvoTswG6Q">那我们下周三把方案对齐一下，然后同步给市场部。</span>
+          <span class="emend__fix" data-page-node-id="KZn1pIaXxcPqI6xOtkwO4f">那我们下周四把方案对齐一下，然后同步给市场部。</span>
+        </div>
+        <div class="mono" style="font-size:var(--text-2xs); color:var(--text-tertiary)" data-page-node-id="RSmIFn2dsq8hYK5DVjLdU3">
+          确定性纠错 · 日期修正 · 置信度 0.94
+        </div>
+      </div>
+
+      <h3 data-page-node-id="AWaqEOVXgZPPVHrNddtR1s">④ 朱砂印</h3>
+      <p data-page-node-id="zkVZs7rMnnt3TuZ4lMMPWg">
+        「已批准 / 已审核」不用绿色的对勾，而用一枚微微倾斜的朱砂方印。这是全站唯一允许出现的
+        装饰性倾斜——因为它表达的是「盖章」这个动作本身。印章只在审核类页面出现，用多了就失效。
+      </p>
+      <div class="seal-demo" data-page-node-id="l3RldcMcgOS2TjqrqMjCDB">
+        <svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="已批准印章" data-page-node-id="kzTXNuH9S7oeEDl0tREwbL">
+          <g transform="rotate(-7 36 36)" data-page-node-id="EbKI5cCK6ccV012KnR3ouW">
+            <rect x="6" y="6" width="60" height="60" rx="7" fill="none" stroke="var(--live)" stroke-width="2.5" data-page-node-id="qhiFKz8ySp647ZRpB0OWBr"/>
+            <rect x="11" y="11" width="50" height="50" rx="4" fill="none" stroke="var(--live)" stroke-width="0.8" opacity="0.55" data-page-node-id="gD7T5GIT67e9TDX7GfFpAA"/>
+            <text x="36" y="30" text-anchor="middle" font-family="var(--font-display)" font-size="13" font-weight="600" fill="var(--live)" data-page-node-id="GlNEYeOZ17S38uuBe2y2SQ">已批准</text>
+            <text x="36" y="46" text-anchor="middle" font-family="var(--font-mono)" font-size="7" letter-spacing="0.06em" fill="var(--live)" opacity="0.85" data-page-node-id="tsdTNlpBGV1SvvVWVphNbo">APPROVED</text>
+          </g>
+        </svg>
+        <svg width="72" height="72" viewBox="0 0 72 72" role="img" aria-label="待审核标记" data-page-node-id="8xkksdGKKAyPSWvcFMAr5N">
+          <g transform="rotate(4 36 36)" data-page-node-id="tSgupo9Wnrlkp6z9jwaTQE">
+            <rect x="6" y="6" width="60" height="60" rx="7" fill="none" stroke="var(--warning)" stroke-width="2.5" stroke-dasharray="7 4" data-page-node-id="HgI8zFhEZmScyKBsSkXw7r"/>
+            <text x="36" y="30" text-anchor="middle" font-family="var(--font-display)" font-size="13" font-weight="600" fill="var(--warning-text)" data-page-node-id="F1t5LhQHnhRjArFqHx8UKQ">待审核</text>
+            <text x="36" y="46" text-anchor="middle" font-family="var(--font-mono)" font-size="7" letter-spacing="0.06em" fill="var(--warning-text)" opacity="0.85" data-page-node-id="U8pSyAHdcTc2zcF8UJGYbB">PENDING</text>
+          </g>
+        </svg>
+        <div style="max-width:34ch; font-size:var(--text-sm); color:var(--text-secondary)" data-page-node-id="8ZwI1YCspVn0PiVHbPqCAl">
+          实线 = 终态（已批准 / 已拒绝），虚线 = 待处理。形状本身就区分了状态，
+          不依赖颜色，灰度打印也能读。
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 无障碍 ================= -->
+    <section class="section" id="a11y" data-page-node-id="jy7MW1BgSd2asKk44fpgDg">
+      <div class="eyebrow" data-page-node-id="j9CBfHhMcnCXc131aZZBNn">08 · Accessibility</div>
+      <h2 data-page-node-id="gsQ31oE99wIEKwu4l7jVXX">无障碍标准</h2>
+      <p data-page-node-id="pyY5z2dtaVJXuGb0xqeYPq">目标：WCAG 2.1 AA。以下是本设计系统对开发实现的硬性要求。</p>
+      <div class="card card--flush" data-page-node-id="T0aED44FH4uemu1iE2UL8E">
+        <table class="table" data-page-node-id="LTN7mz4xOqCjbEAS8t5BXo">
+          <thead data-page-node-id="hVNEgIlSNxqhWRaBay986t"><tr data-page-node-id="r02hGKOV8DnRs8KpjsFRW0"><th style="width:26%" data-page-node-id="cBKL4sUzrCaWcB2VWl98ry">要求</th><th data-page-node-id="WHtpv2FbBHIIpe3GCSJGrq">具体做法</th></tr></thead>
+          <tbody data-page-node-id="2zewIJe8CQW19Y9c5hvWA1">
+            <tr data-page-node-id="Rpx6A8a95VGCMM6u4rCpFQ"><td data-page-node-id="cFKnrF69XF7rND0i1745AZ">对比度</td><td data-page-node-id="jXPO4KLUGBOwcz3eKkUVJz">正文 ≥ 4.5:1，大号文字与图形 ≥ 3:1，禁用态除外。有色文字一律使用 <code data-page-node-id="4sFmd4LUMOzEByI3qIktbT">*-text</code> 令牌。</td></tr>
+            <tr data-page-node-id="hFuFnvQk1ZoM2HWugoE1cA"><td data-page-node-id="hgAnUcCdElWCZh2cppP8xC">不依赖颜色</td><td data-page-node-id="kgUvoBdB5DLHICRO6nZsYT">所有状态同时用<strong data-page-node-id="5Vij6j0gcHNszecEpT4jJ2">颜色 + 文字 + 形状/图标</strong>三重编码。待审核是虚线框，已批准是实线框，灰度下依然可辨。</td></tr>
+            <tr data-page-node-id="VNRWDlJFx4tdApXauZkcB3"><td data-page-node-id="nkSt6Z7f3hB6D3RwWUkvL8">键盘可达</td><td data-page-node-id="0zBZytaq0Ayxy3rTtn3G9u">全部交互元素可 Tab 到达，逻辑顺序与视觉顺序一致。音频播放器、片段列表、模板编辑器必须支持方向键导航。</td></tr>
+            <tr data-page-node-id="xPjabIMbYQpwnTBzNBFReL"><td data-page-node-id="h19NpQPv38UflOJDjmEmgX">焦点可见</td><td data-page-node-id="9a7EH4HsNnTM6hfHFvUuk2">统一 2px 主色描边 + 2px 偏移。禁止 <code data-page-node-id="M27C0JKStaVcs8pr7X9mi1">outline: none</code> 而不给替代方案。</td></tr>
+            <tr data-page-node-id="kzpKsHpoy4ve66XbZg0v51"><td data-page-node-id="bBWI3WBj1vEp6EVlpCKRZF">触控目标</td><td data-page-node-id="EgYfHwB0MOojN3nL2Z5tpP">交互元素最小 44×44px 热区。图标按钮通过 padding 撑开热区，视觉尺寸可以更小。</td></tr>
+            <tr data-page-node-id="g4q0JXf4wUE1hv29pdPF2v"><td data-page-node-id="fz3HdKNwiJrAkTExBurFBz">实时区域</td><td data-page-node-id="j68Y0Hfgf8RabRGhhCmqSf">任务状态变化通过 <code data-page-node-id="DgNfArAE7mJmYlcDHsAqoo">aria-live="polite"</code> 播报；错误提示使用 <code data-page-node-id="HKGCCeqDiI4tnSMf8CexAi">role="alert"</code>。转写流式追加不逐 token 播报，按句播报。</td></tr>
+            <tr data-page-node-id="Kf9TbXGRjYRc9dGLRoDtQx"><td data-page-node-id="35jURFlfQ3Io8i42zIepnC">动效偏好</td><td data-page-node-id="H7iriN8dM2QapYdTrM3IKI">尊重 <code data-page-node-id="akr4K69epRr3LmgqsWjh0o">prefers-reduced-motion</code>，脉动指示降级为静态圆点。</td></tr>
+            <tr data-page-node-id="ObpmLye9AALYuppQMjWn25"><td data-page-node-id="a3G5edpVnjPsOCXGFFZHyV">缩放</td><td data-page-node-id="RRMTZM1VEzgiTF6rxZp583">不设置 <code data-page-node-id="LbZ2vdZQtNqtEiHWEvxGgy">user-scalable=no</code>。200% 缩放下布局不得横向溢出或截断。</td></tr>
+            <tr data-page-node-id="IeK4JNKaNPFhrxWCkl3pqy"><td data-page-node-id="rOJCuNPw1M8onXBc6RKfwy">表单</td><td data-page-node-id="EsUawQwBTLf2eAF0hqfJUR">每个输入都有真实 <code data-page-node-id="eMEZYejZiamdCSMdvj6n20">&lt;label&gt;</code>，错误信息与输入框通过 <code data-page-node-id="VSTWhmChC1di98kdkFNCnf">aria-describedby</code> 关联，错误状态加 <code data-page-node-id="heOTcxUcDshFDYc4JEDx20">aria-invalid</code>。</td></tr>
+            <tr data-page-node-id="wAhF1kvp3YuVxKaFAybBB0"><td data-page-node-id="opAn7PqndRTYZz9ju3eY7z">语义结构</td><td data-page-node-id="xUBA4u1T8S6TDx0ECQrhdZ">正确的标题层级、<code data-page-node-id="q9ZjfnvGUNCh0pWDMarMCL">&lt;nav&gt;</code> / <code data-page-node-id="FeEu1g5uHmGK1PEK2Y47DO">&lt;main&gt;</code> 地标、表格使用 <code data-page-node-id="IrpOPIdRukxxg9Tg6B8yoj">&lt;th scope&gt;</code>。模态框开启时焦点锁定并返回触发元素。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ================= 交接 ================= -->
+    <section class="section" id="handoff" data-page-node-id="2S1OX0WqrU8WAhLeYBao3v">
+      <div class="eyebrow" data-page-node-id="HPHS9eO8Em4Ln6f9Z7j52b">09 · Handoff</div>
+      <h2 data-page-node-id="R2nhCoqU5QwRAmVarvk1Ct">交接说明</h2>
+      <p data-page-node-id="gJpNknU88qWqEyNEZCWtPL">
+        设计令牌以 CSS 自定义属性交付，与现有 <code data-page-node-id="MemEktdresBExTDlY19ymZ">frontend/src/styles.css</code> 的技术栈一致，
+        不需要引入任何 CSS-in-JS 或预处理器。
+      </p>
+      <div class="card" data-page-node-id="SbKInnGAfbvAkv9rkPsIAS">
+        <h4 style="margin-top:0" data-page-node-id="UdkJm4BfdfAAF3d1Lc99qc">落地路径建议</h4>
+        <ol style="font-size:var(--text-sm); color:var(--text-secondary); line-height:var(--lh-relaxed); padding-left:1.2em" data-page-node-id="ZGYqR0Yzt3vedZF4eqXNEg">
+          <li data-page-node-id="E5PpUoo6HJMSQJbzE47HLb">先把令牌层（<code data-page-node-id="p5yiFgtiwT8rSqH5KAmesV">:root</code> 与 <code data-page-node-id="tycqCBPGh5dJmAN55J1DyI">[data-theme="dark"]</code>）整体替换进 <code data-page-node-id="Qo8K30lZvQKAMOnyEF3fpC">styles.css</code>，
+              不改任何组件，此时界面外观不变。</li>
+          <li data-page-node-id="JRIDYPtIADZiPZ12eIOuYW">再逐个把 <code data-page-node-id="oVKP1cGCniZGhTVyttgCyt">UploadPage.tsx</code>（1010 行，最重）拆成组件，迁移到新令牌。
+              优先做按钮、输入、徽章、进度这四类高频组件。</li>
+          <li data-page-node-id="JvajjS9pB4RpupKFXbXk1d">最后处理 <code data-page-node-id="6uEl1FjhCnJ06NSKdRohBs">App.tsx</code> 的实时对话页，接入声纹罗盘与时间脊柱。</li>
+        </ol>
+        <p style="font-size:var(--text-xs); margin-bottom:0" data-page-node-id="aHSd3fVuUyWzmYaaLSnZIR">
+          本文件与 <code data-page-node-id="eWgoV46m63PNNMkBKFktSA">astra-prototype.html</code> 均不依赖构建工具，可直接在浏览器打开。
+        </p>
+      </div>
+      <div class="note" data-page-node-id="z9gJ8Dl9mHebPDHGfCh2hP">
+        <p data-page-node-id="PZCxjj9hIPOJd5VbgxCS3d"><strong data-page-node-id="IKyubMHkDddc8oCRnzrooU">一个已知取舍：</strong>原型为了展示字体从 Google Fonts 加载了 Newsreader 与 IBM Plex。
+        生产环境必须自托管这三个字体文件（Latin 子集合计约 120KB），
+        中文继续走系统字体——因为产品跑在局域网里，不能假设有外网。</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var btn = document.getElementById('themeToggle');
+  var icon = document.getElementById('themeIcon');
+  var label = document.getElementById('themeLabel');
+
+  function apply(theme) {
+    root.setAttribute('data-theme', theme);
+    icon.textContent = theme === 'dark' ? '◑' : '◐';
+    label.textContent = theme === 'dark' ? '浅色' : '深色';
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('astra-ds-theme'); } catch (e) {}
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  apply(saved || (prefersDark ? 'dark' : 'light'));
+
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    apply(next);
+    try { localStorage.setItem('astra-ds-theme', next); } catch (e) {}
+  });
+
+  // 目录高亮
+  var links = Array.prototype.slice.call(document.querySelectorAll('.sidenav a'));
+  var sections = links.map(function (a) { return document.querySelector(a.getAttribute('href')); });
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) {
+          links.forEach(function (a) { a.classList.remove('is-active'); });
+          var i = sections.indexOf(en.target);
+          if (i > -1) links[i].classList.add('is-active');
+        }
+      });
+    }, { rootMargin: '-80px 0px -70% 0px' });
+    sections.forEach(function (s) { if (s) io.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

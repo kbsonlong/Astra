@@ -65,6 +65,16 @@ def _build_pipeline(prompt_templates_path: str = ""):
         hotwords=(),
         system_prompt="",
     )
+    # 方向三: asr_backend=funasr 时启用 SenseVoice + cam++ 内联分离。
+    inline_asr = None
+    if s.asr_backend == "funasr":
+        from app.models.funasr_client import FunAsrClient
+
+        inline_asr = FunAsrClient(
+            s.asr_funasr_model,
+            language=s.asr_funasr_language,
+            diarize=s.asr_funasr_diarize,
+        )
     llm = OpenAICompatLLMClient(
         s.llm_base_url,
         s.llm_model,
@@ -131,6 +141,8 @@ def _build_pipeline(prompt_templates_path: str = ""):
             model=s.audio_overlap_detector_model,
             model_dir=s.audio_overlap_model_dir,
         ),
+        inline_asr=inline_asr,
+        speaker_store=speaker_store,
     )
 
 

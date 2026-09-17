@@ -18,6 +18,29 @@ def settings() -> Settings:
     )
 
 
+def test_create_app_configures_funasr_meeting_pipeline(tmp_path) -> None:
+    app = create_app(
+        Settings(
+            asr_backend="funasr",
+            asr_funasr_model="test-sensevoice",
+            asr_funasr_diarize=True,
+            task_store_path=str(tmp_path / "tasks.sqlite3"),
+            speaker_store_path=str(tmp_path / "speakers.sqlite3"),
+            speaker_sample_dir=str(tmp_path / "samples"),
+        ),
+        enable_pipeline=False,
+    )
+
+    pipeline = app.state.meeting_pipeline
+    assert pipeline.inline_asr is not None
+    assert pipeline.inline_asr.__class__.__name__ == "FunAsrClient"
+    assert [stage.name for stage in pipeline.workflow.engine.stages][:2] == [
+        "asr",
+        "punctuation",
+    ]
+    assert "vad" not in pipeline.workflow.stage_status()
+
+
 def test_config_masks_api_key(settings: Settings) -> None:
     settings = Settings(
         **{
@@ -274,6 +297,88 @@ async def test_collects_dependency_health(settings: Settings, monkeypatch: pytes
     assert result["llm"]["models_ok"] is True
     assert result["asr"]["ok"] is True
     assert result["tts"]["ok"] is True
+
+
+@pytest.mark.anyio
+async def test_health_surfaces_engine_capabilities_and_availability(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    transport = httpx.MockTransport(handler)
+
+    import app.health
+
+    class MockClient(httpx.AsyncClient):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(app.health.httpx, "AsyncClient", MockClient)
+
+    class Engine:
+        def __init__(self, engine: str, available: bool, reason: str) -> None:
+            self._engine = engine
+            self._available = available
+            self._reason = reason
+
+        def is_ready(self) -> bool:
+            return self._available
+
+        def capabilities(self) -> dict[str, object]:
+            return {"engine": self._engine, "languages": ["zh"], "clone": False}
+
+        def is_available(self) -> tuple[bool, str]:
+            return self._available, self._reason
+
+    class FakePipeline:
+        asr = Engine("mlx_audio", True, "ready")
+        tts = Engine("mlx_audio", False, "mlx-audio 未安装 (pip install mlx-audio; 需 Apple Silicon)")
+
+    result = await app.health.collect_health(settings, FakePipeline())
+
+    # ASR: 引擎名进入 mode, 能力与可用性暴露
+    assert result["asr"]["mode"] == "mlx_audio"
+    assert result["asr"]["available"] is True
+    assert result["asr"]["reason"] == "ready"
+    assert result["asr"]["capabilities"]["languages"] == ["zh"]
+    # TTS: 不可用时暴露原因, 且原因不含本地路径
+    assert result["tts"]["available"] is False
+    assert "mlx-audio 未安装" in result["tts"]["reason"]
+    assert result["ok"] is False  # tts not ready -> overall not ok
+
+
+@pytest.mark.anyio
+async def test_health_degrades_gracefully_for_legacy_clients(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """旧 client 只有 is_ready(), 无 capabilities/is_available 时不应报错。"""
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True}, request=request)
+
+    transport = httpx.MockTransport(handler)
+    import app.health
+
+    class MockClient(httpx.AsyncClient):
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs["transport"] = transport
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(app.health.httpx, "AsyncClient", MockClient)
+
+    class Legacy:
+        def is_ready(self) -> bool:
+            return True
+
+    class FakePipeline:
+        asr = Legacy()
+        tts = Legacy()
+
+    result = await app.health.collect_health(settings, FakePipeline())
+    assert result["asr"]["ok"] is True
+    assert result["asr"]["mode"] == "mlx-sdk"  # 回退到默认 mode
+    assert result["tts"]["mode"] == "piper-sdk"
 
 
 def test_training_config_can_be_read_and_saved(tmp_path) -> None:

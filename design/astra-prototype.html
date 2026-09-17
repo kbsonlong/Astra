@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light" data-page-node-id="3MYdnonapuuV3YrW0XSuT2">
+<head data-page-node-id="kLCLzDG2jD1I0aRGwBSRUt">
+<meta charset="UTF-8" data-page-node-id="YCpUraYhaL5GdtjNSYPW3S">
+<meta name="viewport" content="width=device-width, initial-scale=1" data-page-node-id="rw6dUC6y5SY5F8yCnjGgZz">
+<title>Astra 高保真原型 · Prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" data-page-node-id="4nHvCaYJ9gmZh2drVXFv2i">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin data-page-node-id="WFWJYnTSTHVuRJEnICTIK9">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet" data-page-node-id="g2JDAxrhNo2B8AcA0DZ2Y6">
+<style>
+/* ============================================================================
+   ASTRA · 令牌层（与 astra-design-system.html 保持一致，此处内联以便单文件分发）
+   ========================================================================= */
+:root {
+  color-scheme: light;
+  --paper-0:   oklch(0.995 0.003 75);
+  --paper-50:  oklch(0.975 0.006 75);
+  --paper-100: oklch(0.955 0.008 75);
+  --paper-200: oklch(0.915 0.010 75);
+  --paper-300: oklch(0.865 0.012 75);
+  --paper-400: oklch(0.720 0.013 70);
+  --paper-500: oklch(0.600 0.014 65);
+  --paper-600: oklch(0.480 0.014 60);
+  --paper-700: oklch(0.420 0.015 60);
+  --paper-800: oklch(0.280 0.014 58);
+  --paper-900: oklch(0.200 0.013 55);
+  --ink-100: oklch(0.955 0.022 248);
+  --ink-300: oklch(0.870 0.040 248);
+  --ink-500: oklch(0.560 0.090 248);
+  --ink-600: oklch(0.450 0.085 248);
+  --ink-700: oklch(0.380 0.090 248);
+  --vermilion-100: oklch(0.950 0.030 45);
+  --vermilion-300: oklch(0.850 0.070 45);
+  --vermilion-500: oklch(0.550 0.170 42);
+  --vermilion-600: oklch(0.440 0.155 42);
+
+  --bg-canvas:     var(--paper-50);
+  --bg-surface:    var(--paper-0);
+  --bg-sunken:     var(--paper-100);
+  --bg-elevated:   var(--paper-0);
+  --bg-inset:      oklch(0.940 0.009 75);
+  --border-subtle:  var(--paper-200);
+  --border-default: oklch(0.880 0.011 75);
+  --border-strong:  var(--paper-300);
+  --text-primary:   var(--paper-900);
+  --text-secondary: var(--paper-700);
+  --text-tertiary:  var(--paper-600);
+  --text-disabled:  oklch(0.680 0.012 70);
+  --text-on-accent: oklch(0.990 0.004 75);
+  --accent: var(--ink-600);
+  --accent-hover: var(--ink-700);
+  --accent-text: var(--ink-600);
+  --accent-soft: var(--ink-100);
+  --accent-soft-border: var(--ink-300);
+  --live: var(--vermilion-500);
+  --live-text: var(--vermilion-600);
+  --live-soft: var(--vermilion-100);
+  --live-border: var(--vermilion-300);
+  --success: oklch(0.470 0.100 165);
+  --success-text: oklch(0.440 0.100 165);
+  --success-soft: oklch(0.950 0.030 165);
+  --success-border: oklch(0.850 0.060 165);
+  --warning: oklch(0.580 0.130 72);
+  --warning-text: oklch(0.450 0.115 70);
+  --warning-soft: oklch(0.960 0.040 80);
+  --warning-border: oklch(0.860 0.080 78);
+  --danger: oklch(0.480 0.170 15);
+  --danger-text: oklch(0.450 0.165 15);
+  --danger-soft: oklch(0.950 0.030 15);
+  --danger-border: oklch(0.850 0.070 15);
+  --btn-danger-bg: oklch(0.480 0.170 15);
+  --btn-danger-bg-hover: oklch(0.420 0.170 15);
+  --btn-danger-fg: oklch(0.990 0.004 75);
+  --focus-ring: oklch(0.450 0.085 248 / 0.45);
+  --shadow-sm: 0 1px 2px oklch(0.200 0.013 55 / 0.06);
+  --shadow-md: 0 2px 4px -1px oklch(0.200 0.013 55 / 0.05), 0 6px 16px -4px oklch(0.200 0.013 55 / 0.09);
+  --shadow-lg: 0 4px 8px -2px oklch(0.200 0.013 55 / 0.06), 0 16px 40px -8px oklch(0.200 0.013 55 / 0.14);
+  --font-display: "Newsreader", "Songti SC", "Noto Serif CJK SC", Georgia, serif;
+  --font-ui: "IBM Plex Sans", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", ui-monospace, Menlo, monospace;
+  --text-2xs: 0.6875rem; --text-xs: 0.75rem; --text-sm: 0.8125rem;
+  --text-base: 0.875rem; --text-read: 1rem; --text-lg: 1.125rem;
+  --text-xl: 1.375rem; --text-2xl: 1.75rem; --text-3xl: 2.25rem;
+  --lh-tight: 1.2; --lh-snug: 1.35; --lh-normal: 1.5; --lh-relaxed: 1.7;
+  --space-1: 0.25rem; --space-2: 0.5rem; --space-3: 0.75rem; --space-4: 1rem;
+  --space-5: 1.25rem; --space-6: 1.5rem; --space-8: 2rem; --space-10: 2.5rem;
+  --space-12: 3rem; --space-16: 4rem;
+  --radius-xs: 3px; --radius-sm: 5px; --radius-md: 7px;
+  --radius-lg: 10px; --radius-xl: 14px; --radius-full: 999px;
+  --dur-instant: 90ms; --dur-fast: 140ms; --dur-base: 200ms; --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-canvas: oklch(0.165 0.008 60);
+  --bg-surface: oklch(0.205 0.009 60);
+  --bg-sunken: oklch(0.145 0.008 60);
+  --bg-elevated: oklch(0.245 0.010 60);
+  --bg-inset: oklch(0.185 0.008 60);
+  --border-subtle: oklch(0.265 0.010 60);
+  --border-default: oklch(0.315 0.011 60);
+  --border-strong: oklch(0.400 0.012 60);
+  --text-primary: oklch(0.945 0.010 75);
+  --text-secondary: oklch(0.775 0.012 70);
+  --text-tertiary: oklch(0.655 0.014 65);
+  --text-disabled: oklch(0.480 0.012 60);
+  --text-on-accent: oklch(0.160 0.020 250);
+  --accent: oklch(0.745 0.100 248);
+  --accent-hover: oklch(0.820 0.090 248);
+  --accent-text: oklch(0.800 0.090 248);
+  --accent-soft: oklch(0.280 0.045 248);
+  --accent-soft-border: oklch(0.380 0.060 248);
+  --live: oklch(0.755 0.150 48);
+  --live-text: oklch(0.790 0.130 48);
+  --live-soft: oklch(0.290 0.070 45);
+  --live-border: oklch(0.400 0.090 45);
+  --success: oklch(0.720 0.110 165);
+  --success-text: oklch(0.760 0.100 165);
+  --success-soft: oklch(0.270 0.045 165);
+  --success-border: oklch(0.380 0.060 165);
+  --warning: oklch(0.800 0.130 78);
+  --warning-text: oklch(0.820 0.120 78);
+  --warning-soft: oklch(0.290 0.055 72);
+  --warning-border: oklch(0.400 0.075 72);
+  --danger: oklch(0.680 0.160 25);
+  --danger-text: oklch(0.740 0.140 25);
+  --danger-soft: oklch(0.290 0.070 20);
+  --danger-border: oklch(0.400 0.095 20);
+  --btn-danger-bg: oklch(0.470 0.155 22);
+  --btn-danger-bg-hover: oklch(0.400 0.150 22);
+  --btn-danger-fg: oklch(0.990 0.006 75);
+  --focus-ring: oklch(0.745 0.100 248 / 0.55);
+  --shadow-sm: 0 0 0 1px oklch(0.100 0.008 60 / 0.5);
+  --shadow-md: 0 0 0 1px oklch(0.100 0.008 60 / 0.5), 0 4px 14px -4px oklch(0.050 0 0 / 0.6);
+  --shadow-lg: 0 0 0 1px oklch(0.100 0.008 60 / 0.5), 0 16px 40px -8px oklch(0.050 0 0 / 0.7);
+  --lh-normal: 1.56; --lh-relaxed: 1.78;
+}
+
+/* ============================================================================
+   应用外壳
+   ========================================================================= */
+* { box-sizing: border-box; }
+body {
+  margin: 0; font-family: var(--font-ui); font-size: var(--text-base);
+  line-height: var(--lh-normal); color: var(--text-primary); background: var(--bg-canvas);
+  -webkit-font-smoothing: antialiased; font-kerning: normal;
+  transition: background-color var(--dur-base) var(--ease-out), color var(--dur-base) var(--ease-out);
+}
+h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.012em; margin: 0; }
+h1 { font-size: var(--text-2xl); line-height: var(--lh-tight); }
+h2 { font-size: var(--text-xl); line-height: var(--lh-tight); }
+h3 { font-size: var(--text-lg); line-height: var(--lh-snug); font-weight: 600; }
+h4 { font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 600; letter-spacing: 0; margin: 0; }
+p { margin: 0; color: var(--text-secondary); }
+a { color: var(--accent-text); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-xs); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+.app { display: grid; grid-template-columns: 236px minmax(0,1fr); min-height: 100vh; }
+
+/* ---- 侧栏 ---- */
+.rail {
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border-subtle);
+  display: flex; flex-direction: column; gap: var(--space-6);
+  padding: var(--space-5) var(--space-3);
+  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+}
+.rail__brand { padding: 0 var(--space-3); }
+.rail__mark { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 500; display: block; letter-spacing: -0.015em; }
+.rail__sub { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-tertiary); }
+
+.rail__group { display: flex; flex-direction: column; gap: 2px; }
+.rail__label {
+  font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+  letter-spacing: 0.14em; color: var(--text-tertiary);
+  padding: 0 var(--space-3) var(--space-2);
+}
+.navitem {
+  display: flex; align-items: center; gap: var(--space-3);
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-md);
+  font-size: var(--text-sm); color: var(--text-secondary); cursor: pointer;
+  border: none; background: none; font-family: inherit; text-align: left; width: 100%;
+  transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+.navitem:hover { background: var(--bg-surface); color: var(--text-primary); }
+.navitem[aria-current="page"] { background: var(--bg-surface); color: var(--text-primary); font-weight: 500; box-shadow: inset 2px 0 0 var(--accent); }
+.navitem__icon { width: 16px; text-align: center; color: var(--text-tertiary); font-size: 13px; }
+.navitem[aria-current="page"] .navitem__icon { color: var(--accent); }
+.navitem__count {
+  margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs);
+  background: var(--live-soft); color: var(--live-text);
+  border: 1px solid var(--live-border); border-radius: var(--radius-full);
+  padding: 0 6px; line-height: 16px;
+}
+
+/* 服务健康 */
+.health { padding: var(--space-3); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); background: var(--bg-surface); }
+.health__title { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.12em; color: var(--text-tertiary); margin-bottom: var(--space-2); }
+.health__row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-xs); padding: 3px 0; }
+.health__dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.dot--ok { background: var(--success); }
+.dot--warn { background: var(--warning); }
+.dot--off { background: var(--text-disabled); }
+.health__name { color: var(--text-secondary); }
+.health__val { margin-left: auto; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+
+/* ---- 主区 ---- */
+.main { display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  display: flex; align-items: center; gap: var(--space-4);
+  padding: var(--space-3) var(--space-6);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+  position: sticky; top: 0; z-index: 20;
+}
+.crumb { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); }
+.crumb strong { color: var(--text-primary); font-weight: 500; }
+.topbar__spacer { margin-left: auto; }
+.body { padding: var(--space-6) var(--space-6) var(--space-16); max-width: 1320px; width: 100%; }
+
+.view { display: none; }
+.view.is-active { display: block; animation: viewIn var(--dur-base) var(--ease-out); }
+@keyframes viewIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.page-head { display: flex; align-items: flex-end; gap: var(--space-6); flex-wrap: wrap; margin-bottom: var(--space-6); }
+.page-head__text { flex: 1; min-width: 260px; }
+.page-head__text p { margin-top: var(--space-2); max-width: 62ch; font-size: var(--text-sm); }
+.eyebrow { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.16em; color: var(--text-tertiary); margin-bottom: var(--space-2); }
+
+/* ============================================================================
+   通用组件
+   ========================================================================= */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--space-2);
+  font-family: var(--font-ui); font-size: var(--text-sm); font-weight: 500;
+  padding: 0 var(--space-4); height: 34px; border: 1px solid transparent;
+  border-radius: var(--radius-md); cursor: pointer; white-space: nowrap;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+.btn:active:not(:disabled) { transform: translateY(1px); }
+/* 禁用态用显式令牌而非整体降透明度，避免深色下糊成一团 */
+.btn:disabled { background: var(--bg-inset); color: var(--text-disabled); border-color: var(--border-default); cursor: not-allowed; box-shadow: none; }
+.btn--primary { background: var(--accent); color: var(--text-on-accent); }
+.btn--primary:hover:not(:disabled) { background: var(--accent-hover); }
+.btn--secondary { background: var(--bg-surface); color: var(--text-primary); border-color: var(--border-default); }
+.btn--secondary:hover:not(:disabled) { background: var(--bg-sunken); border-color: var(--border-strong); }
+.btn--ghost { background: transparent; color: var(--text-secondary); }
+.btn--ghost:hover:not(:disabled) { background: var(--bg-sunken); color: var(--text-primary); }
+.btn--danger { background: var(--btn-danger-bg); color: var(--btn-danger-fg); }
+.btn--sm { height: 28px; font-size: var(--text-xs); padding: 0 var(--space-3); }
+.btn--lg { height: 42px; font-size: var(--text-base); padding: 0 var(--space-6); }
+.btn--block { width: 100%; }
+.btn__spinner { width: 13px; height: 13px; flex: none; border: 1.6px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin 640ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); padding: var(--space-5); }
+.card--flush { padding: 0; overflow: hidden; }
+.card__head { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.card__head h3, .card__head h4 { margin: 0; }
+.card__head .btn { margin-left: auto; }
+.card__hint { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.badge {
+  display: inline-flex; align-items: center; gap: var(--space-2); height: 24px;
+  padding: 0 var(--space-3); border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 500; border: 1px solid transparent; white-space: nowrap;
+}
+.badge__dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: currentColor; }
+.badge--neutral { background: var(--bg-inset); color: var(--text-secondary); border-color: var(--border-default); }
+.badge--accent  { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent-soft-border); }
+.badge--live    { background: var(--live-soft); color: var(--live-text); border-color: var(--live-border); }
+.badge--success { background: var(--success-soft); color: var(--success-text); border-color: var(--success-border); }
+.badge--warning { background: var(--warning-soft); color: var(--warning-text); border-color: var(--warning-border); }
+.badge--danger  { background: var(--danger-soft); color: var(--danger-text); border-color: var(--danger-border); }
+@keyframes pulse-ring {
+  0% { box-shadow: 0 0 0 0 currentColor; } 70% { box-shadow: 0 0 0 5px transparent; } 100% { box-shadow: 0 0 0 0 transparent; }
+}
+.badge--live .badge__dot { animation: pulse-ring 1.6s var(--ease-out) infinite; }
+
+.field { display: flex; flex-direction: column; gap: var(--space-2); }
+.field__label { font-size: var(--text-sm); font-weight: 500; display: flex; align-items: center; gap: var(--space-2); }
+.field__hint { font-size: var(--text-xs); color: var(--text-tertiary); }
+.input, .textarea, .select {
+  font-family: var(--font-ui); font-size: var(--text-base); color: var(--text-primary);
+  background: var(--bg-surface); border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); padding: 0 var(--space-3); height: 36px; width: 100%;
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.textarea { height: auto; padding: var(--space-3); line-height: var(--lh-normal); resize: vertical; min-height: 76px; }
+.input::placeholder, .textarea::placeholder { color: var(--text-tertiary); }
+.input:focus, .textarea:focus, .select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--focus-ring); }
+.input--mono { font-family: var(--font-mono); font-size: var(--text-sm); }
+.switch {
+  position: relative; width: 38px; height: 22px; flex: none; border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong); background: var(--bg-sunken); cursor: pointer; padding: 0;
+  transition: background-color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg-surface); box-shadow: var(--shadow-sm); transition: transform var(--dur-base) var(--ease-out); }
+.switch[aria-checked="true"] { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: var(--text-on-accent); }
+
+.progress { height: 4px; border-radius: var(--radius-full); background: var(--bg-inset); overflow: hidden; }
+.progress__bar { height: 100%; background: var(--accent); border-radius: inherit; transition: width var(--dur-slow) var(--ease-out); }
+.progress__bar--ind { width: 35%; animation: ind 1.5s var(--ease-in-out) infinite; }
+@keyframes ind { 0% { transform: translateX(-100%); } 100% { transform: translateX(340%); } }
+
+.steps { display: flex; flex-direction: column; }
+.step { display: grid; grid-template-columns: 21px 1fr auto; gap: var(--space-3); align-items: start; position: relative; padding-bottom: var(--space-3); }
+.step:last-child { padding-bottom: 0; }
+.step::before { content: ""; position: absolute; left: 10px; top: 21px; bottom: 0; width: 1px; background: var(--border-default); }
+.step:last-child::before { display: none; }
+.step__mark { width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: 600; border: 1px solid var(--border-default); background: var(--bg-surface); color: var(--text-tertiary); z-index: 1; }
+.step--done .step__mark { background: var(--success); border-color: var(--success); color: var(--bg-surface); }
+.step--active .step__mark { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.step__name { font-size: var(--text-sm); font-weight: 500; }
+.step--pending .step__name { color: var(--text-tertiary); font-weight: 400; }
+.step__time { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+.alert { display: flex; gap: var(--space-3); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); border: 1px solid; font-size: var(--text-sm); }
+.alert__body { flex: 1; min-width: 0; }
+.alert__title { font-weight: 600; color: var(--text-primary); }
+.alert__desc { color: var(--text-secondary); font-size: var(--text-xs); margin-top: 2px; }
+.alert__actions { display: flex; gap: var(--space-2); margin-top: var(--space-3); }
+.alert--danger  { background: var(--danger-soft);  border-color: var(--danger-border);  color: var(--danger-text); }
+.alert--warning { background: var(--warning-soft); border-color: var(--warning-border); color: var(--warning-text); }
+.alert--success { background: var(--success-soft); border-color: var(--success-border); color: var(--success-text); }
+.alert--info    { background: var(--accent-soft);  border-color: var(--accent-soft-border); color: var(--accent-text); }
+
+.empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-3); padding: var(--space-10) var(--space-6); text-align: center; border: 1px dashed var(--border-default); border-radius: var(--radius-lg); background: var(--bg-sunken); }
+.empty__icon { color: var(--text-tertiary); font-size: 26px; line-height: 1; }
+.empty__title { font-size: var(--text-sm); font-weight: 600; }
+.empty__desc { font-size: var(--text-xs); color: var(--text-tertiary); max-width: 36ch; }
+
+.skeleton { background: linear-gradient(90deg, var(--bg-inset) 25%, var(--bg-sunken) 37%, var(--bg-inset) 63%); background-size: 400% 100%; animation: shimmer 1.4s ease-in-out infinite; border-radius: var(--radius-sm); }
+@keyframes shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+
+.divider { height: 1px; background: var(--border-subtle); margin: var(--space-5) 0; }
+
+/* ============================================================================
+   视图 1 · 实时助手
+   ========================================================================= */
+.live-grid { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0,1fr); gap: var(--space-5); align-items: start; }
+
+.dial-card { display: flex; flex-direction: column; align-items: center; gap: var(--space-5); padding: var(--space-8) var(--space-5); }
+.dial-stage { position: relative; width: 232px; height: 232px; display: grid; place-items: center; }
+.dial-state { font-family: var(--font-display); font-size: var(--text-xl); font-weight: 500; }
+.dial-sub { font-size: var(--text-xs); color: var(--text-tertiary); text-align: center; max-width: 30ch; }
+.dial-controls { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+.dial-meta { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3) var(--space-5); width: 100%; padding-top: var(--space-5); border-top: 1px solid var(--border-subtle); }
+.dial-meta__k { font-size: var(--text-xs); color: var(--text-tertiary); }
+.dial-meta__v { font-family: var(--font-mono); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+
+/* 声纹柱动画：每根柱在自身局部坐标系里沿长度方向伸缩，
+   父级 rotate 再把它转成径向扩散。transform-origin 锁在内端，柱体只向外长。 */
+@keyframes wv-pulse { 0%, 100% { transform: scaleY(0.45); } 50% { transform: scaleY(1); } }
+.wv--live rect { transform-box: fill-box; transform-origin: center bottom; animation: wv-pulse 900ms var(--ease-in-out) infinite; }
+.wv--live rect:nth-child(2)  { animation-delay: 110ms; }
+.wv--live rect:nth-child(3)  { animation-delay: 220ms; }
+.wv--live rect:nth-child(4)  { animation-delay: 55ms; }
+.wv--live rect:nth-child(5)  { animation-delay: 275ms; }
+.wv--live rect:nth-child(6)  { animation-delay: 165ms; }
+.wv--live rect:nth-child(7)  { animation-delay: 330ms; }
+.wv--live rect:nth-child(8)  { animation-delay: 80ms; }
+.wv--live rect:nth-child(9)  { animation-delay: 195ms; }
+.wv--live rect:nth-child(10) { animation-delay: 40ms; }
+.wv--live rect:nth-child(11) { animation-delay: 250ms; }
+.wv--live rect:nth-child(12) { animation-delay: 130ms; }
+.wv--live rect:nth-child(13) { animation-delay: 300ms; }
+.wv--live rect:nth-child(14) { animation-delay: 70ms; }
+.wv--live rect:nth-child(15) { animation-delay: 210ms; }
+.wv--live rect:nth-child(16) { animation-delay: 150ms; }
+@keyframes ring-spin { to { transform: rotate(360deg); } }
+.ring--thinking { transform-origin: 116px 116px; animation: ring-spin 6s linear infinite; }
+
+/* 时间脊柱 */
+.spine { display: flex; flex-direction: column; }
+.spine-row { display: grid; grid-template-columns: 74px 1fr; gap: var(--space-4); position: relative; padding-bottom: var(--space-5); }
+.spine-row::before { content: ""; position: absolute; left: 74px; top: 0; bottom: 0; width: 1px; background: var(--border-subtle); }
+.spine-row:first-child::before { top: 8px; }
+.spine-row:last-child::before { display: none; }
+.spine-time { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: right; padding-top: 2px; position: relative; }
+.spine-time::after { content: ""; position: absolute; right: -20px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--border-strong); }
+.spine-row--live .spine-time::after { background: var(--live); box-shadow: 0 0 0 3px var(--live-soft); }
+.spine-body { padding-left: var(--space-5); }
+.spine-speaker { font-size: var(--text-xs); font-weight: 600; color: var(--accent-text); margin-bottom: 3px; display: flex; align-items: center; gap: var(--space-2); }
+.spine-speaker--pending { color: var(--warning-text); }
+.spine-text { font-size: var(--text-read); line-height: var(--lh-relaxed); color: var(--text-primary); }
+.spine-text--dim { color: var(--text-tertiary); }
+
+.reply { border-left: 2px solid var(--accent); background: var(--accent-soft); border-radius: 0 var(--radius-md) var(--radius-md) 0; padding: var(--space-3) var(--space-4); }
+.reply__label { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.12em; color: var(--accent-text); margin-bottom: var(--space-2); }
+.reply__text { font-size: var(--text-read); line-height: var(--lh-relaxed); }
+.caret { display: inline-block; width: 2px; height: 1em; background: var(--accent); vertical-align: -0.14em; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* ============================================================================
+   视图 2 · 音频工作台
+   ========================================================================= */
+.work-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(280px, 340px); gap: var(--space-5); align-items: start; }
+
+.dropzone {
+  border: 1.5px dashed var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--bg-sunken); padding: var(--space-10) var(--space-6);
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  text-align: center; cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
+}
+.dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone__icon { color: var(--accent); font-size: 30px; line-height: 1; }
+.dropzone__title { font-size: var(--text-base); font-weight: 500; }
+.dropzone__hint { font-size: var(--text-xs); color: var(--text-tertiary); }
+
+.filecard { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-4); border: 1px solid var(--border-default); border-radius: var(--radius-md); background: var(--bg-surface); }
+.filecard__icon { width: 34px; height: 34px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-text); display: grid; place-items: center; font-size: 15px; flex: none; }
+.filecard__name { font-size: var(--text-sm); font-weight: 500; }
+.filecard__meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px,1fr)); gap: var(--space-3); }
+.mode {
+  text-align: left; border: 1px solid var(--border-default); background: var(--bg-surface);
+  border-radius: var(--radius-md); padding: var(--space-4); cursor: pointer; font-family: inherit;
+  display: flex; flex-direction: column; gap: var(--space-2); position: relative;
+  transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
+}
+.mode:hover { border-color: var(--border-strong); }
+.mode[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.mode__top { display: flex; align-items: center; gap: var(--space-2); }
+.mode__name { font-size: var(--text-sm); font-weight: 600; }
+.mode__desc { font-size: var(--text-xs); color: var(--text-secondary); line-height: var(--lh-normal); }
+.mode__check { margin-left: auto; color: var(--accent); font-size: 12px; opacity: 0; }
+.mode[aria-pressed="true"] .mode__check { opacity: 1; }
+
+.taskcard { border: 1px solid var(--border-subtle); border-radius: var(--radius-lg); background: var(--bg-surface); overflow: hidden; }
+.taskcard__head { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) var(--space-5); }
+.taskcard__title { font-size: var(--text-sm); font-weight: 600; }
+.taskcard__id { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+.taskcard__body { padding: 0 var(--space-5) var(--space-5); }
+.taskcard__foot { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-5); border-top: 1px solid var(--border-subtle); background: var(--bg-sunken); }
+.taskcard__foot .btn { margin-left: auto; }
+
+.spk-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) 0; border-bottom: 1px solid var(--border-subtle); }
+.spk-row:last-child { border-bottom: none; }
+.spk-avatar { width: 30px; height: 30px; border-radius: var(--radius-sm); display: grid; place-items: center; font-family: var(--font-mono); font-size: var(--text-xs); font-weight: 600; background: var(--bg-inset); color: var(--text-secondary); flex: none; }
+.spk-avatar--pending { background: var(--warning-soft); color: var(--warning-text); border: 1px dashed var(--warning-border); }
+.spk-name { font-size: var(--text-sm); font-weight: 500; }
+.spk-meta { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); }
+
+/* ============================================================================
+   视图 3 · 会议复核
+   ========================================================================= */
+.review-grid { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0,1fr); gap: var(--space-5); align-items: start; }
+
+.seglist { display: flex; flex-direction: column; gap: 2px; max-height: 620px; overflow-y: auto; padding-right: var(--space-1); }
+.seg {
+  display: grid; grid-template-columns: 52px 1fr; gap: var(--space-3);
+  padding: var(--space-3); border-radius: var(--radius-md); cursor: pointer;
+  border: 1px solid transparent; background: none; text-align: left; font-family: inherit; width: 100%;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.seg:hover { background: var(--bg-sunken); }
+.seg[aria-current="true"] { background: var(--bg-surface); border-color: var(--border-default); box-shadow: var(--shadow-sm); }
+.seg__time { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-tertiary); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.seg__text { font-size: var(--text-xs); color: var(--text-secondary); line-height: 1.55; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.seg__flag { display: inline-flex; align-items: center; gap: 4px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--warning-text); margin-top: 3px; }
+.seg[aria-current="true"] .seg__text { color: var(--text-primary); }
+
+.waveform { display: flex; align-items: center; gap: 2px; height: 56px; padding: 0 var(--space-1); }
+.waveform span { flex: 1; border-radius: 1px; background: var(--border-strong); min-width: 1px; }
+.waveform span.is-played { background: var(--accent); }
+.waveform span.is-head { background: var(--live); }
+
+.player { display: flex; align-items: center; gap: var(--space-3); }
+.player__btn { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); display: grid; place-items: center; cursor: pointer; flex: none; font-size: 12px; }
+.player__time { font-family: var(--font-mono); font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.player__time--total { color: var(--text-tertiary); }
+.player__rate { margin-left: auto; display: flex; gap: 2px; }
+.chip {
+  font-family: var(--font-mono); font-size: var(--text-2xs); padding: 3px 8px;
+  border: 1px solid var(--border-default); border-radius: var(--radius-full);
+  background: var(--bg-surface); color: var(--text-secondary); cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent-soft-border); color: var(--accent-text); }
+
+.emend { font-size: var(--text-read); line-height: var(--lh-relaxed); }
+.emend__orig { color: var(--text-tertiary); text-decoration: line-through; text-decoration-color: var(--danger); text-decoration-thickness: 1.5px; display: block; margin-bottom: var(--space-3); }
+.emend__fix { color: var(--text-primary); display: block; }
+.emend__orig::before, .emend__fix::before {
+  font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: 0.1em;
+  display: inline-block; margin-right: var(--space-2); padding: 0 5px;
+  border-radius: var(--radius-xs); vertical-align: 1px;
+}
+.emend__orig::before { content: "原文"; color: var(--text-tertiary); border: 1px solid var(--border-default); }
+.emend__fix::before { content: "修正"; color: var(--success-text); border: 1px solid var(--success-border); }
+
+.kv { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); font-size: var(--text-xs); }
+.kv__k { color: var(--text-tertiary); }
+.kv__v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* ============================================================================
+   视图 4 · 模型训练
+   ========================================================================= */
+.train-grid { display: grid; grid-template-columns: minmax(0,1fr) minmax(320px, 420px); gap: var(--space-5); align-items: start; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px,1fr)); gap: var(--space-4); }
+
+.console {
+  font-family: var(--font-mono); font-size: var(--text-xs); line-height: 1.75;
+  background: var(--bg-sunken); border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md); padding: var(--space-4); max-height: 300px; overflow-y: auto;
+  color: var(--text-secondary);
+}
+.console__line { display: flex; gap: var(--space-3); white-space: pre-wrap; word-break: break-word; }
+.console__ts { color: var(--text-tertiary); flex: none; }
+.console__line--ok { color: var(--success-text); }
+.console__line--warn { color: var(--warning-text); }
+
+.stat { display: flex; flex-direction: column; gap: 2px; }
+.stat__k { font-size: var(--text-xs); color: var(--text-tertiary); }
+.stat__v { font-family: var(--font-mono); font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.stat__v small { font-size: var(--text-xs); color: var(--text-tertiary); font-weight: 400; }
+.stat-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px,1fr)); gap: var(--space-4); }
+
+/* ============================================================================
+   视图 5 · 管理设置
+   ========================================================================= */
+.settings { max-width: 760px; display: flex; flex-direction: column; gap: var(--space-5); }
+.setting-row { display: grid; grid-template-columns: minmax(150px, 200px) minmax(0,1fr); gap: var(--space-5); padding: var(--space-4) 0; border-bottom: 1px solid var(--border-subtle); align-items: start; }
+.setting-row:last-child { border-bottom: none; }
+.setting-row__label { font-size: var(--text-sm); font-weight: 500; padding-top: 7px; }
+.setting-row__label .field__hint { margin-top: 3px; }
+.setting-row__control { display: flex; flex-direction: column; gap: var(--space-2); }
+
+/* 签名元素 */
+.seal { display: inline-block; }
+
+/* 响应式 */
+@media (max-width: 1080px) {
+  .live-grid, .work-grid, .train-grid, .review-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 820px) {
+  .app { grid-template-columns: 1fr; }
+  .rail { position: static; height: auto; flex-direction: row; align-items: center; gap: var(--space-4); overflow-x: auto; padding: var(--space-3) var(--space-4); }
+  .rail__brand { flex: none; }
+  .rail__group { flex-direction: row; gap: var(--space-1); }
+  .rail__label, .health { display: none; }
+  .navitem { width: auto; white-space: nowrap; }
+  .navitem__count { margin-left: var(--space-1); }
+  .body { padding: var(--space-4) var(--space-4) var(--space-12); }
+  .setting-row { grid-template-columns: 1fr; gap: var(--space-2); }
+  .setting-row__label { padding-top: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .badge--live .badge__dot { animation: none; box-shadow: none; }
+  .caret { animation: none; }
+}
+</style>
+</head>
+<body data-page-node-id="ORo53OZetyv1lD3QOWNhID">
+
+<div class="app" data-page-node-id="7Hv6XD2Oh0FBjxmONZJhqB">
+
+  <!-- ================= 侧栏 ================= -->
+  <aside class="rail" data-page-node-id="hayvkEcOZGPn4dUUnKO3lx">
+    <div class="rail__brand" data-page-node-id="oR2RDiF1pEGWBURqxiVBnG">
+      <span class="rail__mark" data-page-node-id="CBudIAywH7GEQxQ7W2ejW9">Astra</span>
+      <span class="rail__sub" data-page-node-id="HyWZF6b3tcjEGCIC9czSdr">Local Meeting Studio</span>
+    </div>
+
+    <nav class="rail__group" aria-label="主导航" data-page-node-id="OCBschnxMufjLTt524SPrU">
+      <span class="rail__label" data-page-node-id="DuP2T5QIBav8NpMRXxyNA3">工作区</span>
+      <button class="navitem" data-nav="live" aria-current="page" data-page-node-id="DAsSc02YLQtjDQjm1mnUB0"><span class="navitem__icon" data-page-node-id="wtuFtELo7PS3TpAqDiPJ5o">◎</span>实时助手</button>
+      <button class="navitem" data-nav="work" data-page-node-id="e1aRc9PktwvNRpmAZjE2pL"><span class="navitem__icon" data-page-node-id="uBWGfIUSAmE5d6iivXjqeE">▤</span>音频工作台</button>
+      <button class="navitem" data-nav="review" data-page-node-id="o9dHpxwBl9TxXRdr3Blyzd"><span class="navitem__icon" data-page-node-id="UObmp16qmFql8DrEeq6fhk">≡</span>会议复核<span class="navitem__count" data-page-node-id="GP12ZArE8MnttSgKhUxvfD">3</span></button>
+      <button class="navitem" data-nav="train" data-page-node-id="XNew7OuC4r938gXV5nQIdk"><span class="navitem__icon" data-page-node-id="XG26IdyFvyalhHX0Py9Z9m">◈</span>模型训练</button>
+    </nav>
+
+    <nav class="rail__group" aria-label="系统" data-page-node-id="EEUSHhGtyl7wRTcvdCewhe">
+      <span class="rail__label" data-page-node-id="LQyHvZk9q95lLxObn2SZh1">系统</span>
+      <button class="navitem" data-nav="settings" data-page-node-id="nNzH1Bk3aulmFoB56i6sR3"><span class="navitem__icon" data-page-node-id="ZnatFrGoti3suLmfVrsPbA">⚙</span>管理设置</button>
+    </nav>
+
+    <div class="health" style="margin-top:auto" data-page-node-id="8U5ULId1v2y5NC3qoSguOY">
+      <div class="health__title" data-page-node-id="Zyh7vu33yZz3pFCOOE8831">服务状态</div>
+      <div class="health__row" data-page-node-id="ACnlO1HL4NUQ7vmnPJcvt9"><span class="health__dot dot--ok" data-page-node-id="TADT4WeDEi00wBgW85b5Xr"></span><span class="health__name" data-page-node-id="9dAszbtGulYfLwa04lQ22Y">LLM</span><span class="health__val" data-page-node-id="0RsUE7TVvnQA2FEtKuYBrf">已连接</span></div>
+      <div class="health__row" data-page-node-id="Dq0bEOA3e6ZrubRjZbypPn"><span class="health__dot dot--ok" data-page-node-id="lp3jskTmSd7411bVlEsnmx"></span><span class="health__name" data-page-node-id="8tA9nYra376LgPhehJr5D5">ASR</span><span class="health__val" data-page-node-id="W5oGxJioPNdgRBPl9R3tDH">已加载</span></div>
+      <div class="health__row" data-page-node-id="6mUvOLtC0MnZbide6YuKXo"><span class="health__dot dot--ok" data-page-node-id="5EVK1hEG5P5RuwghQbo45N"></span><span class="health__name" data-page-node-id="obh6Rl7xBPFpHMSW5vCGIu">TTS</span><span class="health__val" data-page-node-id="wYa57HRGTTwkB3zbQhndDy">已加载</span></div>
+      <div class="health__row" data-page-node-id="fiViEH9SDySpm1jRYB6ktI"><span class="health__dot dot--warn" data-page-node-id="F3EtwQZC5Hxh81gV9LcZMx"></span><span class="health__name" data-page-node-id="MakASEbElj6bUIzlJQAl4W">VAD</span><span class="health__val" data-page-node-id="IzcrqYfO45FctspY9DzTWo">加载中</span></div>
+      <div class="health__row" style="margin-top:6px; padding-top:8px; border-top:1px solid var(--border-subtle)" data-page-node-id="jcBWGrUXKZVpb6gyQEjfHb">
+        <span class="health__name" data-page-node-id="Mw7xahdfcADkSBOYACpzq3">全部数据存于本机</span>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main" data-page-node-id="FKo19UEvIgvMFWZWbdUZhi">
+
+    <!-- ================= 顶栏 ================= -->
+    <header class="topbar" data-page-node-id="QmjRIewbqPKAnGEWHEYJri">
+      <span class="crumb" data-page-node-id="He8yGl0sbEsB1amy9hnzxk">Astra / <strong id="crumbNow" data-page-node-id="IRbZssBeoZzBowV46OUHxd">实时助手</strong></span>
+      <div class="topbar__spacer" data-page-node-id="Zm6UPA1PeyQ7vHTsoAEipB"></div>
+      <span class="badge badge--warning" data-page-node-id="DtGkZcoGGSbZfNtIPMFkFd"><span class="badge__dot" data-page-node-id="uGpWHufuXKI2Fnu47C239w"></span>3 个声纹待审核</span>
+      <button class="btn btn--secondary btn--sm" id="themeToggle" aria-label="切换深浅主题" data-page-node-id="4BY2HM23ylvN1QIHsELs6S">
+        <span id="themeIcon" data-page-node-id="09EyG9E968jVogml3oh6Mh">◐</span><span id="themeLabel" data-page-node-id="63yqUdNea2n1jw6BGESCOb">深色</span>
+      </button>
+    </header>
+
+    <div class="body" data-page-node-id="5yCGOlUq76IZaPNJB0va2C">
+
+      <!-- ============================================================
+           视图 1 · 实时助手
+           ============================================================ -->
+      <section class="view is-active" id="view-live" aria-label="实时助手" data-page-node-id="CiDy1g0VXTLaDA5Zz2HGEJ">
+        <div class="page-head" data-page-node-id="DqyUNIFCvjnxIgwouUJ5uv">
+          <div class="page-head__text" data-page-node-id="VevZCF8U7kpNpvUnAUQAbU">
+            <div class="eyebrow" data-page-node-id="LxqYzi6fvndY2YKOqV1bIw">01 · 实时助手</div>
+            <h1 data-page-node-id="Lw0qYmLX98pXbueL4GP2Hi">直接说话，停顿后自动提交</h1>
+            <p data-page-node-id="kvlT5OuGohcmSAz1geQHqi">麦克风音频在本机完成 ASR，交给本地或远程 LLM 流式推理，再按句合成语音播报。回答过程中可以随时打断。</p>
+          </div>
+        </div>
+
+        <div class="live-grid" data-page-node-id="mNVKHPDczJFNDVJmAS0qUR">
+
+          <!-- 声纹罗盘 -->
+          <div class="card dial-card" data-page-node-id="6gCJMCaszkDjln6F0sxRdq">
+            <div class="dial-stage" data-page-node-id="sTDBYNaxQlxDjeD8Fi7R7o">
+              <svg width="232" height="232" viewBox="0 0 232 232" role="img" aria-label="声纹罗盘，当前状态：聆听中" data-page-node-id="uFngy5cHt7TjKBXscGd6aN">
+                <circle cx="116" cy="116" r="112" fill="none" stroke="var(--border-subtle)" stroke-width="1" data-page-node-id="RMCBD3u3XAZ29WURjeElW7"/>
+                <g class="ring--thinking" stroke="var(--border-default)" stroke-width="1" data-page-node-id="i98NWHg89WwTfm1UtE4KGd">
+                  <line x1="116" y1="6" x2="116" y2="14" data-page-node-id="5d0CrxPvKHSO4sRZkUkUqv"/>
+                  <line x1="116" y1="218" x2="116" y2="226" data-page-node-id="4HmmAAONwY4R7VN00NVavu"/>
+                  <line x1="6" y1="116" x2="14" y2="116" data-page-node-id="Qtvu6OuZzgwqkSrUGSIYEY"/>
+                  <line x1="218" y1="116" x2="226" y2="116" data-page-node-id="zBSnHwmeCnZC3FYkRRHD5A"/>
+                </g>
+                <circle cx="116" cy="116" r="84" fill="none" stroke="var(--live-border)" stroke-width="1" stroke-dasharray="2 6" data-page-node-id="aUxaMX2Ca08XvOFbXznJTS"/>
+                <!-- 16 根径向声纹柱，内端固定在半径 48，向外生长 -->
+                <g class="wv wv--live" fill="var(--live)" data-page-node-id="pxmXriH92r2H8lW27nJXyt">
+                  <g transform="rotate(0 116 116)" data-page-node-id="eYMqSrC4iGwsBifEzUbX6l"><rect x="113.5" y="54" width="5" height="14" rx="2.5" opacity="0.55" data-page-node-id="LFU7DZLeRgZ30hRk1XSDSj"/></g>
+                  <g transform="rotate(22.5 116 116)" data-page-node-id="9yKn4F84QG4YOEaI2FHYfM"><rect x="113.5" y="42" width="5" height="26" rx="2.5" opacity="0.85" data-page-node-id="Z1V79SKwB4Eiu5O6GQq4C9"/></g>
+                  <g transform="rotate(45 116 116)" data-page-node-id="WWWFogKwenNJj9FFQZG8cC"><rect x="113.5" y="50" width="5" height="18" rx="2.5" opacity="0.6" data-page-node-id="o7TGcigughA4bw4EhgNT5h"/></g>
+                  <g transform="rotate(67.5 116 116)" data-page-node-id="FNCfGBKS1ZwK6mfe65V64U"><rect x="113.5" y="36" width="5" height="32" rx="2.5" opacity="1" data-page-node-id="Bj3aCaCrmTBGMhdHPyNhKD"/></g>
+                  <g transform="rotate(90 116 116)" data-page-node-id="B72W6sUpgaeL6qakhYilqO"><rect x="113.5" y="48" width="5" height="20" rx="2.5" opacity="0.7" data-page-node-id="8fGTO2U42fdJcAGT9z72in"/></g>
+                  <g transform="rotate(112.5 116 116)" data-page-node-id="c3FDhUzmLFOnr9Aw3e9KZy"><rect x="113.5" y="56" width="5" height="12" rx="2.5" opacity="0.45" data-page-node-id="OxCAmJPCi7iuJsh8OFHslH"/></g>
+                  <g transform="rotate(135 116 116)" data-page-node-id="VCRPTZtUfvgg1bphudjRnG"><rect x="113.5" y="40" width="5" height="28" rx="2.5" opacity="0.9" data-page-node-id="h0teCn2H0YojQdgyvoJM4Y"/></g>
+                  <g transform="rotate(157.5 116 116)" data-page-node-id="bp1FyMwuPe6o0a2a56iVol"><rect x="113.5" y="52" width="5" height="16" rx="2.5" opacity="0.6" data-page-node-id="iUG62cIyBVhnbdZEkGCbjj"/></g>
+                  <g transform="rotate(180 116 116)" data-page-node-id="KGQjmfoSvnDC3KSdnMhWDx"><rect x="113.5" y="46" width="5" height="22" rx="2.5" opacity="0.75" data-page-node-id="mGdiPqdX8f5bWrtcCDgXty"/></g>
+                  <g transform="rotate(202.5 116 116)" data-page-node-id="09my9gllnYPkf7Z40YSc32"><rect x="113.5" y="54" width="5" height="14" rx="2.5" opacity="0.5" data-page-node-id="zVri7hJBVYDl8mQ8NwRUHU"/></g>
+                  <g transform="rotate(225 116 116)" data-page-node-id="nIv1a8SfNYEVvj8pzrrTun"><rect x="113.5" y="38" width="5" height="30" rx="2.5" opacity="0.95" data-page-node-id="NGIV6g4T0KhHFFhDxhES8C"/></g>
+                  <g transform="rotate(247.5 116 116)" data-page-node-id="Roj0N9t2jVR56aoVu0IMC5"><rect x="113.5" y="50" width="5" height="18" rx="2.5" opacity="0.65" data-page-node-id="2ZMzUC9PhXoFjOoitsYuBv"/></g>
+                  <g transform="rotate(270 116 116)" data-page-node-id="pQ58OB3EMTjqbP1g6ZNQzN"><rect x="113.5" y="44" width="5" height="24" rx="2.5" opacity="0.8" data-page-node-id="4Qzaa1ZVBTlghN9qeVPq2j"/></g>
+                  <g transform="rotate(292.5 116 116)" data-page-node-id="OPnCEvw86NFM4PHSjdQevV"><rect x="113.5" y="56" width="5" height="12" rx="2.5" opacity="0.45" data-page-node-id="76DEDqJQMGKrVHizEUC3rW"/></g>
+                  <g transform="rotate(315 116 116)" data-page-node-id="UagwAKlK7eQkRy9Pmvi3PJ"><rect x="113.5" y="48" width="5" height="20" rx="2.5" opacity="0.7" data-page-node-id="8GUBx41vlaORAs8zmQH9j9"/></g>
+                  <g transform="rotate(337.5 116 116)" data-page-node-id="hGIEpd40uicyAAx5hEbWPJ"><rect x="113.5" y="42" width="5" height="26" rx="2.5" opacity="0.85" data-page-node-id="3MdJgKx0SQEASkmdNZkB1O"/></g>
+                </g>
+                <circle cx="116" cy="116" r="40" fill="var(--live-soft)" stroke="var(--live)" stroke-width="1.5" data-page-node-id="5SXZkGlwsamHvbDl7PgU1Z"/>
+                <text x="116" y="121" text-anchor="middle" font-family="var(--font-mono)" font-size="12" font-weight="600" fill="var(--live-text)" data-page-node-id="W5XiB5odfzQppJ9v8qgIQD">聆听中</text>
+              </svg>
+            </div>
+
+            <div style="text-align:center" data-page-node-id="NoU4byDcIrnpPxwOLT9BJ4">
+              <div class="dial-state" data-page-node-id="Om4KfnFsHMJAOEcErH3Tg1">聆听中</div>
+              <p class="dial-sub" style="margin-top:var(--space-2)" data-page-node-id="RdKhxauE8vWXDRQ0YfrQTL">可以直接说话，停顿 0.8 秒后自动提交</p>
+            </div>
+
+            <div class="dial-controls" data-page-node-id="UlBGvdSYawgLpxvbkceUoO">
+              <button class="btn btn--secondary btn--sm" data-page-node-id="QSQ1K5anTduAXwY0ATDV5t">重新连接</button>
+              <button class="btn btn--ghost btn--sm" data-page-node-id="5hRUrhiHXSHnKv5gVMxzJq">中断回答</button>
+              <button class="btn btn--ghost btn--sm" data-page-node-id="7Z8KEN4CzmYWYKDC0UbTsz">结束会话</button>
+            </div>
+
+            <div class="dial-meta" data-page-node-id="EcYnwKBnKOWx5MgOhFQLCZ">
+              <div data-page-node-id="ExmVF8erWYh5x3on8K2Ats"><div class="dial-meta__k" data-page-node-id="JdQIVClZztROANFttHlcQF">会话时长</div><div class="dial-meta__v" data-page-node-id="uomWXBSritJW7TdWUFtjPg">04:12</div></div>
+              <div data-page-node-id="EL5q6bVyLtjmFRlM7uRiGV"><div class="dial-meta__k" data-page-node-id="z9smIjNSeFsOgLr2QcFSvY">已完成轮次</div><div class="dial-meta__v" data-page-node-id="aXJq14EHHw8OQ0XYYnDNWZ">3</div></div>
+              <div data-page-node-id="ui33bGZe4DEMZBD0yuOSQa"><div class="dial-meta__k" data-page-node-id="RcxZoZ6vDaDPbqqYHUa25P">输入设备</div><div class="dial-meta__v" data-page-node-id="eR9qOPMrDsMBhXNjOhyflV">Mac mini 麦克风</div></div>
+              <div data-page-node-id="E27rMeWB7WxSa4y75YDBjH"><div class="dial-meta__k" data-page-node-id="lITXk7ps1gNFuM5PfRWUbl">采样率</div><div class="dial-meta__v" data-page-node-id="byj29thcop61UXB3qJkPyW">16 kHz</div></div>
+            </div>
+          </div>
+
+          <!-- 实时流 -->
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="HLHlDSiWo0kYKAPh1FPaqH">
+            <div class="card" data-page-node-id="JD8XQlC7IaGnClQdgkGGlW">
+              <div class="card__head" data-page-node-id="ClIuHQe0hV1mIaLWUxJmUx">
+                <h4 data-page-node-id="7aD08hG4DR6pA4mWhNqeFr">本次会话</h4>
+                <span class="badge badge--live" data-page-node-id="xIJfCfHAAU2c7jcJNkkTqE"><span class="badge__dot" data-page-node-id="ViBmXSknEWFIW7hb6vZycS"></span>进行中</span>
+                <button class="btn btn--ghost btn--sm" data-page-node-id="uPjhWcl5tFtwfJoPeL5yES">导出转写</button>
+              </div>
+
+              <div class="spine" data-page-node-id="dO8kIZRgg9JmgI1o54sQkH">
+                <div class="spine-row" data-page-node-id="iLsi6MBgxXLkdwwd6TB6HH">
+                  <div class="spine-time" data-page-node-id="MtVqMpHxmMhM6io0ccVgXw">00:00:06</div>
+                  <div class="spine-body" data-page-node-id="ixeDFtYHEwZvQoWc9wnomK">
+                    <div class="spine-speaker" data-page-node-id="ySI5pM41x1WHoJl02V2tuO">你</div>
+                    <div class="spine-text" data-page-node-id="PEboN6OW8GXPRDRpylIi0Y">帮我看看今天的会议纪要有哪些待办事项。</div>
+                  </div>
+                </div>
+                <div class="spine-row" data-page-node-id="QboTHxZxSeaybZ91ktITHA">
+                  <div class="spine-time" data-page-node-id="DZ5Hfa0waJ8wo9LxllUbCv">00:00:09</div>
+                  <div class="spine-body" data-page-node-id="yPvLa0O57O7QTPGLyRr3g5">
+                    <div class="reply" data-page-node-id="Xn33v0Zn8AyjNcMwBI6InM">
+                      <div class="reply__label" data-page-node-id="yhf6JgxyGJiQukHxSI0XlT">Astra · 本地 LLM</div>
+                      <div class="reply__text" data-page-node-id="yz3WOO1CbGEH1VscePoO6U">今天这场评审共产生 4 项待办。第一项，后端需要在周五前补齐长音频切片回归集；第二项……</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="spine-row" data-page-node-id="doERg0rD6nw6tIShJBYutf">
+                  <div class="spine-time" data-page-node-id="Fx4PxVXZvo6aOmc4J7cNZt">00:00:41</div>
+                  <div class="spine-body" data-page-node-id="RruK8ETqJfeQriLMz8AwBj">
+                    <div class="spine-speaker" data-page-node-id="oMbbKnvOgtm4GQjLmHBGEv">你</div>
+                    <div class="spine-text" data-page-node-id="S4mfeOtrsRltIv8e3GUnuA">等一下，第二项的负责人是谁？</div>
+                  </div>
+                </div>
+                <div class="spine-row spine-row--live" data-page-node-id="3ozt8VvhGfeg0oSAZNiemd">
+                  <div class="spine-time" data-page-node-id="l3MVBJGAuSkWyV3gQvQCu3">00:00:48</div>
+                  <div class="spine-body" data-page-node-id="YTMV6Ew5ZFXMK4gXc9WGKy">
+                    <div class="reply" data-page-node-id="QzuD6IJIbhYE0KABn93sLG">
+                      <div class="reply__label" data-page-node-id="O8GyzXjdfzVE5OfyFf2L1e">Astra · 正在生成</div>
+                      <div class="reply__text" data-page-node-id="t5UeAkWfloo48suKSEPNSB">第二项的负责人是<span class="caret" aria-hidden="true" data-page-node-id="cgBOaoqSOgOZtPKCtHEHKL"></span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="alert alert--info" data-page-node-id="ijrhwbF1t79EAZW9Ik8Xxc">
+              <span data-page-node-id="rh6Mgx0BQYTXhDo41ZrQBm">◈</span>
+              <div class="alert__body" data-page-node-id="d7lzIgp6zjK2xfDhAGXpB1">
+                <div class="alert__title" data-page-node-id="CSzUs52h9oCaXuc2NX2B59">本轮回答正在按句合成语音</div>
+                <div class="alert__desc" data-page-node-id="4NscgKgDJ3Q2JdOVbJrAOe">播报结束后会自动回到聆听状态；中途说话可直接打断。</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============================================================
+           视图 2 · 音频工作台
+           ============================================================ -->
+      <section class="view" id="view-work" aria-label="音频工作台" data-page-node-id="yEZwYvsYpMeTob6H8DKOzA">
+        <div class="page-head" data-page-node-id="8srqAwaCyZXalOYF9zbkHE">
+          <div class="page-head__text" data-page-node-id="00LdE2cgZ9GcDNouY9Bmo6">
+            <div class="eyebrow" data-page-node-id="EoNzjssL9RZK9AeXxwJDBQ">02 · 音频工作台</div>
+            <h1 data-page-node-id="E6mtYEW42Gdbk7OnizFM8e">上传录音，得到可追溯的转写与纪要</h1>
+            <p data-page-node-id="ezGRj9wpM1xPr4fjDkTFth">任务提交后立即返回任务 ID，VAD、ASR、说话人分离、纠错和纪要生成在后台依次执行。你可以离开页面，回来后仍能看到完整进度。</p>
+          </div>
+        </div>
+
+        <div class="work-grid" data-page-node-id="TDvJlyH6z9JieOkjd6H8UY">
+
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="pbEH5nAF3SQymmPOUBI1yq">
+
+            <!-- 上传 + 配置 -->
+            <div class="card" data-page-node-id="G1ZMnaUvwJLcfFRjn1BPt0">
+              <div class="card__head" data-page-node-id="RZ1KgxsiEUj0KASuEZWsTd"><h3 data-page-node-id="B6znUD5WFLYQciX1vmGtzM">新建任务</h3></div>
+
+              <div class="dropzone" role="button" tabindex="0" data-page-node-id="vOYJJ01Z2yBf4Qcb1BXe46">
+                <div class="dropzone__icon" data-page-node-id="mpjAKfGLOrC4wQSSBgL5Nb">⇪</div>
+                <div class="dropzone__title" data-page-node-id="P51JqsqOcVgGMz5GJ4NOLs">拖入音频文件，或点击选择</div>
+                <div class="dropzone__hint" data-page-node-id="7oeT2qOt0rEoGrKPbGu7dq">支持 m4a / wav / mp3 / flac / aac / mov / mp4 · 单个文件最大 500 MB</div>
+              </div>
+
+              <div class="filecard" style="margin-top:var(--space-4)" data-page-node-id="s3ObNVpnQhCFdAbi3LEfRF">
+                <div class="filecard__icon" data-page-node-id="GWpYbWJT516eDVH14q6Tpm">♪</div>
+                <div style="flex:1; min-width:0" data-page-node-id="zHonTEpKTbB3pwMOwcc39t">
+                  <div class="filecard__name" data-page-node-id="qmNO6kto4Tdv2movkKR6l0">2026-09-10 产品评审会.m4a</div>
+                  <div class="filecard__meta" data-page-node-id="6HjVeD1LTsApdfJA1E7gyE">128.4 MB · 时长 47:12 · 已就绪</div>
+                </div>
+                <button class="btn btn--ghost btn--sm" data-page-node-id="HTOxaKieBlGSNFjZWgMJIN">移除</button>
+              </div>
+
+              <div class="divider" data-page-node-id="5eSdvkLewpeZlwQUYEiB9Q"></div>
+
+              <div class="form-grid" data-page-node-id="Lob6CUE10Hr82odElSCLoC">
+                <div class="field" data-page-node-id="apRWZ2FpOJ23aPlo6KCR6h">
+                  <label class="field__label" for="w-topic" data-page-node-id="HjO90x3VFPjZCIMHGOEUFN">会议主题</label>
+                  <input class="input" id="w-topic" placeholder="留空时由模型根据内容推断" data-page-node-id="5ODxSmAfAk0cLqvAASry1k">
+                </div>
+                <div class="field" data-page-node-id="m9XTN3aIqwtjECemTveaTS">
+                  <label class="field__label" for="w-tpl" data-page-node-id="apmqJimb6xmHPqoxXT0WJI">提示词模板</label>
+                  <select class="select" id="w-tpl" data-page-node-id="fz4rZSqwr0GLiGZeAMiyBO">
+                    <option data-page-node-id="9mLAXexX1t9VBqUDQiU0a0">标准纪要（内置）</option>
+                    <option data-page-node-id="ajGNrRAQlvJZDYVh2D5k6f">决策追踪（内置）</option>
+                    <option data-page-node-id="VE1qkPL01RKgNAfPIxDypo">精简纪要（内置）</option>
+                    <option data-page-node-id="OIaNe2AZdkqyZid3OZeH8s">客户回访（自定义）</option>
+                  </select>
+                </div>
+              </div>
+
+              <h4 style="margin-top:var(--space-5); margin-bottom:var(--space-3)" data-page-node-id="UL9t4yXELQJx20qL4R4d64">处理方式</h4>
+              <div class="modes" role="group" aria-label="处理方式" data-page-node-id="zMYGTSDVcARGLhBjTONFDb">
+                <button class="mode" aria-pressed="false" data-mode data-page-node-id="1UV96Yaa38QRyHsLRypPHg">
+                  <span class="mode__top" data-page-node-id="Y5L1g2C9omEakZWKNCFZet"><span class="mode__name" data-page-node-id="R0o0gwzHcylp6i4BshH55F">普通转写</span><span class="mode__check" data-page-node-id="unnVoifScAcAjlLKbbJiEB">✓</span></span>
+                  <span class="mode__desc" data-page-node-id="itde6O2Bt53ZqSmXN9iYGO">返回完整 ASR 文本，适合快速查看，不进入审核流程。</span>
+                </button>
+                <button class="mode" aria-pressed="false" data-mode data-page-node-id="wmBubYpSfNk8l6ZnQeL2cr">
+                  <span class="mode__top" data-page-node-id="xP5nwJfsVfAKykX1WJdeEv"><span class="mode__name" data-page-node-id="Hb1YESISzSLVVUFHvblfnv">流式修正</span><span class="mode__check" data-page-node-id="0lAMTJGzhXMxKjnyNBXjJi">✓</span></span>
+                  <span class="mode__desc" data-page-node-id="76Wf06c4hElghmdrhhWDyT">边转写边推送纠错分段，默认只应用确定性规则。</span>
+                </button>
+                <button class="mode" aria-pressed="true" data-mode data-page-node-id="UwPOMjpPKxVN9oEDyMnVSi">
+                  <span class="mode__top" data-page-node-id="sVLEhOoSzyeWIpY6AYDJHU"><span class="mode__name" data-page-node-id="eukUrh47o7oYiKrZwJ6XnK">生成会议纪要</span><span class="mode__check" data-page-node-id="GGIbIgpUtPZ0c2DDiyfMCS">✓</span></span>
+                  <span class="mode__desc" data-page-node-id="U8Tg3v88ParaARCbVbe1rO">完整工作流：VAD、ASR、标点、说话人分离、纠错、分段纪要。</span>
+                </button>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-5)" data-page-node-id="O8LAqEqbwJaPTZOEbISjT9">
+                <button class="btn btn--primary btn--lg" data-page-node-id="Xep0rDlYRqrXR4pseznTmA">生成会议纪要</button>
+                <span class="card__hint" data-page-node-id="GMvdRELMbTQEWN87UcVw4E">预计耗时 4–6 分钟（按 47 分钟音频估算）</span>
+              </div>
+            </div>
+
+            <!-- 任务列表 -->
+            <div class="card" data-page-node-id="e9CeF1eNOyjE3Hl2RTtdPn">
+              <div class="card__head" data-page-node-id="FHmzBptmXMu0xHDvlij7B8">
+                <h3 data-page-node-id="u8bvueL9n4hRfiTAiRkq38">最近任务</h3>
+                <div style="margin-left:auto; display:flex; gap:var(--space-2); align-items:center" data-page-node-id="Aeo1RFlF5UK5FLFcyDuL0u">
+                  <span class="card__hint" data-page-node-id="QswXC6UuJRcO1rlKIViGhv">演示状态</span>
+                  <button class="chip" data-task="processing" aria-pressed="true" data-page-node-id="d3S3AsfbvbnEC8ZqcaTHZI">处理中</button>
+                  <button class="chip" data-task="done" aria-pressed="false" data-page-node-id="CApWtCJmnjMCpysX2W4XDm">已完成</button>
+                  <button class="chip" data-task="failed" aria-pressed="false" data-page-node-id="UtKaM1GyZyfxbu0AogVM2Z">失败</button>
+                </div>
+              </div>
+
+              <!-- 处理中 -->
+              <div class="taskcard" data-taskpanel="processing" data-page-node-id="Y8mrg1zZYkerF3tV9r5CX3">
+                <div class="taskcard__head" data-page-node-id="1vSikQDxHxMdaU07UC94X6">
+                  <span class="badge badge--accent" data-page-node-id="c9jubzG2xReliHWynLCJ4D"><span class="badge__dot" data-page-node-id="BGn8tWbJ8Fi8YBMuuwc2PJ"></span>处理中</span>
+                  <div style="flex:1; min-width:0" data-page-node-id="Qij7XdVXUHJX4O6wGcIGf3">
+                    <div class="taskcard__title" data-page-node-id="zc6gyhnQ5Ezcq9IIBKBGHu">2026-09-10 产品评审会</div>
+                    <div class="taskcard__id" data-page-node-id="MGdCkiF0j2b5dhJaOZyNIS">task_8f2a41 · 标准纪要 · 已运行 02:14</div>
+                  </div>
+                  <button class="btn btn--ghost btn--sm" data-page-node-id="V9U8mIJ6YPgS0GaSO4pMe7">取消</button>
+                </div>
+                <div class="taskcard__body" data-page-node-id="HY9gQTFgCj0jk04MFq4W5f">
+                  <div class="progress" style="margin-bottom:var(--space-5)" data-page-node-id="2AzuzOclarUfQVNOTBhO7g"><div class="progress__bar" style="width:62%" data-page-node-id="TwOYYz9Q7QWuvhExCyBaQ6"></div></div>
+                  <div class="steps" data-page-node-id="vh1CoHnh0plNoPmEKXnQtB">
+                    <div class="step step--done" data-page-node-id="FISKbIympT5b8FFRKlPBow"><span class="step__mark" data-page-node-id="5NeZNnF3nHAjrm6psjv1ql">✓</span><div data-page-node-id="GmAOiN9o7P7VWBFhXwm4of"><div class="step__name" data-page-node-id="5aU3fIQbJswmOY72LkRYx0">语音活动检测</div></div><span class="step__time" data-page-node-id="5rySKIhUbHTFAdtEAHxait">2.1s</span></div>
+                    <div class="step step--done" data-page-node-id="EQG4rCguCrbPuUj4pMUGW6"><span class="step__mark" data-page-node-id="X3jWdN6N62EhxG3qou22Y7">✓</span><div data-page-node-id="rGcGq8V3aihIbbFj3MQ3w0"><div class="step__name" data-page-node-id="VW5uQ9XRD31V3MZiGIXw1R">ASR 转写</div></div><span class="step__time" data-page-node-id="N0lg1AZJJPoaZrwfL7P9fc">48.6s</span></div>
+                    <div class="step step--done" data-page-node-id="Frn00fvLGNvcAIVTvID12S"><span class="step__mark" data-page-node-id="RkzeDk1qjLeOk73erQUqUS">✓</span><div data-page-node-id="23RLqMjTOAcHJuchsXprCG"><div class="step__name" data-page-node-id="f85GJD6K836tahUzMbYwTf">标点还原</div></div><span class="step__time" data-page-node-id="cSQXTLqU7wSB2Y1AE7IBRm">3.4s</span></div>
+                    <div class="step step--active" data-page-node-id="2LgdD1ut4Edpme3PnIfkAo"><span class="step__mark" data-page-node-id="mCIIPcNGtOW0Mqd2dWUyGQ">4</span><div data-page-node-id="tMJfOqGNWiAGBkwvSRjPP8"><div class="step__name" data-page-node-id="uG2LKMazV2zIzEQLWt0Si2">说话人分离</div></div><span class="step__time" data-page-node-id="TNrMilmZT4Qk847F8duzvY">进行中</span></div>
+                    <div class="step step--pending" data-page-node-id="j8nU6cLgprqpCr1TNMMmOa"><span class="step__mark" data-page-node-id="g0FDDUEG50a2kPXFDElfy0">5</span><div data-page-node-id="hXaEIci9yiFU2kI7m8EreF"><div class="step__name" data-page-node-id="e0fbLGscNNF9H59WVpewcM">确定性纠错</div></div><span class="step__time" data-page-node-id="B4EJb9vWBtT0Etg0NofdED">等待</span></div>
+                    <div class="step step--pending" data-page-node-id="JzZEPQEBFB3yWM3VDX8DWB"><span class="step__mark" data-page-node-id="6jTCKk0HLNqowVtcyqfLzi">6</span><div data-page-node-id="M7fcO3QhTEvpe1nWierpNl"><div class="step__name" data-page-node-id="EpRE4Jw1Z5CY5QoEzWSggW">分段纪要生成</div></div><span class="step__time" data-page-node-id="z1NsYbgboJahogTIw7RAwY">等待</span></div>
+                  </div>
+                </div>
+                <div class="taskcard__foot" data-page-node-id="A4cfIHvWEdTFB2DoVZ98EE">
+                  <span class="card__hint" data-page-node-id="l31gW1JpxttH2Tr1VAXQ6c">产物目录 ~/Astra/meetings/task_8f2a41/</span>
+                  <button class="btn btn--ghost btn--sm" data-page-node-id="u5zALAleki8OfoEwnilS3N">查看日志</button>
+                </div>
+              </div>
+
+              <!-- 已完成 -->
+              <div class="taskcard" data-taskpanel="done" hidden data-page-node-id="wN3WVC6cveCGpzod0XI7tx">
+                <div class="taskcard__head" data-page-node-id="fY8u0tSfa3f1ZQwVt75fRx">
+                  <span class="badge badge--success" data-page-node-id="BneDayfioHlMGxvjhtifLf">已完成</span>
+                  <div style="flex:1; min-width:0" data-page-node-id="0N3loHPS8vpgZfD94YeYF4">
+                    <div class="taskcard__title" data-page-node-id="lLxFlG6ZtPBWb4N2Wh8RMT">2026-09-08 周会</div>
+                    <div class="taskcard__id" data-page-node-id="JqITMlrXcpS2d6Er7TH8eu">task_71c9de · 精简纪要 · 用时 03:41 · 5 位说话人</div>
+                  </div>
+                </div>
+                <div class="taskcard__body" data-page-node-id="w9KeBJ2UKDcaMVfw3LpR8R">
+                  <div class="alert alert--warning" data-page-node-id="aVn25C2njy0zZSxpj5YQHr">
+                    <span data-page-node-id="0eySmQoUxHliemuhe13NUV">◆</span>
+                    <div class="alert__body" data-page-node-id="ofGrEOZnam7fpaFMDUY1yo">
+                      <div class="alert__title" data-page-node-id="IA87r0f5tUEqEump3EIgw1">3 个声纹待审核</div>
+                      <div class="alert__desc" data-page-node-id="1Q8QS2wUCaIxyCAhIbnLDW">审核通过后才会参与后续会议的说话人匹配</div>
+                      <div class="alert__actions" data-page-node-id="raSoBUAwv3T7vqMoZDrDwq">
+                        <button class="btn btn--secondary btn--sm" data-page-node-id="wPTxpty9vNEBQLma8GyyH6">去审核</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="taskcard__foot" data-page-node-id="tCJUdhTaCMszajydBRSSUU">
+                  <span class="card__hint" data-page-node-id="LcI8ZWzBoJmIarRL7hJA6O">report.md · transcript.txt · meta.json</span>
+                  <button class="btn btn--secondary btn--sm" data-page-node-id="6mOIliAJBIUFkDla894M1l">查看纪要</button>
+                  <button class="btn btn--ghost btn--sm" data-page-node-id="kiH6B4HEKw4r5Vy0moIGHX">下载产物</button>
+                </div>
+              </div>
+
+              <!-- 失败 -->
+              <div class="taskcard" data-taskpanel="failed" hidden data-page-node-id="meHuDcCc9RUywmFmuhMGJ4">
+                <div class="taskcard__head" data-page-node-id="cUPCtx19s9WYpocH1fYmp1">
+                  <span class="badge badge--danger" data-page-node-id="bFAEbVyHCQ8SCx1lKZqzI9">失败</span>
+                  <div style="flex:1; min-width:0" data-page-node-id="ScZUE0COCsDzQAN7DiBQV6">
+                    <div class="taskcard__title" data-page-node-id="PkLfxkCSX64VMqHYI8YyQh">2026-09-07 客户访谈</div>
+                    <div class="taskcard__id" data-page-node-id="zBCqijslY6RSL8ANwYQTFY">task_5a03b7 · 标准纪要 · 在「说话人分离」阶段中断</div>
+                  </div>
+                </div>
+                <div class="taskcard__body" data-page-node-id="sA7gQ1odRj2jngtSYkhqmf">
+                  <div class="alert alert--danger" data-page-node-id="LBBfaFbr9JJFEj22D1pt6l">
+                    <span data-page-node-id="GiQzsONnzYz2v3EtzK58ay">◆</span>
+                    <div class="alert__body" data-page-node-id="bGYSHTwGwHBB1C5LIaaMQd">
+                      <div class="alert__title" data-page-node-id="RscUKDDY4S1gBceppUU31C">声纹模型未加载</div>
+                      <div class="alert__desc" data-page-node-id="I4f88MU16PeHpXe1jY8Pqd">日志：~/Astra/meetings/task_5a03b7/job.log · 已完成的 ASR 结果不会丢失</div>
+                      <div class="alert__actions" data-page-node-id="ag0TCP1xrbKaiHbwprPwiq">
+                        <button class="btn btn--secondary btn--sm" data-page-node-id="oFfDWoVYcsCmtrDbWPtGSy">查看日志</button>
+                        <button class="btn btn--ghost btn--sm" data-page-node-id="23D2oL7p49OgEpETFJaDqk">仅保留转写</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="taskcard__foot" data-page-node-id="Xk9QWKcaF0YI9CEk64yTIF">
+                  <span class="card__hint" data-page-node-id="QgVoRQDj4jc9D8t5Oxay8m">失败发生在第 4 / 6 阶段，前 3 阶段产物已落盘</span>
+                  <button class="btn btn--primary btn--sm" data-page-node-id="ry0mmgFJZMSS8pYvDcBAkQ">重试</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- 右栏 -->
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="OtnL8EOAKs2e2p2Cpnyw66">
+
+            <div class="card" data-page-node-id="HHpqz84AtgMQOXfgYC1X5U">
+              <div class="card__head" data-page-node-id="QrebeRDKgdga2JAmTifSrR">
+                <h4 data-page-node-id="HRpPT81YYYDXBz54TnaStk">提示词模板</h4>
+                <button class="btn btn--ghost btn--sm" data-page-node-id="p6JjoexBBtEDBPIACttb0Q">新建</button>
+              </div>
+              <div style="display:flex; flex-direction:column; gap:var(--space-2)" data-page-node-id="zwdrDIvQAomppIVzlirwIF">
+                <div class="spk-row" style="padding:var(--space-2) 0" data-page-node-id="FxWhZWZ5tPlACYSxx5VfY9">
+                  <div style="flex:1; min-width:0" data-page-node-id="8gR9vJ38t1YEsE8pluVjck">
+                    <div class="spk-name" data-page-node-id="P5LH2oGVTwGHo8awiEvjP8">标准纪要</div>
+                    <div class="spk-meta" data-page-node-id="vFt3QJgvqVcHxNmSexnYf3">摘要 · 议题 · 决策 · 行动项 · 风险</div>
+                  </div>
+                  <span class="badge badge--neutral" data-page-node-id="8QJtj1DiM8l9gF46PJ2N9R">内置</span>
+                </div>
+                <div class="spk-row" style="padding:var(--space-2) 0" data-page-node-id="n7obXYBQ6yUaWjpoMQfQuB">
+                  <div style="flex:1; min-width:0" data-page-node-id="n2Fw7hm76j8BMKfwd3eLrL">
+                    <div class="spk-name" data-page-node-id="9CagDuVrCRgz7SldnIWxPo">决策追踪</div>
+                    <div class="spk-meta" data-page-node-id="dXjzXliu5EPYDKdD42wKTg">决策 · 负责人 · 截止时间 · 阻塞项</div>
+                  </div>
+                  <span class="badge badge--neutral" data-page-node-id="wycV0GIl1eOLfteBBXcXzo">内置</span>
+                </div>
+                <div class="spk-row" style="padding:var(--space-2) 0" data-page-node-id="2Fq23tcIx9IF7eLmXPN7Sy">
+                  <div style="flex:1; min-width:0" data-page-node-id="1DXpmBC8hCJDBBD1YePomR">
+                    <div class="spk-name" data-page-node-id="yt64KBdto3yYH2BqWhHsT1">客户回访</div>
+                    <div class="spk-meta" data-page-node-id="t3rC8fPpHleXPB0VIWwS4W">自定义 · 上次编辑 09-06</div>
+                  </div>
+                  <button class="btn btn--ghost btn--sm" data-page-node-id="eulWwiMuuLKnZSxSkk68JZ">编辑</button>
+                </div>
+              </div>
+              <p class="card__hint" style="margin-top:var(--space-3)" data-page-node-id="Vi6b1wxPsOYtrNAXxgGR9B">内置模板只读，自定义模板可编辑删除。</p>
+            </div>
+
+            <div class="card" data-page-node-id="Nyh60fDtwwlRufnz4GdmBc">
+              <div class="card__head" data-page-node-id="VEbn7fvpdX1mqv89DEH2PU">
+                <h4 data-page-node-id="76nG24rQZRK2OBjF3IuYWE">说话人档案</h4>
+                <span class="badge badge--warning" data-page-node-id="usxtoJzpeM5RZXTqrhRhwh">3 待审核</span>
+              </div>
+              <div data-page-node-id="GTGr8cBKXZLPgyWxpFrj4j">
+                <div class="spk-row" data-page-node-id="rtAZfhQ2HROjvd05F5rhzB">
+                  <div class="spk-avatar" data-page-node-id="KXuN4BUUAVQpNjyKgFRIDk">主持</div>
+                  <div style="flex:1; min-width:0" data-page-node-id="EzXiHzPvF4btMmZira7uNC"><div class="spk-name" data-page-node-id="t4nxc48vSxMNjYCcFnSz1t">主持人</div><div class="spk-meta" data-page-node-id="Y1bJ7WjYHeEL1anXvSS6U0">4 个样本 · 已启用</div></div>
+                </div>
+                <div class="spk-row" data-page-node-id="cetqEnpvAKORaKm1uyWnA6">
+                  <div class="spk-avatar" data-page-node-id="gQ4IGO4CVYP8JeRkNgncos">后端</div>
+                  <div style="flex:1; min-width:0" data-page-node-id="yNezBzXa2wjkkUrB7CoOJj"><div class="spk-name" data-page-node-id="kV28rpVnFsZrr2X8dOFHas">后端 · 曾</div><div class="spk-meta" data-page-node-id="SUxF3kGYD3QiwAF3oisBM0">6 个样本 · 已启用</div></div>
+                </div>
+                <div class="spk-row" data-page-node-id="UajxNcG3h0FO0A4NbElEoJ">
+                  <div class="spk-avatar spk-avatar--pending" data-page-node-id="vaHiPAmycjCJZ7TAFuYL9P">#3</div>
+                  <div style="flex:1; min-width:0" data-page-node-id="wWjBhDk4mJd7qWOFqtD3HE"><div class="spk-name" data-page-node-id="DSqMnFAxD6YpFjyKLMir6V">待确认声纹 #3</div><div class="spk-meta" data-page-node-id="v88mjlU9BdZtDlJYYbYkkt">来自 2026-09-08 周会</div></div>
+                  <button class="btn btn--secondary btn--sm" data-page-node-id="ZA1znLQFhUueHMQLU2cY5f">命名</button>
+                </div>
+                <div class="spk-row" data-page-node-id="buPZE9x7Jjo5oETjbqUpWN">
+                  <div class="spk-avatar spk-avatar--pending" data-page-node-id="AzMWEGC8RSilTD4bYHVAFt">#4</div>
+                  <div style="flex:1; min-width:0" data-page-node-id="njFxWpIfzbHSU86kdknccm"><div class="spk-name" data-page-node-id="4vwPPVgnycZ0vAG8tcJfPW">待确认声纹 #4</div><div class="spk-meta" data-page-node-id="qFHS0ERgy55ZVpXo6MF1DY">来自 2026-09-08 周会</div></div>
+                  <button class="btn btn--secondary btn--sm" data-page-node-id="W919EYa3bnyJh0J9FRDkSW">命名</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" data-page-node-id="yP3ikTptL4sDWsOU7uI8D8">
+              <div class="card__head" data-page-node-id="6TEV1XEbBSTvquHqJvyMBi"><h4 data-page-node-id="519qRq12FewUmTv65G8csM">会议配图</h4><span class="badge badge--neutral" data-page-node-id="ss9QFX9QZL13MOCyOHee2A">规划中</span></div>
+              <p class="card__hint" style="font-size:var(--text-xs)" data-page-node-id="AeB0KPXzSpz2g4VKl4W3Q6">
+                纪要完成后可基于主题或摘要生成封面与插图，使用本机图片模型，
+                生成失败不影响纪要正文。此处为下一阶段能力占位。
+              </p>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           视图 3 · 会议复核
+           ============================================================ -->
+      <section class="view" id="view-review" aria-label="会议复核" data-page-node-id="A5gJSnIoOVhLtz3o9c4w9f">
+        <div class="page-head" data-page-node-id="7pzSsyxoiHbGcBCESnsHw0">
+          <div class="page-head__text" data-page-node-id="zPs2e9EtYPMPuDhEErblpV">
+            <div class="eyebrow" data-page-node-id="c1l2xxnNFKLsfBpO6BwSOR">03 · 会议复核</div>
+            <h1 data-page-node-id="lEOZtWixdZ7xFblYDtDYvF">2026-09-08 周会</h1>
+            <p data-page-node-id="X4rTZmnUl0OLE42U86NWuN">逐段播放、核对说话人、确认纠错结果。审核通过的数据才能用于 ASR 微调。</p>
+          </div>
+          <div style="display:flex; gap:var(--space-2); align-items:center" data-page-node-id="WZuP5tKJhTWl2VuAJAzuET">
+            <span class="badge badge--warning" data-page-node-id="RSeJAX4I4VcDpYnZoflkKf">3 段待处理</span>
+            <button class="btn btn--secondary btn--sm" data-page-node-id="wsNl5nzL8Q5SrmyZqtew5q">导出逐字稿</button>
+            <button class="btn btn--primary btn--sm" data-page-node-id="K4tKWVDYVI8s32KDf0krPI">保存并提交审核</button>
+          </div>
+        </div>
+
+        <div class="review-grid" data-page-node-id="FRf7HkHQENB8kTumOFjUBO">
+
+          <!-- 片段列表 -->
+          <div class="card card--flush" style="padding:var(--space-3)" data-page-node-id="hJrifFliKvjvlS89wn3ZAh">
+            <div style="display:flex; align-items:center; gap:var(--space-2); padding:var(--space-2) var(--space-3) var(--space-3)" data-page-node-id="q9vXlgCBpGfQEdVSkvCP9J">
+              <h4 data-page-node-id="FKOOAzuovvIJ633N5g3vX1">片段</h4>
+              <span class="card__hint" style="margin-left:auto" data-page-node-id="mt7rKeQNXRVYD00KjUy0X3">共 42 段</span>
+            </div>
+            <div class="seglist" data-page-node-id="EO65wF1G1yfJtCGGkk3L7j">
+              <button class="seg" data-page-node-id="mwQm7c4DeQIYjj9wNVsBrg"><span class="seg__time" data-page-node-id="NPDVtscUu76QMAYNPGw9Ps">00:00:04</span><span data-page-node-id="MPa9oeu1lAUjPbpbYL1CUz"><span class="seg__text" data-page-node-id="DTTa0RECG5AKCMXHisE5z0">好，那我们就开始今天的评审。先请后端同步一下进度。</span></span></button>
+              <button class="seg" data-page-node-id="9QxoO4TGHTGIZxDO5oiRgA"><span class="seg__time" data-page-node-id="NP5pQ1dhEQQxkdPSVVI2LF">00:00:12</span><span data-page-node-id="ysIp1DkxFBaL9d68jALU43"><span class="seg__text" data-page-node-id="RIoIGeEBFggTOK3Yxa4suO">这周主要完成了长音频切片和拼接，超过阈值会自动分块。</span></span></button>
+              <button class="seg" aria-current="true" data-page-node-id="yC28HWlMjlJBema8iZEHpl"><span class="seg__time" data-page-node-id="Bz6xK06aHjmUsAckLCMexq">00:00:31</span><span data-page-node-id="KAUBDSEaEJEwbRbvNWZhb4"><span class="seg__text" data-page-node-id="U8jKrxtfHEbi6WSxcIinYc">那我们下周三把方案对齐一下，然后同步给市场部。</span><span class="seg__flag" data-page-node-id="jOW8qVvj7ISkdCD816u3Aj">◆ 已修正 · 待审核</span></span></button>
+              <button class="seg" data-page-node-id="M6G2xmWb2CvOpZruRjvoD1"><span class="seg__time" data-page-node-id="lq8Y4TnOXH8q65C1f2cG1M">00:00:44</span><span data-page-node-id="ddds2UVKYXLp8vaZnkurb8"><span class="seg__text" data-page-node-id="SbbcL7FpjQdNi0CnTmOeNL">前端这边主要是把上传页拆成组件，现在那个文件一千多行。</span></span></button>
+              <button class="seg" data-page-node-id="QVKn3qAGHUSEMHgqTEwdQc"><span class="seg__time" data-page-node-id="geN3wvGGoC9jBNvOt4xzFO">00:01:03</span><span data-page-node-id="nAn2PQZt3XcR5MRuD0UWPo"><span class="seg__text" data-page-node-id="3w0SGRy3orEBAosTxuqMut">那我这边下周补一下真实音频的回归集。</span><span class="seg__flag" data-page-node-id="hlCEJ9n8QlqQC5tGRA4eCf">◆ 声纹待确认</span></span></button>
+              <button class="seg" data-page-node-id="jOddzGM3B3EhYFgGxI0q6b"><span class="seg__time" data-page-node-id="7cf7pmNwWofwlg8etKKmpC">00:01:18</span><span data-page-node-id="yR3N7tDiVoTx1WiiZRHUR4"><span class="seg__text" data-page-node-id="mT1pBKUtyyQM9UgYa9MLeK">纪要模板要不要支持多人协作编辑？暂时不做。</span></span></button>
+              <button class="seg" data-page-node-id="5mybKEsIxazzBpn8PzvVmn"><span class="seg__time" data-page-node-id="dqFUe1yGaD8YjMyCwFZDEI">00:01:35</span><span data-page-node-id="5eX4Me53GeM8C1y9AimJda"><span class="seg__text" data-page-node-id="MvOFVwcm3B7mM2Mf57IrXA">长音频的耗时我们还没有实测数据，需要补一个基线。</span></span></button>
+            </div>
+          </div>
+
+          <!-- 详情 -->
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="wuUsdbxqIPEksNOi9naIqa">
+
+            <div class="card" data-page-node-id="IJpYgYkHWAaZuIdru3jCaM">
+              <div class="card__head" data-page-node-id="DzXD78ajte0uJli7TjIucn">
+                <h4 data-page-node-id="eBZhhbt3OXNFGWgMDTPKt0">片段 3 · 00:00:31 – 00:00:44</h4>
+                <span class="badge badge--warning" style="margin-left:auto" data-page-node-id="kGNieNIBlpiurBMyARQQPq">待审核</span>
+              </div>
+
+              <div class="waveform" role="img" aria-label="音频波形，播放进度 38%" data-page-node-id="8B4jYTPebzLLPbU849HgQn">
+                <span style="height:24%" data-page-node-id="OeKZz3FOft0grmM3bTlj3A"></span><span style="height:46%" class="is-played" data-page-node-id="VSS79DlvT5NQrQ7I077HzU"></span><span style="height:72%" class="is-played" data-page-node-id="8bi7ly4h48y3fZ1w5ncd6M"></span>
+                <span style="height:38%" class="is-played" data-page-node-id="y21uqYApCiWsurHOat0I9k"></span><span style="height:88%" class="is-played" data-page-node-id="JwMHm6oZ2kyK4H4nYARzMG"></span><span style="height:56%" class="is-played" data-page-node-id="LZEOLWSDqMfYd9KVqnCcPO"></span>
+                <span style="height:34%" class="is-played" data-page-node-id="xDFrhJl38EGCLs010ZqSUO"></span><span style="height:64%" class="is-played" data-page-node-id="FM6GEqJq1prZy2IzkmifH7"></span><span style="height:92%" class="is-played" data-page-node-id="6qAjODe2UICbHQiJyWvLvL"></span>
+                <span style="height:44%" class="is-head" data-page-node-id="M4vxdx8Q8vcZfYqVKQBm4R"></span><span style="height:70%" data-page-node-id="gTaOk8JRIAFpGhZ11iO6L9"></span><span style="height:30%" data-page-node-id="UWmH1l8rWBEmEXpQ7lF5sq"></span>
+                <span style="height:58%" data-page-node-id="n2vgEWaWORktPHmUAXH85J"></span><span style="height:82%" data-page-node-id="5pAk3eZLWRPCzawN0FkNQP"></span><span style="height:40%" data-page-node-id="lNkbQRIxy6bOrblhSeXaQ1"></span><span style="height:66%" data-page-node-id="lJwMrbSuVwzWDvjH3vlK8G"></span>
+                <span style="height:28%" data-page-node-id="6eZom7qaOq7SzKtHVmzGbM"></span><span style="height:52%" data-page-node-id="777mJGvzItkM6vaJCBWVkc"></span><span style="height:76%" data-page-node-id="6JiT8iaNwaH6kRHr0qIImE"></span><span style="height:36%" data-page-node-id="ECyG7FTw8ZnE8KbOSvkv9o"></span>
+                <span style="height:60%" data-page-node-id="1NBIp8910EW49KxbhNxW6B"></span><span style="height:24%" data-page-node-id="YG4hGe3tzNMIm9x3VGO6fs"></span><span style="height:48%" data-page-node-id="ekod6SdBgzGb2HIyxLoSjn"></span><span style="height:68%" data-page-node-id="IhbtFNmQERXKv5uAaOiWQp"></span>
+              </div>
+
+              <div class="player" data-page-node-id="PETrlGANgKqkN3OZh7xFIg">
+                <button class="player__btn" aria-label="播放片段" data-page-node-id="KM5shHApn0NuXhljzkd3so">▶</button>
+                <span class="player__time" data-page-node-id="GXugA8OkF5HhUwiAQCydzK">00:05</span>
+                <div class="progress" style="flex:1" data-page-node-id="9XITfDCmXFV1Qh1dq8ksdJ"><div class="progress__bar" style="width:38%" data-page-node-id="BXn3iA4j2zeSi8seOabNqc"></div></div>
+                <span class="player__time player__time--total" data-page-node-id="bxJK78gTCuXBbpMGF4UfI1">00:13</span>
+                <div class="player__rate" data-page-node-id="L54DlP2GFDqpXkHU5UQGe3">
+                  <button class="chip" aria-pressed="false" data-page-node-id="4iodPhzqpOdrOn3fL5qxHT">0.75×</button>
+                  <button class="chip" aria-pressed="true" data-page-node-id="i8deCyPNi1YxSCm4G8hpfR">1×</button>
+                  <button class="chip" aria-pressed="false" data-page-node-id="Q2xwYebnSkhM6OjEV0V8cW">1.5×</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" data-page-node-id="WpFeZxSEtZEcnEo9f08bLl">
+              <div class="card__head" data-page-node-id="6whSch5Iv22TGvafDZ14Bl"><h4 data-page-node-id="oPW3UnYDRHIsJ3pWoUebwD">文本核对</h4><span class="card__hint" style="margin-left:auto" data-page-node-id="kIgVArH3BeprGDnHTRyQ7P">确定性纠错 · 置信度 0.94</span></div>
+              <div class="emend" data-page-node-id="yWkqoF5MNn0w4Hoynlik1U">
+                <span class="emend__orig" data-page-node-id="divegs8Aw53On7E3xav3BW">那我们下周三把方案对齐一下，然后同步给市场部。</span>
+                <span class="emend__fix" data-page-node-id="tRSdQlfeDOSL5be8CNiLTE">那我们下周四把方案对齐一下，然后同步给市场部。</span>
+              </div>
+              <div class="divider" data-page-node-id="WychwFzWdBjoh5GADanVWC"></div>
+              <div class="field" data-page-node-id="NOMcuDmbzUl0Y7TeQbGTB0">
+                <label class="field__label" for="r-edit" data-page-node-id="v3cuwapFqfXOabKhYqjipA">编辑修正文本</label>
+                <textarea class="textarea" id="r-edit">那我们下周四把方案对齐一下，然后同步给市场部。</textarea>
+                <span class="field__hint" data-page-node-id="2tUhIRbO8IszwcnHGZKk0S">修改会写入 training-data，并保留原始 ASR 文本用于对照</span>
+              </div>
+            </div>
+
+            <div class="card" data-page-node-id="RinkBqQch7snDTbVQwVrAn">
+              <div class="card__head" data-page-node-id="7cf3jK7wauwypj7jL17zIy"><h4 data-page-node-id="TkARrUzQKipJKwokl0z5Un">说话人与审核</h4></div>
+              <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:var(--space-4)" data-page-node-id="ui3aaEFATbn06QVsrmbCCA">
+                <div class="field" data-page-node-id="8AeBfEmosCYLyVPZQtLBdK">
+                  <label class="field__label" for="r-spk" data-page-node-id="VRs6tUJYIGj4S0dFET7k0R">说话人</label>
+                  <select class="select" id="r-spk" data-page-node-id="xa0UyHuVURANUH7fB9cEtD">
+                    <option data-page-node-id="iuy3FznhSFPq3sR0wWG0QQ">主持人</option>
+                    <option data-page-node-id="9fd7FwcQ7qNGeCD9nCWTCp">后端 · 曾</option>
+                    <option selected data-page-node-id="DW6vYnjeNGCoKs55hpJotL">待确认声纹 #3</option>
+                  </select>
+                  <span class="field__hint" data-page-node-id="j7LQFtYLBFocN5D2912uhB">确认为新说话人后将写入声纹档案</span>
+                </div>
+                <div class="field" data-page-node-id="eC1phZSt5RkGeqsl1TdXVW">
+                  <span class="field__label" data-page-node-id="doYWKKYWWigo25gx8cMDZ5">用于训练</span>
+                  <div style="display:flex; align-items:center; gap:var(--space-3); height:36px" data-page-node-id="t90hFqq7Ny5P51BY4bjaYe">
+                    <button class="switch" role="switch" aria-checked="true" aria-label="用于训练" data-page-node-id="j6j0J4c6avNYd8PhtaumFm"></button>
+                    <span class="card__hint" data-page-node-id="k7DeoQLtZpEcR3nDl1oXlo">审核通过后进入训练数据集</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display:flex; align-items:center; gap:var(--space-3); margin-top:var(--space-5)" data-page-node-id="HFUzg5rtnqJSwu1nHykFWr">
+                <svg class="seal" width="60" height="60" viewBox="0 0 72 72" role="img" aria-label="待审核印章" data-page-node-id="Aeer181J4huGJ4TcSBKnge">
+                  <g transform="rotate(4 36 36)" data-page-node-id="8XQjvRhAa8avtbaeGs5Ps7">
+                    <rect x="6" y="6" width="60" height="60" rx="7" fill="none" stroke="var(--warning)" stroke-width="2.5" stroke-dasharray="7 4" data-page-node-id="b2DW8FiYeAXI9Bc2dNDu91"/>
+                    <text x="36" y="30" text-anchor="middle" font-family="var(--font-display)" font-size="13" font-weight="600" fill="var(--warning-text)" data-page-node-id="j7iA4FI0Iz0QTSrsViCsUH">待审核</text>
+                    <text x="36" y="46" text-anchor="middle" font-family="var(--font-mono)" font-size="7" letter-spacing="0.06em" fill="var(--warning-text)" opacity="0.85" data-page-node-id="E0NKXc3npnbLSliwprzYCd">PENDING</text>
+                  </g>
+                </svg>
+                <div style="flex:1" data-page-node-id="P8UFhurKBN9LhdIkjZf4QC">
+                  <div class="kv" data-page-node-id="6LuQN5GFIQYoBtAMBw90Lz">
+                    <span class="kv__k" data-page-node-id="rtSHphuESBCHguoHXPV4OD">任务</span><span class="kv__v" data-page-node-id="CDPO1oLnrZaSMj1tqN5EJm">task_71c9de</span>
+                    <span class="kv__k" data-page-node-id="hkMnRbpjT1PNcuvLx9RMlS">模板</span><span class="kv__v" data-page-node-id="a2CcmdcTWbknB46pJaDKjz">精简纪要</span>
+                    <span class="kv__k" data-page-node-id="x7UINU3OOE2FlUcwYdDv9I">模型</span><span class="kv__v" data-page-node-id="Rp9P5cHQvsvngZWPn0gl5T">mlx-community/whisper-large-v3</span>
+                  </div>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:var(--space-2)" data-page-node-id="IbN841zoGgC7wuqhDQM2e6">
+                  <button class="btn btn--primary btn--sm" data-page-node-id="qYTR488TFUWRXLqM40zq6a">批准这一段</button>
+                  <button class="btn btn--ghost btn--sm" data-page-node-id="OrIxX44uLoNwTvHhjM2RWa">跳过</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           视图 4 · 模型训练
+           ============================================================ -->
+      <section class="view" id="view-train" aria-label="模型训练" data-page-node-id="y6XSEKSmpC5kHzpwE0Sye9">
+        <div class="page-head" data-page-node-id="6gZFp6pBBInSeJmmorgVOM">
+          <div class="page-head__text" data-page-node-id="WsRSecP1DJ1MdrhJF2RP2f">
+            <div class="eyebrow" data-page-node-id="gYOlWthNKPNJti8JA6bD2Q">04 · 模型训练</div>
+            <h1 data-page-node-id="KseB7FTplXAveGHImg6dQ9">用已审核的会议数据微调 ASR</h1>
+            <p data-page-node-id="vn0sinHI7baC8imxeStsZT">只有审核通过的片段才会进入训练数据集。训练在独立进程中调用 mlx-tune 执行，不影响正在进行的会议任务。</p>
+          </div>
+          <span class="badge badge--accent" data-page-node-id="5tJP1ygXDOSpA6lORreiRq"><span class="badge__dot" data-page-node-id="emSOKV9tcmP0m6kRCetaCy"></span>训练运行中</span>
+        </div>
+
+        <div class="train-grid" data-page-node-id="thQb1xaFx0hOLfP4mM1HB6">
+
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="XugP3DGfItIGyGSBZlyXHc">
+            <div class="card" data-page-node-id="5I8JAMrZ7p6mB6o5DBehtD">
+              <div class="card__head" data-page-node-id="qiWcpSNhNTLV3zCzRcn3JE"><h3 data-page-node-id="y95TDH3aE1KDNm232FITfh">训练配置</h3></div>
+              <div class="form-grid" data-page-node-id="zMUIVc5Pfk0nYgYqONWk2h">
+                <div class="field" data-page-node-id="CQoDcCMjSbRfyJYcFYmlGQ">
+                  <label class="field__label" for="t-ds" data-page-node-id="22lOaFYUhDcAq4JW0poryb">数据集</label>
+                  <select class="select" id="t-ds" data-page-node-id="N0hjvkWnpU74gJzvNnHoH8">
+                    <option data-page-node-id="M1sokGeyBFHKU0aD16ihSz">meeting-approved-2026-09（1,284 条）</option>
+                    <option data-page-node-id="CKFibr0wvG4gLPvQK5HVLk">meeting-approved-2026-08（966 条）</option>
+                  </select>
+                  <span class="field__hint" data-page-node-id="vQZGpjGNEs1c5HGATk7EgB">仅列出已批准数据集</span>
+                </div>
+                <div class="field" data-page-node-id="vAPKTUzmUDo6J1Vdyt6Cad">
+                  <label class="field__label" for="t-base" data-page-node-id="DIRcbUXd9y75rNSrhOl7Nk">基础模型</label>
+                  <select class="select" id="t-base" data-page-node-id="3YTpF3QHhNJQosA3Ay4Qix">
+                    <option data-page-node-id="Z1QDSf4hZAoA0nAS4dfdKA">whisper-large-v3</option>
+                    <option data-page-node-id="zMViXlsV3HMzgsmSBVUGk1">whisper-medium</option>
+                  </select>
+                </div>
+                <div class="field" data-page-node-id="QkGnvooZdsIBXdS2bc9jwS">
+                  <label class="field__label" for="t-out" data-page-node-id="W01iFYZCYNYHWn2eYHjkme">输出目录</label>
+                  <input class="input input--mono" id="t-out" value="~/Astra/adapters/run-2026-09-11" data-page-node-id="3qxhWarUtb9qeHPHFbhdGD">
+                </div>
+                <div class="field" data-page-node-id="LyHdbzc05m7HzuTedrPtSD">
+                  <label class="field__label" for="t-epoch" data-page-node-id="9wUmnXGnx7D3XLBJF9EXFS">训练轮次</label>
+                  <input class="input input--mono" id="t-epoch" value="3" data-page-node-id="oqQwDpsU5uLEErNmAFkG5L">
+                </div>
+                <div class="field" data-page-node-id="gY96VrjhlQDW4m08IW7dGA">
+                  <label class="field__label" for="t-lr" data-page-node-id="QAAM79mT53UOO8fFBt1BQP">学习率</label>
+                  <input class="input input--mono" id="t-lr" value="1e-5" data-page-node-id="KkMg49EpwCgqAAad1wy6po">
+                </div>
+                <div class="field" data-page-node-id="GAhaOQInvS97BIHEIvzWTH">
+                  <label class="field__label" for="t-batch" data-page-node-id="3I1SKu4RYb0w5SxNBxevjk">批大小</label>
+                  <input class="input input--mono" id="t-batch" value="8" data-page-node-id="6Q3CAAVYQGq5w4VcjAoDPg">
+                </div>
+              </div>
+
+              <div class="alert alert--info" style="margin-top:var(--space-5)" data-page-node-id="IDeQueoT3N3pihUS0posIu">
+                <span data-page-node-id="CQ8lg8FEd0cbNdmBD71jXH">◈</span>
+                <div class="alert__body" data-page-node-id="vMuG7C3Wb7642ASeQfLwDu">
+                  <div class="alert__title" data-page-node-id="ulLCPRwHyq1u6Eqeg0gq5G">启动前确认</div>
+                  <div class="alert__desc" data-page-node-id="4h80INxb81PnTcdn93m8dZ">数据集 meeting-approved-2026-09 · 1,284 条 · 输出到 ~/Astra/adapters/run-2026-09-11</div>
+                </div>
+              </div>
+
+              <div style="display:flex; gap:var(--space-3); margin-top:var(--space-4)" data-page-node-id="cy48enIGjmOfAMjK7r9rod">
+                <button class="btn btn--primary" disabled data-page-node-id="IXINN6gtxARQICzZls2JP5"><span class="btn__spinner" data-page-node-id="hwUyrRn4nAHoIYMgPJKwmX"></span>训练进行中</button>
+                <button class="btn btn--danger" data-page-node-id="g2YIDUN1cOcIgtsGU0PzHR">停止训练</button>
+                <button class="btn btn--ghost" data-page-node-id="1FPaGmLYNz7M6XPtXGnLHZ">查看历史运行</button>
+              </div>
+            </div>
+
+            <div class="card" data-page-node-id="sf38JtrxQB9BQTvPnNqVtr">
+              <div class="card__head" data-page-node-id="Yb3QgzC0Sd35finocIu6Fs">
+                <h4 data-page-node-id="Avbt7LFNxc62Tm4ZVNifHS">运行日志</h4>
+                <span class="card__hint" style="margin-left:auto" data-page-node-id="J0b0MPaQ80feh0yQ6QSdHj">job.log · 自动滚动</span>
+              </div>
+              <div class="console" data-page-node-id="HSgsWyOq1oeFJkidiiihoZ">
+                <div class="console__line" data-page-node-id="IaDlZJ4cTa06AiStMlGHHY"><span class="console__ts" data-page-node-id="6DpkXb04lAUyXvaR3PIrI7">11:02:14</span><span data-page-node-id="5Owe4gIaTUViAVA0JkoCTe">加载数据集 meeting-approved-2026-09，共 1284 条样本</span></div>
+                <div class="console__line" data-page-node-id="RAFMx45zdqITxGUHTUDXmo"><span class="console__ts" data-page-node-id="21WAgiMeACqsCxutvuRDri">11:02:19</span><span data-page-node-id="L8FXCbYgJ1vBrNi7ORMdks">校验通过：每条样本包含 audio 与 text 字段</span></div>
+                <div class="console__line console__line--ok" data-page-node-id="1SW6XiqZhcDdUMkaTqqVx8"><span class="console__ts" data-page-node-id="HOmDdgvTCwjSNP8GdNosql">11:02:26</span><span data-page-node-id="qA14uyJtGZOnvF144Phu9j">加载基础模型 whisper-large-v3（MLX）</span></div>
+                <div class="console__line" data-page-node-id="cskPtGBhtjpTFg1jQrpTA8"><span class="console__ts" data-page-node-id="QTyHKwZj9NH504h8jkxmYG">11:03:41</span><span data-page-node-id="qYvJNKvw5oeNGG3SwJNalr">epoch 1/3 · step 120/482 · loss 0.2841 · lr 1.0e-5</span></div>
+                <div class="console__line" data-page-node-id="S8UsW7QMcFCFg7NDDPbeG4"><span class="console__ts" data-page-node-id="vrA1mCitDXdi09Sc49MG8z">11:06:02</span><span data-page-node-id="rgIVsxSTpuznZ34mflbSN2">epoch 1/3 · step 240/482 · loss 0.2107 · lr 1.0e-5</span></div>
+                <div class="console__line console__line--warn" data-page-node-id="pH42OQNiYkw60W7fU7Jzhp"><span class="console__ts" data-page-node-id="96PZSVA3zpul0p7fiomEie">11:07:33</span><span data-page-node-id="rWzGQaYWHGGCjHr7xCfNm8">显存压力偏高，已自动降低 batch 到 6</span></div>
+                <div class="console__line" data-page-node-id="qYnrBvcTfnok3GP9xcBDJP"><span class="console__ts" data-page-node-id="hEQsG3yg2BSkqOk9bDsq4W">11:09:18</span><span data-page-node-id="BoyxYDGXRQhuSg0ksGdqm7">epoch 2/3 · step 360/482 · loss 0.1873 · lr 9.6e-6</span></div>
+                <div class="console__line" data-page-node-id="6x91NesqPj9pXBMAhKdlUD"><span class="console__ts" data-page-node-id="hG3GOgW08dGaQ67yVDh3bB">11:12:47</span><span data-page-node-id="vduDO2JZL0HbIEyiYMiKlh">epoch 2/3 · step 482/482 · loss 0.1654</span></div>
+                <div class="console__line" data-page-node-id="NX3JuWdeoliRD7xLmf7gfN"><span class="console__ts" data-page-node-id="Lg4m6xDkpl54K0BhiTtIxQ">11:12:50</span><span data-page-node-id="WEV2zSp2EdlAbUVX5fERge">保存中间适配器到 ~/Astra/adapters/run-2026-09-11/ckpt-2</span></div>
+                <div class="console__line" data-page-node-id="278ntRAbSEQQvOTZNdJPLS"><span class="console__ts" data-page-node-id="hsPF3nkrZ9Ub2I1BDdKPVj">11:13:02</span><span data-page-node-id="nK95sXPi4lVBc6tjfzpjkI">epoch 3/3 · step 60/482 · loss 0.1598 · lr 9.1e-6</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:var(--space-5)" data-page-node-id="FesdB1Y7VFlOp6UiyGbSHy">
+            <div class="card" data-page-node-id="c4nual9OhKUIXfi5r0TjKU">
+              <div class="card__head" data-page-node-id="TJipogVEb3JBZxyoPcMA6Z"><h4 data-page-node-id="Czd91x1L4Wi8AIKFZLqHTi">运行指标</h4></div>
+              <div class="stat-row" data-page-node-id="dnuYNwK71SJZKIwOVSJW5X">
+                <div class="stat" data-page-node-id="L6aMExtZjfG0KIHpWKaur9"><span class="stat__k" data-page-node-id="caNhxjGHPdBs8Fv7sQqOuM">当前轮次</span><span class="stat__v" data-page-node-id="d5jdyFaHljhmFyDfaZntrS">3<small data-page-node-id="H497DZTXl5YRM2TiY6tjcx">/3</small></span></div>
+                <div class="stat" data-page-node-id="v1qMLcHk84lfF9KDkMlEFg"><span class="stat__k" data-page-node-id="8dJR09dsxTWvcCORxhXxf2">已用时长</span><span class="stat__v" data-page-node-id="1cjPI4RMY5743TdZOD4nnq">11<small data-page-node-id="CnwvuI23FsuZga1IStzksk">分</small></span></div>
+                <div class="stat" data-page-node-id="Aqi8EGJyD4ZTnP0BEBiKWO"><span class="stat__k" data-page-node-id="asbcsTyGBbrIaBvAh1JvYU">当前 loss</span><span class="stat__v" data-page-node-id="uYEjfyTsR0X6pNXjPAJh1k">0.1598</span></div>
+                <div class="stat" data-page-node-id="AFodgwPlzylLVaB4pyJGnl"><span class="stat__k" data-page-node-id="4DzlhgC26PDBVW8A3ZedFF">样本数</span><span class="stat__v" data-page-node-id="PCyBKB9ujkaMIESMlWndcx">1,284</span></div>
+              </div>
+              <div class="divider" data-page-node-id="dDxoBsBa70DGjFnl4Wg1l9"></div>
+              <div class="progress" data-page-node-id="h8OWJKEelqzJWHGkOGXafk"><div class="progress__bar" style="width:78%" data-page-node-id="2Um2cTuf8GWJz5wnQrrauh"></div></div>
+              <p class="card__hint" style="margin-top:var(--space-2)" data-page-node-id="TgDQ02lg34Fu80Cn7PmGkV">整体进度 78% · 预计剩余 3 分钟</p>
+            </div>
+
+            <div class="card" data-page-node-id="Shf0dHiDEP3jDxOIb2nggx">
+              <div class="card__head" data-page-node-id="AOnl78Pqbg7aVy8lFhYxIP"><h4 data-page-node-id="j3AHUzEgcR6pbTIg87UkeI">loss 曲线</h4></div>
+              <svg width="100%" height="120" viewBox="0 0 320 120" role="img" aria-label="训练 loss 下降曲线" data-page-node-id="T0bruk2c0S5WCXDiAkreoR">
+                <line x1="0" y1="20" x2="320" y2="20" stroke="var(--border-subtle)" stroke-width="1" data-page-node-id="aJVfadP1OrcPw9ZFXXFraT"/>
+                <line x1="0" y1="60" x2="320" y2="60" stroke="var(--border-subtle)" stroke-width="1" data-page-node-id="5svzkauukoJlivkLO2N0yb"/>
+                <line x1="0" y1="100" x2="320" y2="100" stroke="var(--border-subtle)" stroke-width="1" data-page-node-id="yuSim32Ef6n8fjohHHGUq0"/>
+                <polyline fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"
+                  points="0,18 32,26 64,30 96,42 128,50 160,56 192,62 224,72 256,78 288,86 320,92" data-page-node-id="IDqIRdyyJcuBtta17x4sgq"/>
+                <circle cx="320" cy="92" r="3.5" fill="var(--live)" data-page-node-id="nctblA5wZk0lfTILtdZeAk"/>
+              </svg>
+              <div style="display:flex; justify-content:space-between; margin-top:var(--space-2)" data-page-node-id="Kefnhbswu30mo9Wdz2796O">
+                <span class="card__hint" data-page-node-id="vdpKTs0nExnPwCNiFLrACC">epoch 1</span>
+                <span class="card__hint" data-page-node-id="MTNJCWPii2UHYeWtjRlvW8">epoch 2</span>
+                <span class="card__hint" data-page-node-id="wGEKIwB0RHBqLmBIflgKC0">epoch 3</span>
+              </div>
+            </div>
+
+            <div class="card" data-page-node-id="iBG03JOjjC38uc9MhiZH7w">
+              <div class="card__head" data-page-node-id="EZUIi9X49xsJBKuzObhlmQ"><h4 data-page-node-id="0LtfmBQawA1uY5W3X2E63N">数据来源</h4></div>
+              <div class="kv" data-page-node-id="vUvwAwT9szwsB6BcbwHjFO">
+                <span class="kv__k" data-page-node-id="7Y5SpwukV7Gpt1DGXlOxT1">已批准片段</span><span class="kv__v" data-page-node-id="RTk1CF3khY4wVxPghsmpYo">1,284</span>
+                <span class="kv__k" data-page-node-id="O67O9cGj7m6zHrjpi2HgsW">覆盖会议</span><span class="kv__v" data-page-node-id="4PCzSbWqBpaD2ahYhifk3Q">37 场</span>
+                <span class="kv__k" data-page-node-id="yvNQv9KRKKB4xcCHOrpYbx">说话人</span><span class="kv__v" data-page-node-id="WjnZrl8GNlBgOFmG47JPRr">12 位</span>
+                <span class="kv__k" data-page-node-id="Jx8lZwVEcAxIFFZO0jjMoh">最近更新</span><span class="kv__v" data-page-node-id="jaejDGz7B4aWxmPKZ5qWt3">2026-09-10 18:22</span>
+              </div>
+              <p class="card__hint" style="margin-top:var(--space-3)" data-page-node-id="zUHpELqcWSabx7tfoEC4Kc">未批准的片段不会进入训练集。</p>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ============================================================
+           视图 5 · 管理设置
+           ============================================================ -->
+      <section class="view" id="view-settings" aria-label="管理设置" data-page-node-id="IEiPrPhbuCo1dYggdCQyBS">
+        <div class="page-head" data-page-node-id="LA8R4Fptk97BpfcH7wyx1e">
+          <div class="page-head__text" data-page-node-id="FwBLXWdmBAj1hGGEWaBkCV">
+            <div class="eyebrow" data-page-node-id="EvyAQi7QW9TUuikP7Lrnj9">05 · 管理设置</div>
+            <h1 data-page-node-id="hNE0rdFZW77zDBGxhJGyce">LLM 连接配置</h1>
+            <p data-page-node-id="LK2J6Lybfvh9ADK9CZ7HIM">填写服务地址与模型名称即可使用，无需手动编辑 .env。保存后立即对实时对话和新的会议任务生效。</p>
+          </div>
+        </div>
+
+        <div class="settings" data-page-node-id="26LMirpFvz8QDaBU618KNE">
+
+          <div class="alert alert--success" data-page-node-id="xeWcXgbgx9MKrwrb3Kmxyk">
+            <span data-page-node-id="Bmix9GeEYxrMYm1UFXwKqX">✓</span>
+            <div class="alert__body" data-page-node-id="GZrBA1YMg9y2iXAtI7alOh">
+              <div class="alert__title" data-page-node-id="eHC5ALkI4w8NORmLhO0iTN">连接测试通过</div>
+              <div class="alert__desc" data-page-node-id="u0FLMoSq7PbQaYROvrbQqU">http://192.168.3.18:8000/v1 · 模型 qwen2.5-7b-instruct · 延迟 42 ms</div>
+            </div>
+          </div>
+
+          <div class="card" data-page-node-id="JdlszGjaoYIrrbEjFzXwEW">
+            <div class="card__head" data-page-node-id="6JEfh2r7ONMYwUDCnR03SD"><h3 data-page-node-id="rgqeQVZF9LCFT68TqwWHzY">服务连接</h3></div>
+
+            <div class="setting-row" data-page-node-id="bKPhjiR78djLw8c21Rx0SY">
+              <div class="setting-row__label" data-page-node-id="vyGcMUDaIB02Nj6xcpDRg1">服务地址<div class="field__hint" data-page-node-id="YGFiLSl32oLoGO6JM0HO1t">OpenAI 兼容接口</div></div>
+              <div class="setting-row__control" data-page-node-id="ztvI25cMXTeHahmze7mCjr">
+                <input class="input input--mono" value="http://192.168.3.18:8000/v1" data-page-node-id="ZCiEOWyWTDapvBUJv4fer1">
+              </div>
+            </div>
+
+            <div class="setting-row" data-page-node-id="sNRtJ05fC8o7zni8J6tdem">
+              <div class="setting-row__label" data-page-node-id="35wByIBePP8zn3n7VmFSmI">模型名称</div>
+              <div class="setting-row__control" data-page-node-id="edzA8bDa7Njg2lNPpWjXQh">
+                <input class="input input--mono" value="qwen2.5-7b-instruct" data-page-node-id="tIRYBi9mm6b8mKBsjL5G0j">
+              </div>
+            </div>
+
+            <div class="setting-row" data-page-node-id="zI4n8L8NFThWWfrmHDxxHH">
+              <div class="setting-row__label" data-page-node-id="UfCz6QF6hjEKGlIdNVLTQD">模型列表路径<div class="field__hint" data-page-node-id="dQr3By1frlbW9PC7XEF5am">留空使用默认 /models</div></div>
+              <div class="setting-row__control" data-page-node-id="PG2KD66L31qbQGwMS08VMA">
+                <input class="input input--mono" placeholder="/models" data-page-node-id="K18BPt2pFBx8VK258NP9TH">
+              </div>
+            </div>
+
+            <div class="setting-row" data-page-node-id="uNjhGQreZcEk93GEm07MxV">
+              <div class="setting-row__label" data-page-node-id="Rig2OESBvMg3r3A0fkcaFV">API Key<div class="field__hint" data-page-node-id="PMTC6h1aB0A2DgFkOKBFuG">已配置 · 留空不覆盖</div></div>
+              <div class="setting-row__control" data-page-node-id="HgXPflbsrgDsgzJJ5RwOki">
+                <div style="display:flex; gap:var(--space-2)" data-page-node-id="w1b5MPjETabKu0fYgh2D5Y">
+                  <input class="input input--mono" value="••••••••••••••••" disabled data-page-node-id="iwKgMnDMcAPcEUnqsDmijt">
+                  <button class="btn btn--secondary" data-page-node-id="8R4IOQpu7U6UmA4iEGvXSC">清除</button>
+                </div>
+                <span class="field__hint" data-page-node-id="OfzdUepNoCK477Un5u5u2a">留空提交不会覆盖已有 Key；显式清除后需重新填写</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" data-page-node-id="tfFDvJr4W2YpRMAhLbJLTw">
+            <div class="card__head" data-page-node-id="Ijz62iqfAbHPTwCKCL9ywF"><h3 data-page-node-id="k2xw7aATSrj7jQH9xseCDP">超时与纠错</h3></div>
+
+            <div class="setting-row" data-page-node-id="EQylDslgt9kG2fzmozp3Gt">
+              <div class="setting-row__label" data-page-node-id="kPAphxy4TntC5cvVFlBOJa">请求超时<div class="field__hint" data-page-node-id="TEyNzWls3Tghq6lCVn6zcB">秒</div></div>
+              <div class="setting-row__control" data-page-node-id="598AzAca7vBUF0DcZFegy3"><input class="input input--mono" value="60" data-page-node-id="I1yUYWKmsyiqCmsQDMVH1z"></div>
+            </div>
+            <div class="setting-row" data-page-node-id="LFVGX3RcNHgxLok8h3bF74">
+              <div class="setting-row__label" data-page-node-id="uhb3lHH76nd2lo2htAniyy">流式超时<div class="field__hint" data-page-node-id="ELBR5ucc702UNdtK08FJcP">秒</div></div>
+              <div class="setting-row__control" data-page-node-id="bEk1yQTQtDklpc8lWpNuYG"><input class="input input--mono" value="120" data-page-node-id="uFSy4dEQuMA37MFQnr9qzL"></div>
+            </div>
+            <div class="setting-row" data-page-node-id="KojzX57M3FCq23oji95knm">
+              <div class="setting-row__label" data-page-node-id="O2I9Vp1E5q463PZ48B0niQ">实时纠错</div>
+              <div class="setting-row__control" data-page-node-id="RS44JbrWj6DmI6tqFXuixU">
+                <div style="display:flex; align-items:center; gap:var(--space-3)" data-page-node-id="D2LbGvmZ8gvfCsEULgqw9N">
+                  <button class="switch" role="switch" aria-checked="true" aria-label="实时纠错" data-page-node-id="IFG2zV7wECmjvGH4aERVKb"></button>
+                  <span class="card__hint" data-page-node-id="lNS5GPKmF3OTIT7PNZSXp9">对话过程中对 ASR 结果应用确定性规则</span>
+                </div>
+              </div>
+            </div>
+            <div class="setting-row" data-page-node-id="8nLRdAkOGTOAzAhg5RGEZv">
+              <div class="setting-row__label" data-page-node-id="UJr2O4LGmtzc4jG96n3eCA">会议候选纠错</div>
+              <div class="setting-row__control" data-page-node-id="Y4zybspkGF9sjGDwaIJHtw">
+                <div style="display:flex; align-items:center; gap:var(--space-3)" data-page-node-id="N9VEzFDrkM8fE6cjpksbrW">
+                  <button class="switch" role="switch" aria-checked="false" aria-label="会议候选纠错" data-page-node-id="WrtUYo4XA22AB5EDjPE6dW"></button>
+                  <span class="card__hint" data-page-node-id="ZyRuYt96lDcSI7YalO5sEk">关闭时只应用确定性纠错，不调用 LLM 清洗</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card" data-page-node-id="ASdgK71zmqTGpeDTHWkx6Q">
+            <div class="card__head" data-page-node-id="AiHfFy6hoGkxhtuJqzZwVX"><h3 data-page-node-id="9d99nQX76FhBOxHQp22xLK">本机模型路径</h3><span class="card__hint" style="margin-left:auto" data-page-node-id="qxYKXn7L2Milyuugl4a7LV">只读 · 来自环境变量</span></div>
+            <div class="kv" style="gap:var(--space-3) var(--space-5)" data-page-node-id="vWwBtdFZOFWcElyULEppse">
+              <span class="kv__k" data-page-node-id="LutQxyKlZeVVAbJiCMGn7U">ASR 模型</span><span class="kv__v" data-page-node-id="Uqebp2UQzOhewev9H0rK26">mlx-community/whisper-large-v3</span>
+              <span class="kv__k" data-page-node-id="WrMiyjWjugK16vcUwxkkdZ">VAD 模型</span><span class="kv__v" data-page-node-id="xfTZnpYFqjVAOqBTcI8GSO">models/silero_vad.onnx</span>
+              <span class="kv__k" data-page-node-id="x4KM5JzU8eOVf9Ump9HCPi">TTS 语音</span><span class="kv__v" data-page-node-id="GJEOX8HqHEbgXMq0JOTWV9">models/piper/zh_CN-huayan-medium.onnx</span>
+              <span class="kv__k" data-page-node-id="3H2oG16wW9vR8Dqj5ffi3L">声纹库</span><span class="kv__v" data-page-node-id="pkF5Vb2r2r4FgESgzKEJd0">~/.astra/speakers.db</span>
+              <span class="kv__k" data-page-node-id="LF4DzErGoxUTXnwrujmpmp">产物目录</span><span class="kv__v" data-page-node-id="DxgSPgi9YaA90VE28gOG65">~/Astra/meetings/</span>
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:var(--space-3)" data-page-node-id="nMdV5FRAmGS6eZJCZpiUbt">
+            <button class="btn btn--primary" data-page-node-id="AN8KMotzjoYIQAopeZer97">保存并应用</button>
+            <button class="btn btn--secondary" data-page-node-id="qAvaJhZdGEPQf9wLe6GoVT">测试连接</button>
+            <button class="btn btn--ghost" data-page-node-id="hSG2OUWFJEpDIlMvAjvJlX">恢复当前配置</button>
+            <span class="card__hint" style="margin-left:auto" data-page-node-id="Ebo3M33ZwXwQOMX1i9Zjx6">保存会写入项目 .env，当前进程立即更新</span>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var root = document.documentElement;
+
+  /* ---------- 主题 ---------- */
+  var btn = document.getElementById('themeToggle');
+  var icon = document.getElementById('themeIcon');
+  var label = document.getElementById('themeLabel');
+  function applyTheme(t) {
+    root.setAttribute('data-theme', t);
+    icon.textContent = t === 'dark' ? '◑' : '◐';
+    label.textContent = t === 'dark' ? '浅色' : '深色';
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('astra-ds-theme'); } catch (e) {}
+  var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+  btn.addEventListener('click', function () {
+    var next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem('astra-ds-theme', next); } catch (e) {}
+  });
+
+  /* ---------- 视图切换 ---------- */
+  var titles = { live: '实时助手', work: '音频工作台', review: '会议复核', train: '模型训练', settings: '管理设置' };
+  var navItems = Array.prototype.slice.call(document.querySelectorAll('[data-nav]'));
+  var crumb = document.getElementById('crumbNow');
+  navItems.forEach(function (item) {
+    item.addEventListener('click', function () {
+      var key = item.getAttribute('data-nav');
+      navItems.forEach(function (n) { n.removeAttribute('aria-current'); });
+      item.setAttribute('aria-current', 'page');
+      document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('is-active'); });
+      var target = document.getElementById('view-' + key);
+      if (target) target.classList.add('is-active');
+      crumb.textContent = titles[key] || key;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+  });
+
+  /* ---------- 处理方式单选 ---------- */
+  document.querySelectorAll('[data-mode]').forEach(function (m) {
+    m.addEventListener('click', function () {
+      document.querySelectorAll('[data-mode]').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+      m.setAttribute('aria-pressed', 'true');
+    });
+  });
+
+  /* ---------- 任务状态演示 ---------- */
+  document.querySelectorAll('[data-task]').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var key = chip.getAttribute('data-task');
+      document.querySelectorAll('[data-task]').forEach(function (c) { c.setAttribute('aria-pressed', 'false'); });
+      chip.setAttribute('aria-pressed', 'true');
+      document.querySelectorAll('[data-taskpanel]').forEach(function (p) {
+        p.hidden = p.getAttribute('data-taskpanel') !== key;
+      });
+    });
+  });
+
+  /* ---------- 片段选择 ---------- */
+  document.querySelectorAll('.seg').forEach(function (seg) {
+    seg.addEventListener('click', function () {
+      document.querySelectorAll('.seg').forEach(function (s) { s.removeAttribute('aria-current'); });
+      seg.setAttribute('aria-current', 'true');
+    });
+  });
+
+  /* ---------- 播放倍速 ---------- */
+  document.querySelectorAll('.player__rate').forEach(function (group) {
+    group.querySelectorAll('.chip').forEach(function (c) {
+      c.addEventListener('click', function () {
+        group.querySelectorAll('.chip').forEach(function (x) { x.setAttribute('aria-pressed', 'false'); });
+        c.setAttribute('aria-pressed', 'true');
+      });
+    });
+  });
+
+  /* ---------- 开关 ---------- */
+  document.querySelectorAll('.switch').forEach(function (s) {
+    s.addEventListener('click', function () {
+      s.setAttribute('aria-checked', s.getAttribute('aria-checked') === 'true' ? 'false' : 'true');
+    });
+  });
+})();
+</script>
+</body>
+</html>

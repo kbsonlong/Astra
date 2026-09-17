@@ -55,6 +55,33 @@ class MlxAudioAsrClient:
     def is_ready(self) -> bool:
         return bool(self.model)
 
+    def capabilities(self) -> dict[str, Any]:
+        """引擎能力声明 (VoiceStudio 路线图方向二)。"""
+        return {
+            "engine": "mlx_audio",
+            "backend": "mlx_audio",
+            "model": self.model,
+            "language": self.language,
+            "languages": ["zh", "en", "ja", "ko"],
+            "hotwords": bool(self.hotwords),
+            "diarize": False,
+            "streaming": False,
+            "device": ["mps"],
+        }
+
+    def is_available(self) -> tuple[bool, str]:
+        """可用性探测: (可用?, 原因)。理由文本不含本地路径, 避免泄漏。"""
+        if not self.model:
+            return False, "ASR 模型未配置 (设置 ASR_MODEL)"
+        if self._load_model is not None and self._generate_transcription is not None:
+            # 注入路径(测试): 视为可用。
+            return True, "ready"
+        try:
+            from mlx_audio.stt.utils import load_model  # noqa: F401
+        except ImportError:
+            return False, "mlx-audio 未安装 (pip install mlx-audio; 需 Apple Silicon)"
+        return True, "ready"
+
     async def transcribe(self, audio: bytes, filename: str = "speech.wav") -> str:
         if not audio:
             raise ASRClientError("audio must not be empty")

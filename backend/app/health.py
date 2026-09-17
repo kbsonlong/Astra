@@ -44,6 +44,8 @@ async def collect_health(
     tts_client = getattr(pipeline, "tts", None)
     asr_ok = bool(asr_client and asr_client.is_ready())
     tts_ok = bool(tts_client and tts_client.is_ready())
+    asr_engine = _engine_status(asr_client, default_mode="mlx-sdk")
+    tts_engine = _engine_status(tts_client, default_mode="piper-sdk")
     meeting_ok = bool(
         meeting_pipeline
         and meeting_pipeline.llm is not None
@@ -62,8 +64,8 @@ async def collect_health(
             "models_ok": llm.ok,
             "stream_ok": False,
         },
-        "asr": {"ok": asr_ok, "mode": "mlx-sdk"},
-        "tts": {"ok": tts_ok, "mode": "piper-sdk"},
+        "asr": {"ok": asr_ok, "mode": asr_engine["mode"], **asr_engine["extra"]},
+        "tts": {"ok": tts_ok, "mode": tts_engine["mode"], **tts_engine["extra"]},
         "meeting": {
             "ok": meeting_ok,
             "workflow": workflow_status,
@@ -71,3 +73,37 @@ async def collect_health(
         },
         "version": settings.version,
     }
+
+
+def _engine_status(client: object | None, *, default_mode: str) -> dict[str, object]:
+    """从引擎 client 提取 capabilities/is_available (方向二), 对旧 client 优雅降级。
+
+    返回 {"mode": str, "extra": {...}}, extra 含 available/reason/capabilities。
+    """
+    extra: dict[str, object] = {}
+    mode = default_mode
+    if client is None:
+        return {"mode": mode, "extra": {"available": False, "reason": "not configured"}}
+
+    caps_fn = getattr(client, "capabilities", None)
+    if callable(caps_fn):
+        try:
+            caps = dict(caps_fn())
+        except Exception:  # pragma: no cover - defensive
+            caps = {}
+        if caps:
+            extra["capabilities"] = caps
+            engine = caps.get("engine") or caps.get("backend")
+            if isinstance(engine, str) and engine:
+                mode = engine
+
+    avail_fn = getattr(client, "is_available", None)
+    if callable(avail_fn):
+        try:
+            available, reason = avail_fn()
+        except Exception:  # pragma: no cover - defensive
+            available, reason = False, "availability probe failed"
+        extra["available"] = bool(available)
+        extra["reason"] = str(reason)
+
+    return {"mode": mode, "extra": extra}

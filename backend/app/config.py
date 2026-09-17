@@ -47,6 +47,36 @@ def _bool_env(name: str, default: bool) -> bool:
     return default if value is None else value.lower() in {"1", "true", "yes", "on"}
 
 
+_TTS_BACKENDS = ("piper", "mlx_audio")
+
+
+def _tts_backend_env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized not in _TTS_BACKENDS:
+        raise ValueError(
+            f"{name} must be one of {_TTS_BACKENDS}, got {value!r}"
+        )
+    return normalized
+
+
+_ASR_BACKENDS = ("mlx_audio", "funasr")
+
+
+def _asr_backend_env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized not in _ASR_BACKENDS:
+        raise ValueError(
+            f"{name} must be one of {_ASR_BACKENDS}, got {value!r}"
+        )
+    return normalized
+
+
 
 
 @dataclass(frozen=True)
@@ -208,6 +238,10 @@ class Settings:
     meeting_llm_correction_enabled: bool = False
     meeting_llm_correction_candidates: tuple[str, ...] = ()
     asr_model: str = "mlx-community/Qwen3-ASR-0.6B-4bit"
+    asr_backend: str = "mlx_audio"
+    asr_funasr_model: str = "iic/SenseVoiceSmall"
+    asr_funasr_language: str = "auto"
+    asr_funasr_diarize: bool = True
     asr_language: str = "Chinese"
     asr_max_tokens: int = 512
     asr_repetition_penalty: float = 1.08
@@ -234,6 +268,12 @@ class Settings:
     speaker_sample_dir: str = "~/.astra/speaker_samples"
     meeting_prompt_templates_path: str = "~/.astra/meeting-prompt-templates.json"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
+    tts_backend: str = "piper"
+    tts_mlx_model: str = "mlx-community/Kokoro-82M-4bit"
+    tts_mlx_voice: str = "zf_xiaobei"
+    tts_mlx_lang_code: str = "z"
+    tts_mlx_speed: float = 1.0
+    tts_mlx_sample_rate: int = 24000
     meeting_output_dir: str = "~/Astra/meetings"
     task_store_path: str = "~/.astra/tasks.sqlite3"
     meeting_max_concurrent_jobs: int = 1
@@ -317,6 +357,14 @@ class Settings:
                 cls.meeting_llm_correction_candidates,
             ),
             asr_model=os.getenv("ASR_MODEL", cls.asr_model),
+            asr_backend=_asr_backend_env("ASR_BACKEND", cls.asr_backend),
+            asr_funasr_model=os.getenv("ASR_FUNASR_MODEL", cls.asr_funasr_model),
+            asr_funasr_language=os.getenv(
+                "ASR_FUNASR_LANGUAGE", cls.asr_funasr_language
+            ),
+            asr_funasr_diarize=_bool_env(
+                "ASR_FUNASR_DIARIZE", cls.asr_funasr_diarize
+            ),
             asr_language=os.getenv("ASR_LANGUAGE", cls.asr_language),
             asr_max_tokens=_int_env("ASR_MAX_TOKENS", cls.asr_max_tokens),
             asr_repetition_penalty=_float_env(
@@ -377,6 +425,14 @@ class Settings:
                 "MEETING_PROMPT_TEMPLATES_PATH", cls.meeting_prompt_templates_path
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
+            tts_backend=_tts_backend_env("TTS_BACKEND", cls.tts_backend),
+            tts_mlx_model=os.getenv("TTS_MLX_MODEL", cls.tts_mlx_model),
+            tts_mlx_voice=os.getenv("TTS_MLX_VOICE", cls.tts_mlx_voice),
+            tts_mlx_lang_code=os.getenv("TTS_MLX_LANG_CODE", cls.tts_mlx_lang_code),
+            tts_mlx_speed=_positive_float_env("TTS_MLX_SPEED", cls.tts_mlx_speed),
+            tts_mlx_sample_rate=_positive_int_env(
+                "TTS_MLX_SAMPLE_RATE", cls.tts_mlx_sample_rate
+            ),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
             task_store_path=os.getenv("TASK_STORE_PATH", cls.task_store_path),
             meeting_max_concurrent_jobs=_positive_int_env(

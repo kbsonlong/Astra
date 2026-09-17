@@ -141,6 +141,8 @@ class MeetingPipeline:
         separation: AudioSeparationStage | None = None,
         separation_trigger: str = "manual",
         overlap_detector: OverlapDetector | None = None,
+        inline_asr: Any = None,
+        speaker_store: Any = None,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
@@ -167,12 +169,16 @@ class MeetingPipeline:
         self.separation = separation
         self.separation_trigger = separation_trigger
         self.overlap_detector = overlap_detector or SpectralOverlapDetector()
+        self.inline_asr = inline_asr
+        self.speaker_store = speaker_store
         self.workflow = workflow or AudioWorkflow(
             self.vad,
             self.asr,
             self.punctuation,
             self.diarization,
             correction=self.correction_stage,
+            inline_asr=inline_asr,
+            speaker_store=speaker_store,
         )
         self.separated_workflow = AudioWorkflow(
             self.vad,

@@ -31,7 +31,7 @@ from .core.zipenhancer import build_audio_enhancement_pipeline
 from .models.asr_client import MlxAudioAsrClient
 from .models.asr_worker import AsrWorkerClient
 from .models.llm_client import OpenAICompatLLMClient
-from .models.tts_client import PiperSdkTtsClient
+from .models.tts_client import MlxAudioTtsClient, PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
 from .main_types import LLMSettingsPayload, TrainingConfigPayload
@@ -80,6 +80,10 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
     return {
         "meeting_rule_correction_enabled": current.meeting_rule_correction_enabled,
         "asr_model": current.asr_model,
+        "asr_backend": current.asr_backend,
+        "asr_funasr_model": current.asr_funasr_model,
+        "asr_funasr_language": current.asr_funasr_language,
+        "asr_funasr_diarize": current.asr_funasr_diarize,
         "asr_language": current.asr_language,
         "asr_max_tokens": current.asr_max_tokens,
         "asr_repetition_penalty": current.asr_repetition_penalty,
@@ -91,6 +95,10 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "asr_worker_shutdown_timeout_seconds": current.asr_worker_shutdown_timeout_seconds,
         "asr_hotwords": list(current.asr_hotwords),
         "asr_system_prompt_configured": bool(current.asr_system_prompt),
+        "tts_backend": current.tts_backend,
+        "tts_mlx_model": current.tts_mlx_model,
+        "tts_mlx_voice": current.tts_mlx_voice,
+        "tts_mlx_lang_code": current.tts_mlx_lang_code,
         "punctuation_enabled": current.punctuation_enabled,
         "punctuation_engine": current.punctuation_engine,
         "punctuation_device": current.punctuation_device,
@@ -125,6 +133,40 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "audio_enhancement_frame_timeout_ms": current.audio_enhancement_frame_timeout_ms,
         "version": current.version,
     }
+
+
+def _build_realtime_asr(current: Settings) -> object:
+    """按 asr_backend 选择实时 ASR client (VoiceStudio 路线图方向二)。
+
+    目前仅 mlx_audio (Qwen3-ASR); 该工厂为方向三 (FunASR 内联分离) 预留接入点。
+    """
+    return MlxAudioAsrClient(
+        current.asr_model,
+        current.asr_language,
+        max_tokens=current.asr_max_tokens,
+        repetition_penalty=current.asr_repetition_penalty,
+        repetition_context_size=current.asr_repetition_context_size,
+        chunk_duration=current.asr_chunk_duration_seconds,
+        long_audio_threshold=current.asr_long_audio_threshold_seconds,
+        hotwords=current.asr_hotwords,
+        system_prompt=current.asr_system_prompt,
+    )
+
+
+def _build_tts_client(current: Settings) -> object:
+    """按 tts_backend 选择实例化 TTS client (VoiceStudio 路线图方向一)。
+
+    piper (默认): 保留现有 Piper 兜底; mlx_audio: 中文原生 MLX 后端。
+    """
+    if current.tts_backend == "mlx_audio":
+        return MlxAudioTtsClient(
+            current.tts_mlx_model,
+            voice=current.tts_mlx_voice,
+            lang_code=current.tts_mlx_lang_code,
+            speed=current.tts_mlx_speed,
+            sample_rate=current.tts_mlx_sample_rate,
+        )
+    return PiperSdkTtsClient(current.tts_model_path)
 
 
 def _build_meeting_stages(
@@ -166,6 +208,10 @@ async def app_lifespan(app: FastAPI):
     worker = getattr(app.state, "asr_worker", None)
     if worker is not None:
         await worker.aclose()
+    tts = getattr(getattr(app.state, "pipeline", None), "tts", None)
+    close_tts = getattr(tts, "aclose", None)
+    if callable(close_tts):
+        await close_tts()
 
 
 def create_app(
@@ -218,17 +264,7 @@ def create_app(
     if enable_pipeline and pipeline is None:
         from .core.jaec import build_audio_aec_pipeline
 
-        realtime_asr = MlxAudioAsrClient(
-            current.asr_model,
-            current.asr_language,
-            max_tokens=current.asr_max_tokens,
-            repetition_penalty=current.asr_repetition_penalty,
-            repetition_context_size=current.asr_repetition_context_size,
-            chunk_duration=current.asr_chunk_duration_seconds,
-            long_audio_threshold=current.asr_long_audio_threshold_seconds,
-            hotwords=current.asr_hotwords,
-            system_prompt=current.asr_system_prompt,
-        )
+        realtime_asr = _build_realtime_asr(current)
         app.state.asr_worker = AsrWorkerClient(
             realtime_asr,
             max_queue=current.asr_worker_queue_size,
@@ -247,7 +283,7 @@ def create_app(
                 chat_path=current.llm_chat_path,
                 models_path=current.llm_models_path,
             ),
-            PiperSdkTtsClient(current.tts_model_path),
+            _build_tts_client(current),
             enhancement=build_audio_aec_pipeline(
                 enabled=current.audio_enhancement_enabled,
                 aec_model=current.audio_aec_model,
@@ -276,6 +312,15 @@ def create_app(
             hotwords=(),
             system_prompt="",
         )
+        inline_asr = None
+        if current.asr_backend == "funasr":
+            from .models.funasr_client import FunAsrClient
+
+            inline_asr = FunAsrClient(
+                current.asr_funasr_model,
+                language=current.asr_funasr_language,
+                diarize=current.asr_funasr_diarize,
+            )
         punctuation, diarization = _build_meeting_stages(
             current, app.state.speaker_store
         )
@@ -325,6 +370,8 @@ def create_app(
                 model=current.audio_overlap_detector_model,
                 model_dir=current.audio_overlap_model_dir,
             ),
+            inline_asr=inline_asr,
+            speaker_store=app.state.speaker_store,
         )
     app.include_router(auth_router)
     app.include_router(ws_router)
