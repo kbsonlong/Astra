@@ -134,16 +134,145 @@ export default function ReviewPage() {
 
   useEffect(() => { if (taskId) void load(); }, []);
 
+  const statusLabel = (s: ReviewStatus) =>
+    s === "approved" ? "已通过" : s === "rejected" ? "已驳回" : "待审核";
+  const statusBadge = (s: ReviewStatus) =>
+    s === "approved" ? "badge--success" : s === "rejected" ? "badge--danger" : "badge--warning";
+
   return (
-    <main className="app-shell upload-shell">
-      <header className="topbar">
-        <a className="brand" href="/"><span className="brand-mark">A</span><span><strong>Astra</strong><small>Audio Workbench</small></span></a>
-        <nav className="nav-actions" aria-label="Astra tools"><a className="nav-link" href="/">实时通话</a><a className="nav-link" href="/upload">会议工作台</a><a className="nav-link active" href="/review">逐段审校</a><a className="nav-link" href="/training">训练设置</a><a className="nav-link" href="/settings">管理设置</a></nav>
-      </header>
-      <section className="page-heading"><div><span className="eyebrow">TRANSCRIPT REVIEW</span><h1>逐段审校</h1><p>播放原音，确认专业词、人名和数字，审核通过后才进入训练集。</p></div><div className="status-board"><span>当前任务</span><strong>{taskId || "未选择"}</strong><small>{status}</small></div></section>
-      <section className="review-toolbar"><label className="training-field training-field-wide"><span>会议任务 ID</span><input value={taskId} onChange={(event) => setTaskId(event.target.value)} placeholder="例如：20260909-175538-74b54122" /></label><button type="button" onClick={() => void load(1)} disabled={busy}>加载审校数据</button><label className="training-field"><span>每页数量</span><select value={pagination.page_size} onChange={(event) => void load(1, Number(event.target.value))} disabled={busy}><option value={10}>10</option><option value={20}>20</option><option value={50}>50</option><option value={100}>100</option></select></label><span>待审核 {counts.pending ?? 0} · 通过 {counts.approved ?? 0} · 驳回 {counts.rejected ?? 0}</span></section>
-      {rows.length > 0 && <section className="meeting-review standalone-review"><div className="review-batch-toolbar"><label className="review-select"><input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={busy} />全选当前页</label><span>已选 {selected.size} / {rows.length}</span><button type="button" onClick={() => void batchReview("approved")} disabled={busy || selected.size === 0}>批量通过</button><button type="button" className="secondary-action" onClick={() => void batchReview("pending")} disabled={busy || selected.size === 0}>批量保存待审</button><button type="button" className="danger-action" onClick={() => void batchReview("rejected")} disabled={busy || selected.size === 0}>批量驳回</button></div><div className="meeting-review-list">{rows.map((row) => <div className={`meeting-review-row review-${row.review_status}`} key={row.segment_id}><div className="review-row-meta"><label className="review-select"><input type="checkbox" checked={selected.has(row.segment_id)} onChange={() => toggleRow(row.segment_id)} disabled={busy} aria-label={`选择 ${row.segment_id}`} /></label><strong>{row.segment_id}</strong><span>{formatTime(row.start)} - {formatTime(row.end)} · {row.speaker_name || row.speaker || "说话人待确认"}</span><span className="review-status">{row.review_status === "approved" ? "已通过" : row.review_status === "rejected" ? "已驳回" : "待审核"}</span></div><audio controls preload="none" src={row.audio_url} /><div className="review-text-grid"><div><small>原始识别</small><p>{row.raw_text}</p></div><label><span>确认文本</span><textarea value={row.corrected_text} onChange={(event) => setRows((current) => current.map((item) => item.segment_id === row.segment_id ? { ...item, corrected_text: event.target.value } : item))} /></label></div><div className="review-actions"><button type="button" disabled={busy} onClick={() => void review(row, "approved")}>审核通过</button><button type="button" className="secondary-action" disabled={busy} onClick={() => void review(row, "pending")}>保存待审</button><button type="button" className="danger-action" disabled={busy} onClick={() => void review(row, "rejected")}>驳回</button></div></div>)}</div><div className="review-pagination"><button type="button" disabled={busy || !pagination.has_prev} onClick={() => void load(pagination.page - 1)}>上一页</button><span>第 {pagination.page} / {pagination.total_pages} 页 · 共 {pagination.total} 段</span><button type="button" disabled={busy || !pagination.has_next} onClick={() => void load(pagination.page + 1)}>下一页</button></div></section>}
-      {!busy && pagination.total === 0 && taskId.trim() && <p className="empty-state">当前任务没有可审校分段。</p>}
-    </main>
+    <section className="view" aria-label="会议复核">
+      <div className="page-head">
+        <div className="page-head__text">
+          <div className="eyebrow">03 · 会议复核</div>
+          <h1>逐段复核 · {taskId || "未选择任务"}</h1>
+          <p>播放原音，核对说话人与纠错结果。审核通过的数据才能用于 ASR 微调。</p>
+        </div>
+        <div className="page-head__actions">
+          <span className="badge badge--warning">待审核 {counts.pending ?? 0}</span>
+          <span className="badge badge--success">通过 {counts.approved ?? 0}</span>
+          <span className="badge badge--danger">驳回 {counts.rejected ?? 0}</span>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: "var(--space-5)" }}>
+        <div className="form-grid">
+          <div className="field">
+            <label className="field__label" htmlFor="rv-task">会议任务 ID</label>
+            <input
+              className="input input--mono"
+              id="rv-task"
+              value={taskId}
+              onChange={(event) => setTaskId(event.target.value)}
+              placeholder="例如：20260909-175538-74b54122"
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="rv-size">每页数量</label>
+            <select
+              className="select"
+              id="rv-size"
+              value={pagination.page_size}
+              onChange={(event) => void load(1, Number(event.target.value))}
+              disabled={busy}
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+          <div className="field" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn--primary" type="button" onClick={() => void load(1)} disabled={busy}>
+              加载审校数据
+            </button>
+          </div>
+        </div>
+        <p className="card__hint" style={{ marginTop: "var(--space-3)" }}>{status}</p>
+      </div>
+
+      {rows.length > 0 && (
+        <div className="card">
+          <div className="review-batch">
+            <label className="check">
+              <input type="checkbox" checked={allSelected} onChange={toggleAll} disabled={busy} />
+              全选当前页
+            </label>
+            <span className="review-batch__count">已选 {selected.size} / {rows.length}</span>
+            <button className="btn btn--primary btn--sm" type="button" onClick={() => void batchReview("approved")} disabled={busy || selected.size === 0}>批量通过</button>
+            <button className="btn btn--secondary btn--sm" type="button" onClick={() => void batchReview("pending")} disabled={busy || selected.size === 0}>批量保存待审</button>
+            <button className="btn btn--danger btn--sm" type="button" onClick={() => void batchReview("rejected")} disabled={busy || selected.size === 0}>批量驳回</button>
+          </div>
+          <div className="divider" />
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-5)" }}>
+            {rows.map((row) => (
+              <div key={row.segment_id}>
+                <div className="card__head">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(row.segment_id)}
+                      onChange={() => toggleRow(row.segment_id)}
+                      disabled={busy}
+                      aria-label={`选择 ${row.segment_id}`}
+                    />
+                  </label>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="filecard__name">{row.segment_id}</div>
+                    <div className="filecard__meta">
+                      {formatTime(row.start)} – {formatTime(row.end)} · {row.speaker_name || row.speaker || "说话人待确认"}
+                    </div>
+                  </div>
+                  <span className={`badge ${statusBadge(row.review_status)}`} style={{ marginLeft: "auto" }}>
+                    {statusLabel(row.review_status)}
+                  </span>
+                </div>
+                <div className="player" style={{ marginBottom: "var(--space-3)" }}>
+                  <audio controls preload="none" src={row.audio_url} />
+                </div>
+                <div className="emend" style={{ marginBottom: "var(--space-3)" }}>
+                  <span className="emend__orig">{row.raw_text}</span>
+                </div>
+                <div className="field">
+                  <label className="field__label" htmlFor={`rv-edit-${row.segment_id}`}>确认文本</label>
+                  <textarea
+                    className="textarea"
+                    id={`rv-edit-${row.segment_id}`}
+                    value={row.corrected_text}
+                    onChange={(event) =>
+                      setRows((current) =>
+                        current.map((item) =>
+                          item.segment_id === row.segment_id
+                            ? { ...item, corrected_text: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                  />
+                </div>
+                <div className="review-batch" style={{ paddingBottom: 0 }}>
+                  <button className="btn btn--primary btn--sm" type="button" disabled={busy} onClick={() => void review(row, "approved")}>审核通过</button>
+                  <button className="btn btn--secondary btn--sm" type="button" disabled={busy} onClick={() => void review(row, "pending")}>保存待审</button>
+                  <button className="btn btn--danger btn--sm" type="button" disabled={busy} onClick={() => void review(row, "rejected")}>驳回</button>
+                </div>
+                <div className="divider" />
+              </div>
+            ))}
+          </div>
+          <div className="pager">
+            <button className="btn btn--secondary btn--sm" type="button" disabled={busy || !pagination.has_prev} onClick={() => void load(pagination.page - 1)}>上一页</button>
+            <span className="card__hint">第 {pagination.page} / {pagination.total_pages} 页 · 共 {pagination.total} 段</span>
+            <button className="btn btn--secondary btn--sm" type="button" disabled={busy || !pagination.has_next} onClick={() => void load(pagination.page + 1)}>下一页</button>
+          </div>
+        </div>
+      )}
+
+      {!busy && pagination.total === 0 && taskId.trim() && (
+        <div className="empty">
+          <div className="empty__icon">◎</div>
+          <div className="empty__title">当前任务没有可审校分段</div>
+          <div className="empty__desc">确认任务 ID 是否正确，或从音频工作台打开最近完成的会议任务。</div>
+        </div>
+      )}
+    </section>
   );
 }

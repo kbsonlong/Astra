@@ -764,308 +764,435 @@ export default function UploadPage() {
     }
   }
 
+  const currentTemplate = promptTemplates.find((template) => template.id === promptTemplate);
+
   return (
-    <main className="app-shell upload-shell">
-      <header className="topbar">
-        <a className="brand" href="/">
-          <span className="brand-mark">A</span>
-          <span>
-            <strong>Astra</strong>
-            <small>Audio Workbench</small>
-          </span>
-        </a>
-        <nav className="nav-actions" aria-label="Astra tools">
-          <a className="nav-link" href="/">实时通话</a>
-          <a className="nav-link active" href="/upload">会议工作台</a>
-          <a className="nav-link" href="/review">逐段审校</a>
-          <a className="nav-link" href="/training">训练设置</a>
-          <a className="nav-link" href="/settings">管理设置</a>
-          <span className={`notification-indicator${speakerNotifications.length > 0 ? " has-notifications" : ""}`} title="声纹审核提醒">
+    <section className="view" aria-label="音频工作台">
+      <div className="page-head">
+        <div className="page-head__text">
+          <div className="eyebrow">02 · 音频工作台</div>
+          <h1>上传录音，得到可追溯的转写与纪要</h1>
+          <p>上传本地音频，按需执行基础转写、流式修正或完整会议纪要。所有处理都在本机完成。</p>
+        </div>
+        <div className="page-head__actions">
+          <span className={`badge ${speakerNotifications.length > 0 ? "badge--warning" : "badge--neutral"}`}>
+            {speakerNotifications.length > 0 && <span className="badge__dot" />}
             {speakerNotifications.length > 0 ? `待审核 ${speakerNotifications.length}` : "无新提醒"}
           </span>
-        </nav>
-      </header>
-
-      <section className="workbench-hero">
-        <div>
-          <span className="eyebrow">ASR · CORRECTION · MEETING NOTES</span>
-          <h1>把录音变成可审阅的文本资产</h1>
-          <p>上传本地音频，按需执行转写、流式修正或会议纪要生成。</p>
         </div>
-        <div className="status-board">
-          <span>当前任务</span>
-          <strong>{busy ? "处理中" : file ? "已选择文件" : "等待音频"}</strong>
-          <small>{status}</small>
-        </div>
-      </section>
+      </div>
 
-      <form className="workbench-grid" onSubmit={upload}>
-        <section className="upload-panel">
-          <label className="file-drop">
-            <span className="file-drop-icon">+</span>
-            <strong>{file ? file.name : "选择音频文件"}</strong>
-            <small>{file ? `${file.size.toLocaleString()} bytes` : "支持浏览器可读取的音频格式"}</small>
-            <input type="file" accept="audio/*,.wav" onChange={selectFile} />
-          </label>
+      <div className="work-grid">
+        <div className="col">
+          {/* 上传 + 配置 */}
+          <form className="card" onSubmit={upload}>
+            <div className="card__head"><h3>新建任务</h3></div>
 
-          <label className="field">
-            <span>会议主题</span>
-            <input type="text" value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="例如：云资源成本优化周会" />
-          </label>
-
-          <label className="field">
-            <span>纪要提示词模板</span>
-            <select value={promptTemplate} onChange={(e) => setPromptTemplate(e.target.value)}>
-              {(promptTemplates.length > 0 ? promptTemplates : [{
-                id: "standard",
-                name: "标准纪要",
-                description: "",
-                chunk_system_prompt: "",
-                merge_system_prompt: "",
-              }]).map((template) => (
-                <option key={template.id} value={template.id}>{template.name}</option>
-              ))}
-            </select>
-            <small className="field-hint">
-              {promptTemplates.find((template) => template.id === promptTemplate)?.description ?? "提取会议结论、行动项和待确认事项"}
-            </small>
-            <span className="prompt-template-actions">
-              <button type="button" className="secondary-action compact-button" onClick={openNewPromptTemplate}>新建自定义</button>
-              {promptTemplates.find((template) => template.id === promptTemplate)?.editable && (
-                <>
-                  <button type="button" className="secondary-action compact-button" onClick={openEditPromptTemplate}>编辑</button>
-                  <button type="button" className="danger-action compact-button" onClick={deletePromptTemplate}>删除</button>
-                </>
-              )}
-            </span>
-          </label>
-
-          <div className="field field-checkbox">
-            <span>多人重叠语音</span>
-            <label>
-              <input
-                type="checkbox"
-                checked={separateSpeakers}
-                onChange={(event) => setSeparateSpeakers(event.target.checked)}
-              />
-              <span>启用 FLASepformer 双说话人分离（离线、8 kHz、约 30 秒窗口）</span>
+            <label className="dropzone" role="button" tabIndex={0}>
+              <div className="dropzone__icon">⇪</div>
+              <div className="dropzone__title">{file ? file.name : "拖入音频文件，或点击选择"}</div>
+              <div className="dropzone__hint">
+                {file
+                  ? `${file.size.toLocaleString()} bytes · 已就绪`
+                  : "支持 m4a / wav / mp3 / flac / aac / mov / mp4"}
+              </div>
+              <input type="file" accept="audio/*,.wav" onChange={selectFile} />
             </label>
-            <small className="field-hint">
-              仅会议纪要按钮生效；模型未配置时会保持原始混合音频流程。
-            </small>
-          </div>
-        </section>
 
-        <section className="action-panel">
-          <button type="submit" disabled={busy || !file}>{busy ? "转写中..." : "基础转写"}</button>
-          <button type="button" className="secondary-action" disabled={busy || !file} onClick={uploadWithCorrection}>流式修正</button>
-          <button type="button" className="meeting-btn" disabled={busy || !file} onClick={runMeeting}>
-            {busy ? "处理中..." : "生成会议纪要"}
-          </button>
-          {activeMeetingTask && (
-            <button type="button" className="danger-action" onClick={cancelMeeting}>
-              取消会议处理
-            </button>
-          )}
-          <label className="field-checkbox stream-option">
-            <input type="checkbox" checked={streamSeparate} onChange={(event) => setStreamSeparate(event.target.checked)} />
-            <span>流式修正启用 FLASepformer 分离</span>
-          </label>
-        </section>
-      </form>
+            {file && (
+              <div className="filecard" style={{ marginTop: "var(--space-4)" }}>
+                <div className="filecard__icon">♪</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="filecard__name">{file.name}</div>
+                  <div className="filecard__meta">{file.size.toLocaleString()} bytes · 已就绪</div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => {
+                    setFile(null);
+                    setStatus("选择一个音频文件开始测试");
+                  }}
+                >
+                  移除
+                </button>
+              </div>
+            )}
 
-      {promptEditor && (
-        <section className="prompt-editor-panel" aria-live="polite">
-          <div className="prompt-editor-head">
-            <div>
-              <span className="eyebrow">CUSTOM MEETING PROMPT</span>
-              <h2>{promptEditor.id ? "编辑自定义模板" : "新建自定义模板"}</h2>
+            <div className="divider" />
+
+            <div className="form-grid">
+              <div className="field">
+                <label className="field__label" htmlFor="w-topic">会议主题</label>
+                <input
+                  className="input"
+                  id="w-topic"
+                  type="text"
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder="留空时由模型根据内容推断"
+                />
+              </div>
+              <div className="field">
+                <label className="field__label" htmlFor="w-tpl">提示词模板</label>
+                <select
+                  className="select"
+                  id="w-tpl"
+                  value={promptTemplate}
+                  onChange={(e) => setPromptTemplate(e.target.value)}
+                >
+                  {(promptTemplates.length > 0
+                    ? promptTemplates
+                    : [{ id: "standard", name: "标准纪要", description: "", chunk_system_prompt: "", merge_system_prompt: "" }]
+                  ).map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="field__hint">
+                  {currentTemplate?.description ?? "提取会议结论、行动项和待确认事项"}
+                </span>
+                <div className="page-head__actions" style={{ marginTop: "var(--space-1)" }}>
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={openNewPromptTemplate}>新建自定义</button>
+                  {currentTemplate?.editable && (
+                    <>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={openEditPromptTemplate}>编辑</button>
+                      <button type="button" className="btn btn--ghost btn--sm" onClick={deletePromptTemplate}>删除</button>
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
-            <button type="button" className="secondary-action compact-button" onClick={() => setPromptEditor(null)}>取消</button>
-          </div>
-          <div className="prompt-editor-grid">
-            <label className="field">
-              <span>模板名称</span>
-              <input value={promptEditor.name} maxLength={80} onChange={(event) => updatePromptEditor("name", event.target.value)} placeholder="例如：产品评审纪要" />
-            </label>
-            <label className="field">
-              <span>模板说明</span>
-              <input value={promptEditor.description} maxLength={200} onChange={(event) => updatePromptEditor("description", event.target.value)} placeholder="说明这个模板适用的会议类型" />
-            </label>
-            <label className="field prompt-textarea-field">
-              <span>分段提取系统提示词</span>
-              <textarea value={promptEditor.chunk_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("chunk_system_prompt", event.target.value)} rows={8} />
-            </label>
-            <label className="field prompt-textarea-field">
-              <span>最终合并系统提示词</span>
-              <textarea value={promptEditor.merge_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("merge_system_prompt", event.target.value)} rows={8} />
-            </label>
-          </div>
-          <div className="prompt-editor-footer">
-            <button type="button" disabled={!promptEditor.name.trim() || !promptEditor.chunk_system_prompt.trim() || !promptEditor.merge_system_prompt.trim()} onClick={savePromptTemplate}>保存模板</button>
-            <small className="field-hint">自定义模板保存在服务端配置文件中，内置模板不可覆盖。</small>
-            {promptEditorStatus && <small className="prompt-editor-status">{promptEditorStatus}</small>}
-          </div>
-        </section>
-      )}
 
-      <section className="speaker-panel" aria-live="polite">
-        <div className="speaker-panel-head">
-          <div>
-            <span className="eyebrow">VOICEPRINT REGISTRY</span>
-            <h2>声纹档案</h2>
-          </div>
-          <div className="speaker-actions">
-            <button type="button" className="secondary-action compact-button" onClick={refreshSpeakers}>刷新</button>
-            <button type="button" className="secondary-action compact-button" onClick={createDefaultSpeakers}>创建 S1-S8</button>
-          </div>
-        </div>
-        <div className="speaker-create-row">
-          <input
-            type="text"
-            value={speakerName}
-            onChange={(event) => setSpeakerName(event.target.value)}
-            placeholder="新说话人名称"
-          />
-          <button type="button" className="compact-button" onClick={() => createSpeaker(speakerName)}>创建</button>
-        </div>
-        <p className="speaker-status">{speakerStatus}</p>
-        {speakerNotifications.length > 0 && (
-          <div className="notification-list" role="status">
-            {speakerNotifications.map((notification) => (
-              <p key={notification.id}>{notification.message}</p>
-            ))}
-          </div>
-        )}
-        <div className="speaker-list">
-          {speakers.map((speaker) => (
-            <article className="speaker-row" key={speaker.speaker_id}>
-              <div className="speaker-id-block">
-                <strong>{speaker.display_name} {speaker.status === "pending_review" && <em>待审核</em>}</strong>
-                <small>{speaker.sample_count} 个样本 · {speaker.embedding_model}</small>
-                <div className="sample-list">
-                  {(speakerSamples[speaker.speaker_id] ?? []).map((sample) => (
-                    <div className="sample-item" key={sample.sample_id}>
-                      {sample.audio_url ? (
-                        <audio controls preload="none" src={sample.audio_url} />
-                      ) : (
-                        <span className="sample-unavailable">历史样本无音频</span>
-                      )}
-                      <small>{sample.original_filename} · {sample.duration_s.toFixed(1)}s</small>
+            <h4 style={{ margin: "var(--space-5) 0 var(--space-3)" }}>处理方式</h4>
+            <div className="modes">
+              <button
+                type="button"
+                className="mode"
+                aria-pressed={!separateSpeakers && !streamSeparate}
+                onClick={() => {
+                  setSeparateSpeakers(false);
+                  setStreamSeparate(false);
+                }}
+              >
+                <span className="mode__top">
+                  <span className="mode__name">标准处理</span>
+                  <span className="mode__check">✓</span>
+                </span>
+                <span className="mode__desc">默认的转写与纪要流程，不启用重叠语音分离。</span>
+              </button>
+              <button
+                type="button"
+                className="mode"
+                aria-pressed={streamSeparate}
+                onClick={() => setStreamSeparate((v) => !v)}
+              >
+                <span className="mode__top">
+                  <span className="mode__name">流式分离</span>
+                  <span className="mode__check">✓</span>
+                </span>
+                <span className="mode__desc">流式修正时启用 FLASepformer 双说话人分离（8 kHz）。</span>
+              </button>
+              <button
+                type="button"
+                className="mode"
+                aria-pressed={separateSpeakers}
+                onClick={() => setSeparateSpeakers((v) => !v)}
+              >
+                <span className="mode__top">
+                  <span className="mode__name">会议分离</span>
+                  <span className="mode__check">✓</span>
+                </span>
+                <span className="mode__desc">生成会议纪要时启用重叠语音分离；未配置模型则保持原流程。</span>
+              </button>
+            </div>
+
+            <div className="divider" />
+
+            <div className="page-head__actions">
+              <button type="submit" className="btn btn--secondary" disabled={busy || !file}>
+                {busy ? "转写中…" : "基础转写"}
+              </button>
+              <button type="button" className="btn btn--secondary" disabled={busy || !file} onClick={uploadWithCorrection}>
+                流式修正
+              </button>
+              <button type="button" className="btn btn--primary btn--lg" disabled={busy || !file} onClick={runMeeting}>
+                {busy ? "处理中…" : "生成会议纪要"}
+              </button>
+              {activeMeetingTask && (
+                <button type="button" className="btn btn--danger" onClick={cancelMeeting}>
+                  取消会议处理
+                </button>
+              )}
+            </div>
+            <p className="card__hint" style={{ marginTop: "var(--space-3)" }}>{status}</p>
+          </form>
+
+          {/* 自定义模板编辑器 */}
+          {promptEditor && (
+            <div className="card" aria-live="polite">
+              <div className="card__head">
+                <h3>{promptEditor.id ? "编辑自定义模板" : "新建自定义模板"}</h3>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPromptEditor(null)}>取消</button>
+              </div>
+              <div className="form-grid">
+                <div className="field">
+                  <label className="field__label">模板名称</label>
+                  <input className="input" value={promptEditor.name} maxLength={80} onChange={(event) => updatePromptEditor("name", event.target.value)} placeholder="例如：产品评审纪要" />
+                </div>
+                <div className="field">
+                  <label className="field__label">模板说明</label>
+                  <input className="input" value={promptEditor.description} maxLength={200} onChange={(event) => updatePromptEditor("description", event.target.value)} placeholder="说明这个模板适用的会议类型" />
+                </div>
+              </div>
+              <div className="field" style={{ marginTop: "var(--space-4)" }}>
+                <label className="field__label">分段提取系统提示词</label>
+                <textarea className="textarea" value={promptEditor.chunk_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("chunk_system_prompt", event.target.value)} rows={6} />
+              </div>
+              <div className="field" style={{ marginTop: "var(--space-4)" }}>
+                <label className="field__label">最终合并系统提示词</label>
+                <textarea className="textarea" value={promptEditor.merge_system_prompt} maxLength={20000} onChange={(event) => updatePromptEditor("merge_system_prompt", event.target.value)} rows={6} />
+              </div>
+              <div className="page-head__actions" style={{ marginTop: "var(--space-4)" }}>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  disabled={!promptEditor.name.trim() || !promptEditor.chunk_system_prompt.trim() || !promptEditor.merge_system_prompt.trim()}
+                  onClick={savePromptTemplate}
+                >
+                  保存模板
+                </button>
+                <span className="card__hint">自定义模板保存在服务端，内置模板不可覆盖。</span>
+              </div>
+              {promptEditorStatus && <p className="field__error" style={{ marginTop: "var(--space-2)" }}>{promptEditorStatus}</p>}
+            </div>
+          )}
+
+          {/* 结果 */}
+          {meeting && (
+            <div className="card" aria-live="polite">
+              <div className="card__head">
+                <span className="badge badge--success">已完成</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="taskcard__title">{meeting.filename}</div>
+                  <div className="taskcard__id">
+                    {meeting.task_id} · {Math.round(meeting.duration_s / 60)}分{Math.round(meeting.duration_s % 60)}秒 ·
+                    说话人 {meeting.speakers.length > 0 ? meeting.speakers.join("/") : "未分离"} · {meeting.segments} 段
+                  </div>
+                </div>
+              </div>
+              {meeting.summary && <MarkdownContent source={meeting.summary} />}
+              {meeting.timeline_preview && (
+                <details>
+                  <summary>逐字稿预览</summary>
+                  <pre className="timeline-pre">{meeting.timeline_preview}</pre>
+                </details>
+              )}
+              {meeting.separation_audio_urls && meeting.separation_audio_urls.length > 0 && (
+                <div className="spk-samples" style={{ marginTop: "var(--space-4)" }}>
+                  <strong className="card__hint">分离音轨复听</strong>
+                  {meeting.separation_audio_urls.map((audioUrl, index) => (
+                    <div key={audioUrl}>
+                      <div className="filecard__meta">来源 {index + 1}</div>
+                      <audio controls preload="none" src={audioUrl} />
                     </div>
                   ))}
                 </div>
-              </div>
-              <input
-                type="text"
-                value={renaming[speaker.speaker_id] ?? speaker.display_name}
-                onChange={(event) => setRenaming((current) => ({
-                  ...current,
-                  [speaker.speaker_id]: event.target.value,
-                }))}
-                aria-label={`${speaker.display_name} 的新名称`}
-              />
-              <button type="button" className="secondary-action compact-button" onClick={() => renameSpeaker(speaker)}>改名</button>
-              {speaker.status === "pending_review" && (
-                <button type="button" className="compact-button" onClick={() => approveSpeaker(speaker)}>审核通过</button>
               )}
-              <label className="sample-upload">
-                样本
-                <input type="file" accept="audio/*,.wav" onChange={(event) => uploadSpeakerSample(speaker, event.target.files)} />
-              </label>
-              <button type="button" className="danger-action compact-button" onClick={() => disableSpeaker(speaker)}>禁用</button>
-            </article>
-          ))}
-        </div>
-      </section>
+              {meeting.overlap_detection && <OverlapDetectionView detection={meeting.overlap_detection} />}
+              <div className="divider" />
+              <div className="kv">
+                <span className="kv__k">完整报告</span><span className="kv__v">{meeting.report_path}</span>
+                {meeting.training_artifacts && (
+                  <>
+                    <span className="kv__k">训练候选</span>
+                    <span className="kv__v">{meeting.training_artifacts.candidate_segments ?? 0} 段 · {meeting.training_artifacts.training_candidates}</span>
+                    <span className="kv__k">逐字稿审校</span><span className="kv__v">{meeting.training_artifacts.transcript_segments}</span>
+                    <span className="kv__k">音频片段</span><span className="kv__v">{meeting.training_artifacts.clips_dir}</span>
+                  </>
+                )}
+              </div>
+              <div className="page-head__actions" style={{ marginTop: "var(--space-4)" }}>
+                <a className="btn btn--secondary btn--sm" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a>
+                <a className="btn btn--ghost btn--sm" href="/training">打开训练设置</a>
+              </div>
+            </div>
+          )}
 
-      <section className="results-stack">
-        {meeting && (
-          <article className="result-card meeting-result" aria-live="polite">
-            <span className="eyebrow">MEETING NOTES · {meeting.task_id}</span>
-            <p className="result-meta">
-              {meeting.filename} · {Math.round(meeting.duration_s / 60)}分{Math.round(meeting.duration_s % 60)}秒 ·
-              说话人 {meeting.speakers.length > 0 ? meeting.speakers.join("/") : "未分离"} · {meeting.segments} 段
-            </p>
-            {meeting.summary && <MarkdownContent source={meeting.summary} />}
-            {meeting.timeline_preview && (
-              <details open={false}>
-                <summary>逐字稿预览</summary>
-                <pre className="timeline-pre">{meeting.timeline_preview}</pre>
-              </details>
-            )}
-            {meeting.separation_audio_urls && meeting.separation_audio_urls.length > 0 && (
-              <div className="meeting-separation-list">
-                <strong>分离音轨复听</strong>
-                {meeting.separation_audio_urls.map((audioUrl, index) => (
-                  <label key={audioUrl}>
-                    <span>来源 {index + 1}</span>
-                    <audio controls preload="none" src={audioUrl} />
-                  </label>
+          {result && (
+            <div className="card" aria-live="polite">
+              <div className="card__head"><h4>转写结果</h4></div>
+              <p className="card__hint">{result.filename} · {result.bytes.toLocaleString()} bytes</p>
+              <p className="spine-text" style={{ marginTop: "var(--space-3)" }}>{result.text || "未识别到文本"}</p>
+            </div>
+          )}
+
+          {correction && (
+            <div className="card" aria-live="polite">
+              <div className="card__head"><h4>流式修正</h4></div>
+              <p className="spine-text">{correction}</p>
+            </div>
+          )}
+
+          {enhancementStatus.length > 0 && (
+            <div className="card" aria-live="polite">
+              <div className="card__head"><h4>音频增强</h4></div>
+              {enhancementStatus.map((stage) => (
+                <p className="card__hint" key={stage.stage_name}>
+                  {stage.stage_name} · {stage.status} · {stage.latency_ms.toFixed(1)} ms
+                  {stage.fallback_reason ? ` · ${stage.fallback_reason}` : ""}
+                </p>
+              ))}
+            </div>
+          )}
+
+          {separationStatus && (
+            <div className="card" aria-live="polite">
+              <div className="card__head"><h4>流式分离</h4></div>
+              <p className="card__hint">
+                {separationStatus.stage_name} · {separationStatus.status} · {separationStatus.output_count} 路 · {separationStatus.latency_ms.toFixed(1)} ms
+                {separationStatus.fallback_reason ? ` · ${separationStatus.fallback_reason}` : ""}
+              </p>
+            </div>
+          )}
+
+          {correctionTimeline.length > 0 && (
+            <div className="card" aria-live="polite">
+              <div className="card__head"><h4>修正时间线</h4></div>
+              <div className="spine">
+                {correctionTimeline.map((segment) => (
+                  <div className="spine-row" key={segment.index}>
+                    <div className="spine-time">{formatTime(segment.start)}</div>
+                    <div className="spine-body">
+                      {segment.source_index !== undefined && (
+                        <div className="spine-speaker">来源 {segment.source_index + 1}</div>
+                      )}
+                      <div className="spine-text">{segment.text}</div>
+                    </div>
+                  </div>
                 ))}
               </div>
-            )}
-            {meeting.overlap_detection && (
-              <OverlapDetectionView detection={meeting.overlap_detection} />
-            )}
-            <p className="result-meta">完整报告: {meeting.report_path}</p>
-            <p className="result-meta"><a className="review-link" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a> · <a className="review-link" href="/training">打开训练设置</a></p>
-            {meeting.training_artifacts && (
-              <div className="result-meta">
-                <strong>ASR 训练候选数据:</strong>{" "}
-                {meeting.training_artifacts.candidate_segments ?? 0} 段，JSONL: {meeting.training_artifacts.training_candidates}
-                <br />逐字稿审校: {meeting.training_artifacts.transcript_segments}
-                <br />音频片段: {meeting.training_artifacts.clips_dir}
+            </div>
+          )}
+        </div>
+
+        {/* 右栏 */}
+        <div className="col">
+          <div className="card">
+            <div className="card__head">
+              <h4>提示词模板</h4>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={openNewPromptTemplate}>新建</button>
+            </div>
+            <div>
+              {(promptTemplates.length > 0 ? promptTemplates : []).map((template) => (
+                <div className="spk-row" key={template.id}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="spk-name">{template.name}</div>
+                    <div className="spk-meta">{template.description || (template.builtin ? "内置模板" : "自定义模板")}</div>
+                  </div>
+                  {template.editable ? (
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      onClick={() => {
+                        setPromptTemplate(template.id);
+                        openEditPromptTemplate();
+                      }}
+                    >
+                      编辑
+                    </button>
+                  ) : (
+                    <span className="badge badge--neutral">内置</span>
+                  )}
+                </div>
+              ))}
+              {promptTemplates.length === 0 && <p className="card__hint">正在加载模板…</p>}
+            </div>
+          </div>
+
+          <div className="card" aria-live="polite">
+            <div className="card__head">
+              <h4>说话人档案</h4>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={refreshSpeakers}>刷新</button>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={createDefaultSpeakers}>创建 S1-S8</button>
+            </div>
+            <div className="setting-inline" style={{ marginBottom: "var(--space-3)" }}>
+              <input
+                className="input"
+                type="text"
+                value={speakerName}
+                onChange={(event) => setSpeakerName(event.target.value)}
+                placeholder="新说话人名称"
+              />
+              <button type="button" className="btn btn--secondary btn--sm" onClick={() => createSpeaker(speakerName)}>创建</button>
+            </div>
+            <p className="card__hint">{speakerStatus}</p>
+            {speakerNotifications.length > 0 && (
+              <div className="alert alert--warning" role="status" style={{ marginTop: "var(--space-3)" }}>
+                <span>◆</span>
+                <div className="alert__body">
+                  {speakerNotifications.map((notification) => (
+                    <div className="alert__desc" key={notification.id}>{notification.message}</div>
+                  ))}
+                </div>
               </div>
             )}
-          </article>
-        )}
-        {result && (
-          <article className="result-card" aria-live="polite">
-            <span className="eyebrow">TRANSCRIPTION RESULT</span>
-            <p className="result-meta">{result.filename} · {result.bytes.toLocaleString()} bytes</p>
-            <p className="result-text">{result.text || "未识别到文本"}</p>
-          </article>
-        )}
-        {correction && (
-          <article className="result-card correction-result" aria-live="polite">
-            <span className="eyebrow">LLM CORRECTION STREAM</span>
-            <p className="result-text">{correction}</p>
-          </article>
-        )}
-        {enhancementStatus.length > 0 && (
-          <article className="result-card" aria-live="polite">
-            <span className="eyebrow">AUDIO ENHANCEMENT</span>
-            {enhancementStatus.map((stage) => (
-              <p className="result-meta" key={stage.stage_name}>
-                {stage.stage_name} · {stage.status} · {stage.latency_ms.toFixed(1)} ms
-                {stage.fallback_reason ? ` · ${stage.fallback_reason}` : ""}
-              </p>
-            ))}
-          </article>
-        )}
-        {separationStatus && (
-          <article className="result-card" aria-live="polite">
-            <span className="eyebrow">STREAM SEPARATION</span>
-            <p className="result-meta">
-              {separationStatus.stage_name} · {separationStatus.status} · {separationStatus.output_count} 路 · {separationStatus.latency_ms.toFixed(1)} ms
-              {separationStatus.fallback_reason ? ` · ${separationStatus.fallback_reason}` : ""}
-            </p>
-          </article>
-        )}
-        {correctionTimeline.length > 0 && (
-          <article className="result-card correction-timeline" aria-live="polite">
-            <span className="eyebrow">CORRECTION TIMELINE</span>
-            {correctionTimeline.map((segment) => (
-              <p className="timeline-line" key={segment.index}>
-                <span>{formatTime(segment.start)} - {formatTime(segment.end)}</span>
-                {segment.source_index !== undefined && <strong> 来源 {segment.source_index + 1}</strong>}
-                {segment.text}
-              </p>
-            ))}
-          </article>
-        )}
-      </section>
-    </main>
+            <div style={{ marginTop: "var(--space-2)" }}>
+              {speakers.map((speaker) => {
+                const pending = speaker.status === "pending_review";
+                return (
+                  <div className="spk-row" key={speaker.speaker_id} style={{ flexWrap: "wrap" }}>
+                    <div className={`spk-avatar${pending ? " spk-avatar--pending" : ""}`}>
+                      {speaker.display_name.slice(0, 2)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="spk-name">
+                        {speaker.display_name}
+                        {pending && (
+                          <span className="badge badge--warning" style={{ marginLeft: "var(--space-2)" }}>待审核</span>
+                        )}
+                      </div>
+                      <div className="spk-meta">{speaker.sample_count} 个样本 · {speaker.embedding_model}</div>
+                      <div className="spk-samples">
+                        {(speakerSamples[speaker.speaker_id] ?? []).map((sample) => (
+                          <div key={sample.sample_id}>
+                            {sample.audio_url ? (
+                              <audio controls preload="none" src={sample.audio_url} />
+                            ) : (
+                              <span className="spk-meta">历史样本无音频</span>
+                            )}
+                            <div className="spk-meta">{sample.original_filename} · {sample.duration_s.toFixed(1)}s</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="spk-actions" style={{ width: "100%" }}>
+                      <input
+                        className="input input--mono"
+                        type="text"
+                        value={renaming[speaker.speaker_id] ?? speaker.display_name}
+                        onChange={(event) => setRenaming((current) => ({ ...current, [speaker.speaker_id]: event.target.value }))}
+                        aria-label={`${speaker.display_name} 的新名称`}
+                      />
+                      <button type="button" className="btn btn--secondary btn--sm" onClick={() => renameSpeaker(speaker)}>改名</button>
+                      {pending && (
+                        <button type="button" className="btn btn--primary btn--sm" onClick={() => approveSpeaker(speaker)}>审核通过</button>
+                      )}
+                      <label className="sample-upload">
+                        <span className="btn btn--ghost btn--sm">样本</span>
+                        <input type="file" accept="audio/*,.wav" onChange={(event) => uploadSpeakerSample(speaker, event.target.files)} />
+                      </label>
+                      <button type="button" className="btn btn--danger btn--sm" onClick={() => disableSpeaker(speaker)}>禁用</button>
+                    </div>
+                  </div>
+                );
+              })}
+              {speakers.length === 0 && <p className="card__hint">暂无声纹档案。</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

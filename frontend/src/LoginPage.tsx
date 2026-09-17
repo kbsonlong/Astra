@@ -42,15 +42,16 @@ export default function LoginPage({ onAuthenticated }: Props) {
   }
 
   return (
-    <main className="app-shell login-shell">
-      <section className="login-card" aria-live="polite">
-        <span className="eyebrow">ADMINISTRATOR ACCESS</span>
+    <main className="login-shell">
+      <section className="card login-card" aria-live="polite">
+        <div className="eyebrow">ADMINISTRATOR ACCESS</div>
         <h1>登录 Astra</h1>
         <p>此服务受管理员令牌保护。令牌只用于建立当前浏览器会话，不会保存在本地存储中。</p>
         <form onSubmit={submit} className="login-form">
           <label className="field">
-            <span>管理员令牌</span>
+            <span className="field__label">管理员令牌</span>
             <input
+              className="input input--mono"
               autoFocus
               type="password"
               autoComplete="current-password"
@@ -59,9 +60,13 @@ export default function LoginPage({ onAuthenticated }: Props) {
               placeholder="输入 ADMIN_TOKEN"
             />
           </label>
-          <button type="submit" disabled={busy}>{busy ? "登录中…" : "登录"}</button>
+          <button className="btn btn--primary" type="submit" disabled={busy}>
+            {busy ? "登录中…" : "登录"}
+          </button>
         </form>
-        <small className="connection-note">{status}</small>
+        <small className="field__hint" style={{ marginTop: "var(--space-3)", display: "block" }}>
+          {status}
+        </small>
       </section>
     </main>
   );

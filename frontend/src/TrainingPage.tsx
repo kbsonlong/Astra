@@ -155,46 +155,161 @@ export default function TrainingPage() {
 
   function textField(key: "model_path" | "train_file" | "eval_file" | "output_dir" | "resume_from", label: string) {
     if (!config) return null;
-    return <label className="training-field training-field-wide"><span>{label}</span><input value={config[key]} onChange={(event) => update(key, event.target.value)} /></label>;
+    return (
+      <div className="field">
+        <label className="field__label" htmlFor={`tf-${key}`}>{label}</label>
+        <input className="input input--mono" id={`tf-${key}`} value={config[key]} onChange={(event) => update(key, event.target.value)} />
+      </div>
+    );
   }
 
   function datasetField(key: "train_file" | "eval_file", label: string) {
     if (!config) return null;
-    return <label className="training-field training-field-wide"><span>{label}</span><select value={datasets.some((item) => item.path === config[key]) ? config[key] : ""} onChange={(event) => update(key, event.target.value)}><option value="">{datasets.length ? "选择已审批会议数据" : "暂无已审批数据"}</option>{datasets.map((dataset) => <option value={dataset.path} key={dataset.id}>{dataset.task_id} · 已通过 {dataset.approved_count}/{dataset.total_count} 段</option>)}</select><small className="field-hint">完成逐段审核后，点击右侧重载即可看到新数据。</small></label>;
+    return (
+      <div className="field">
+        <label className="field__label" htmlFor={`tf-${key}`}>{label}</label>
+        <select className="select" id={`tf-${key}`} value={datasets.some((item) => item.path === config[key]) ? config[key] : ""} onChange={(event) => update(key, event.target.value)}>
+          <option value="">{datasets.length ? "选择已审批会议数据" : "暂无已审批数据"}</option>
+          {datasets.map((dataset) => (
+            <option value={dataset.path} key={dataset.id}>{dataset.task_id} · 已通过 {dataset.approved_count}/{dataset.total_count} 段</option>
+          ))}
+        </select>
+        <span className="field__hint">完成逐段审核后，点击右上角重载即可看到新数据。</span>
+      </div>
+    );
   }
 
   function numberField(key: "batch_size" | "grad_acc" | "learning_rate" | "epochs" | "save_steps" | "save_total_limit" | "num_workers" | "prefetch_factor", label: string, step = "1") {
     if (!config) return null;
-    return <label className="training-field"><span>{label}</span><input type="number" min="0" step={step} value={config[key]} onChange={(event) => update(key, Number(event.target.value) as TrainingConfig[typeof key])} /></label>;
+    return (
+      <div className="field">
+        <label className="field__label" htmlFor={`tf-${key}`}>{label}</label>
+        <input className="input input--mono" type="number" min="0" step={step} id={`tf-${key}`} value={config[key]} onChange={(event) => update(key, Number(event.target.value) as TrainingConfig[typeof key])} />
+      </div>
+    );
   }
 
+  const jobBadge =
+    job.status === "processing" ? "badge--accent" : job.status === "done" ? "badge--success" : job.status === "failed" ? "badge--danger" : "badge--neutral";
+  const jobLabel =
+    job.status === "processing" ? "训练运行中" : job.status === "done" ? "已完成" : job.status === "failed" ? "失败" : "待机";
+
   return (
-    <main className="app-shell upload-shell">
-      <header className="topbar">
-        <a className="brand" href="/"><span className="brand-mark">A</span><span><strong>Astra</strong><small>Audio Workbench</small></span></a>
-        <nav className="nav-actions" aria-label="Astra tools">
-          <a className="nav-link" href="/">实时通话</a>
-          <a className="nav-link" href="/upload">会议工作台</a>
-          <a className="nav-link active" href="/training">训练设置</a>
-          <a className="nav-link" href="/settings">管理设置</a>
-        </nav>
-      </header>
-      <section className="page-heading">
-        <div><span className="eyebrow">QWEN3-ASR · OFFLINE SFT</span><h1>训练设置</h1><p>管理审核后的音频数据、LoRA 参数和后台训练任务。</p></div>
-        <div className="status-board"><span>训练状态</span><strong>{job.status === "processing" ? "运行中" : job.status === "done" ? "已完成" : job.status === "failed" ? "失败" : "待机"}</strong><small>{status}</small></div>
-      </section>
-      <section className="training-panel training-page-panel">
-        <div className="speaker-panel-head"><div><h2>领域微调参数</h2><p className="training-note">只有 review_status=approved 的样本会进入训练。</p></div><div className="speaker-actions"><button type="button" className="secondary-action compact-button" onClick={() => void refreshConfig()} disabled={busy}>重载</button><button type="button" className="compact-button" onClick={() => void saveConfig()} disabled={!config || busy}>保存参数</button>{job.status === "processing" ? <button type="button" className="danger-action compact-button" onClick={() => void stopTraining()} disabled={busy}>停止训练</button> : <button type="button" className="compact-button" onClick={() => void startTraining()} disabled={!config || busy}>启动训练</button>}</div></div>
-        <p className="speaker-status">{status}</p>
-        {config && <div className="training-grid">
-          {textField("model_path", "训练基座模型")}{datasetField("train_file", "已审批训练数据")}{datasetField("eval_file", "已审批验证数据")}{textField("output_dir", "输出目录")}
-          <label className="training-field"><span>设备</span><select value={config.device} onChange={(event) => update("device", event.target.value as TrainingConfig["device"])}><option value="cuda">CUDA</option><option value="mps">Apple MPS（实验）</option><option value="cpu">CPU（不推荐）</option><option value="auto">自动</option></select></label>
-          <label className="training-field"><span>精度</span><select value={config.precision} onChange={(event) => update("precision", event.target.value as TrainingConfig["precision"])}><option value="bf16">BF16</option><option value="fp16">FP16</option><option value="fp32">FP32</option></select></label>
-          {numberField("batch_size", "Batch size")}{numberField("grad_acc", "梯度累积")}{numberField("learning_rate", "学习率", "0.000001")}{numberField("epochs", "Epochs")}{numberField("save_steps", "保存步数")}{numberField("save_total_limit", "保留 checkpoint")}{numberField("num_workers", "数据线程")}{numberField("prefetch_factor", "预取因子")}{textField("resume_from", "恢复 checkpoint（可选）")}
-          <div className="training-checks"><label><input type="checkbox" checked={config.pin_memory} onChange={(event) => update("pin_memory", event.target.checked)} />启用 pin memory</label><label><input type="checkbox" checked={config.persistent_workers} onChange={(event) => update("persistent_workers", event.target.checked)} />保持数据线程</label><label><input type="checkbox" checked={config.resume_latest} onChange={(event) => update("resume_latest", event.target.checked)} />自动恢复最新 checkpoint</label></div>
-        </div>}
-      </section>
-      {job.log_path && <section className="result-card training-log"><h2>任务产物</h2><p className="result-meta">日志：{job.log_path}</p><p className="result-meta">输出目录：{job.output_dir}</p></section>}
-    </main>
+    <section className="view" aria-label="模型训练">
+      <div className="page-head">
+        <div className="page-head__text">
+          <div className="eyebrow">04 · 模型训练</div>
+          <h1>用已审核的会议数据微调 ASR</h1>
+          <p>只有审核通过的片段才会进入训练数据集。训练在独立进程中执行，不影响正在进行的会议任务。</p>
+        </div>
+        <div className="page-head__actions">
+          <span className={`badge ${jobBadge}`}>
+            {job.status === "processing" && <span className="badge__dot" />}
+            {jobLabel}
+          </span>
+        </div>
+      </div>
+
+      <div className="train-grid">
+        <div className="col">
+          <div className="card">
+            <div className="card__head">
+              <h3>训练配置</h3>
+              <button className="btn btn--ghost btn--sm" type="button" onClick={() => void refreshConfig()} disabled={busy}>重载</button>
+              <button className="btn btn--secondary btn--sm" type="button" onClick={() => void saveConfig()} disabled={!config || busy}>保存参数</button>
+              {job.status === "processing" ? (
+                <button className="btn btn--danger btn--sm" type="button" onClick={() => void stopTraining()} disabled={busy}>停止训练</button>
+              ) : (
+                <button className="btn btn--primary btn--sm" type="button" onClick={() => void startTraining()} disabled={!config || busy}>启动训练</button>
+              )}
+            </div>
+            {config && (
+              <div className="form-grid">
+                {textField("model_path", "训练基座模型")}
+                {datasetField("train_file", "已审批训练数据")}
+                {datasetField("eval_file", "已审批验证数据")}
+                {textField("output_dir", "输出目录")}
+                <div className="field">
+                  <label className="field__label" htmlFor="tf-device">设备</label>
+                  <select className="select" id="tf-device" value={config.device} onChange={(event) => update("device", event.target.value as TrainingConfig["device"])}>
+                    <option value="cuda">CUDA</option>
+                    <option value="mps">Apple MPS（实验）</option>
+                    <option value="cpu">CPU（不推荐）</option>
+                    <option value="auto">自动</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label className="field__label" htmlFor="tf-precision">精度</label>
+                  <select className="select" id="tf-precision" value={config.precision} onChange={(event) => update("precision", event.target.value as TrainingConfig["precision"])}>
+                    <option value="bf16">BF16</option>
+                    <option value="fp16">FP16</option>
+                    <option value="fp32">FP32</option>
+                  </select>
+                </div>
+                {numberField("batch_size", "Batch size")}
+                {numberField("grad_acc", "梯度累积")}
+                {numberField("learning_rate", "学习率", "0.000001")}
+                {numberField("epochs", "Epochs")}
+                {numberField("save_steps", "保存步数")}
+                {numberField("save_total_limit", "保留 checkpoint")}
+                {numberField("num_workers", "数据线程")}
+                {numberField("prefetch_factor", "预取因子")}
+                {textField("resume_from", "恢复 checkpoint（可选）")}
+              </div>
+            )}
+            {config && (
+              <>
+                <div className="divider" />
+                <div className="checks">
+                  <label className="check"><input type="checkbox" checked={config.pin_memory} onChange={(event) => update("pin_memory", event.target.checked)} />启用 pin memory</label>
+                  <label className="check"><input type="checkbox" checked={config.persistent_workers} onChange={(event) => update("persistent_workers", event.target.checked)} />保持数据线程</label>
+                  <label className="check"><input type="checkbox" checked={config.resume_latest} onChange={(event) => update("resume_latest", event.target.checked)} />自动恢复最新 checkpoint</label>
+                </div>
+              </>
+            )}
+          </div>
+
+          {job.log_path && (
+            <div className="card">
+              <div className="card__head"><h4>任务产物</h4></div>
+              <div className="kv">
+                <span className="kv__k">日志</span><span className="kv__v">{job.log_path}</span>
+                <span className="kv__k">输出目录</span><span className="kv__v">{job.output_dir}</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="col">
+          <div className="card">
+            <div className="card__head"><h4>运行状态</h4></div>
+            <div className="stat-row">
+              <div className="stat"><span className="stat__k">状态</span><span className="stat__v">{jobLabel}</span></div>
+              <div className="stat"><span className="stat__k">任务</span><span className="stat__v" style={{ fontSize: "var(--text-sm)" }}>{job.task_id ?? "—"}</span></div>
+            </div>
+            <div className="divider" />
+            <p className="card__hint">{status}</p>
+          </div>
+
+          <div className="card">
+            <div className="card__head"><h4>已审批数据</h4></div>
+            {datasets.length === 0 ? (
+              <p className="card__hint">暂无已审批数据集。完成逐段审核后点击重载。</p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
+                {datasets.map((dataset) => (
+                  <div className="spk-row" key={dataset.id}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="spk-name">{dataset.task_id}</div>
+                      <div className="spk-meta">已通过 {dataset.approved_count}/{dataset.total_count} 段</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
   );
 }

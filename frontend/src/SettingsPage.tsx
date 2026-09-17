@@ -111,67 +111,178 @@ export default function SettingsPage() {
 
   function textField(key: "llm_base_url" | "llm_model" | "llm_chat_path" | "llm_models_path", label: string, hint?: string) {
     if (!config) return null;
-    return <label className="training-field settings-field"><span>{label}</span><input value={config[key]} onChange={(event) => update(key, event.target.value)} />{hint && <small className="field-hint">{hint}</small>}</label>;
+    return (
+      <div className="setting-row">
+        <div className="setting-row__label">
+          {label}
+          {hint && <div className="field__hint">{hint}</div>}
+        </div>
+        <div className="setting-row__control">
+          <input className="input input--mono" value={config[key]} onChange={(event) => update(key, event.target.value)} />
+        </div>
+      </div>
+    );
   }
 
   function numberField(key: "llm_request_timeout_seconds" | "llm_connect_timeout_seconds" | "llm_stream_idle_timeout_seconds" | "llm_correction_max_tokens", label: string, step = "1") {
     if (!config) return null;
-    return <label className="training-field settings-field"><span>{label}</span><input type="number" min="1" step={step} value={config[key]} onChange={(event) => update(key, Number(event.target.value) as LlmConfig[typeof key])} /></label>;
+    return (
+      <div className="setting-row">
+        <div className="setting-row__label">{label}</div>
+        <div className="setting-row__control">
+          <input className="input input--mono" type="number" min="1" step={step} value={config[key]} onChange={(event) => update(key, Number(event.target.value) as LlmConfig[typeof key])} />
+        </div>
+      </div>
+    );
   }
 
   return (
-    <main className="app-shell upload-shell">
-      <header className="topbar">
-        <a className="brand" href="/"><span className="brand-mark">A</span><span><strong>Astra</strong><small>Local Voice Assistant</small></span></a>
-        <nav className="nav-actions" aria-label="Astra tools">
-          <a className="nav-link" href="/">实时通话</a>
-          <a className="nav-link" href="/upload">会议工作台</a>
-          <a className="nav-link" href="/review">逐段审校</a>
-          <a className="nav-link" href="/training">训练设置</a>
-          <a className="nav-link active" href="/settings">管理设置</a>
-        </nav>
-      </header>
+    <section className="view" aria-label="管理设置">
+      <div className="page-head">
+        <div className="page-head__text">
+          <div className="eyebrow">05 · 管理设置</div>
+          <h1>LLM 连接配置</h1>
+          <p>填写服务地址与模型名称即可使用，无需手动编辑 .env。保存后立即对实时对话和新的会议任务生效。</p>
+        </div>
+        <div className="page-head__actions">
+          <span className={`badge ${config?.llm_api_key_configured ? "badge--success" : "badge--warning"}`}>
+            {config?.llm_api_key_configured ? "已配置" : "待配置"}
+          </span>
+        </div>
+      </div>
 
-      <section className="page-heading">
-        <div><span className="eyebrow">LLM CONNECTION · ENV MANAGEMENT</span><h1>管理设置</h1><p>在这里配置 LLM 连接参数。保存后会写入 `.env`，并立即应用到实时对话和会议纪要。</p></div>
-        <div className="status-board"><span>当前状态</span><strong>{config?.llm_api_key_configured ? "已配置" : "待配置"}</strong><small>{status}</small></div>
-      </section>
-
-      <section className="training-panel settings-panel">
-        <div className="speaker-panel-head"><div><h2>LLM 连接</h2><p className="training-note">支持本地或远程 OpenAI 兼容服务；只需填写服务地址和模型名即可开始。</p></div><div className="speaker-actions"><button type="button" className="secondary-action compact-button" onClick={() => void loadConfig()} disabled={busy}>重载</button><button type="button" className="compact-button" onClick={() => void checkHealth()} disabled={!config || busy}>测试连接</button><button type="button" className="compact-button" onClick={() => void saveConfig()} disabled={!config || busy}>保存并应用</button></div></div>
-        <p className="speaker-status">{status}</p>
-        {config && <>
-          <div className="settings-section-title">连接参数</div>
-          <div className="training-grid settings-grid">
-            {textField("llm_base_url", "服务地址", "例如 http://127.0.0.1:8000/v1，也可以填写局域网或远程地址。")}
-            {textField("llm_model", "模型名称", "必须与 LLM 服务实际提供的模型 ID 一致。")}
-            {textField("llm_chat_path", "对话接口路径")}
-            {textField("llm_models_path", "模型列表路径")}
-            <label className="training-field settings-field"><span>API Key</span><input type="password" value={apiKeyDraft} placeholder={config.llm_api_key || "未配置，留空表示不使用或保持不变"} onChange={(event) => { setApiKeyDraft(event.target.value); setClearApiKey(false); }} /><small className="field-hint">当前值只显示掩码；不修改时留空即可。</small></label>
-            <label className="training-check settings-key-action"><input type="checkbox" checked={clearApiKey} onChange={(event) => { setClearApiKey(event.target.checked); setApiKeyDraft(""); }} />保存时清除 API Key</label>
+      <div className="settings">
+        <div className={`alert ${status.includes("正常") ? "alert--success" : "alert--info"}`}>
+          <span>◈</span>
+          <div className="alert__body">
+            <div className="alert__title">配置状态</div>
+            <div className="alert__desc">{status}</div>
           </div>
+        </div>
 
-          <div className="settings-section-title">请求超时</div>
-          <div className="training-grid settings-grid">
+        <div className="card">
+          <div className="card__head">
+            <h3>服务连接</h3>
+            <button className="btn btn--ghost btn--sm" type="button" onClick={() => void loadConfig()} disabled={busy}>重载</button>
+            <button className="btn btn--secondary btn--sm" type="button" onClick={() => void checkHealth()} disabled={!config || busy}>测试连接</button>
+            <button className="btn btn--primary btn--sm" type="button" onClick={() => void saveConfig()} disabled={!config || busy}>保存并应用</button>
+          </div>
+          {config && (
+            <>
+              {textField("llm_base_url", "服务地址", "OpenAI 兼容接口，例如 http://127.0.0.1:8000/v1")}
+              {textField("llm_model", "模型名称", "必须与 LLM 服务实际提供的模型 ID 一致")}
+              {textField("llm_chat_path", "对话接口路径")}
+              {textField("llm_models_path", "模型列表路径")}
+              <div className="setting-row">
+                <div className="setting-row__label">
+                  API Key
+                  <div className="field__hint">当前值只显示掩码；不修改时留空即可</div>
+                </div>
+                <div className="setting-row__control">
+                  <div className="setting-inline">
+                    <input
+                      className="input input--mono"
+                      type="password"
+                      value={apiKeyDraft}
+                      placeholder={config.llm_api_key || "未配置，留空表示不使用或保持不变"}
+                      onChange={(event) => {
+                        setApiKeyDraft(event.target.value);
+                        setClearApiKey(false);
+                      }}
+                    />
+                  </div>
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={clearApiKey}
+                      onChange={(event) => {
+                        setClearApiKey(event.target.checked);
+                        setApiKeyDraft("");
+                      }}
+                    />
+                    保存时清除 API Key
+                  </label>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {config && (
+          <div className="card">
+            <div className="card__head"><h3>请求超时</h3></div>
             {numberField("llm_request_timeout_seconds", "请求超时（秒）")}
             {numberField("llm_connect_timeout_seconds", "连接超时（秒）")}
             {numberField("llm_stream_idle_timeout_seconds", "流式空闲超时（秒）")}
           </div>
+        )}
 
-          <div className="settings-section-title">实时纠错</div>
-          <div className="training-grid settings-grid">
-            <label className="training-check settings-key-action"><input type="checkbox" checked={config.llm_correction_enabled} onChange={(event) => update("llm_correction_enabled", event.target.checked)} />启用实时 LLM 纠错</label>
+        {config && (
+          <div className="card">
+            <div className="card__head"><h3>实时纠错</h3></div>
+            <div className="setting-row">
+              <div className="setting-row__label">实时 LLM 纠错</div>
+              <div className="setting-row__control setting-inline">
+                <button
+                  className="switch"
+                  role="switch"
+                  type="button"
+                  aria-checked={config.llm_correction_enabled}
+                  aria-label="启用实时 LLM 纠错"
+                  onClick={() => update("llm_correction_enabled", !config.llm_correction_enabled)}
+                />
+                <span className="card__hint">对话过程中对 ASR 结果调用 LLM 纠错</span>
+              </div>
+            </div>
             {numberField("llm_correction_max_tokens", "纠错最大 Token")}
-            <label className="training-field settings-field settings-field-wide"><span>纠错系统提示词</span><textarea value={config.llm_correction_system_prompt} onChange={(event) => update("llm_correction_system_prompt", event.target.value)} /></label>
+            <div className="setting-row">
+              <div className="setting-row__label">纠错系统提示词</div>
+              <div className="setting-row__control">
+                <textarea className="textarea" value={config.llm_correction_system_prompt} onChange={(event) => update("llm_correction_system_prompt", event.target.value)} />
+              </div>
+            </div>
           </div>
+        )}
 
-          <div className="settings-section-title">会议纠错</div>
-          <div className="training-grid settings-grid">
-            <label className="training-check settings-key-action"><input type="checkbox" checked={config.meeting_llm_correction_enabled} onChange={(event) => update("meeting_llm_correction_enabled", event.target.checked)} />启用会议 LLM 候选纠错</label>
-            <label className="training-field settings-field settings-field-wide"><span>候选纠错映射</span><textarea value={config.meeting_llm_correction_candidates.join("\n")} placeholder="每行一个，例如：术语A->术语B" onChange={(event) => update("meeting_llm_correction_candidates", event.target.value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean))} /><small className="field-hint">默认仍以确定性规则为主；这里只允许确认显式候选替换。</small></label>
+        {config && (
+          <div className="card">
+            <div className="card__head"><h3>会议纠错</h3></div>
+            <div className="setting-row">
+              <div className="setting-row__label">会议 LLM 候选纠错</div>
+              <div className="setting-row__control setting-inline">
+                <button
+                  className="switch"
+                  role="switch"
+                  type="button"
+                  aria-checked={config.meeting_llm_correction_enabled}
+                  aria-label="启用会议 LLM 候选纠错"
+                  onClick={() => update("meeting_llm_correction_enabled", !config.meeting_llm_correction_enabled)}
+                />
+                <span className="card__hint">关闭时只应用确定性纠错，不调用 LLM 清洗</span>
+              </div>
+            </div>
+            <div className="setting-row">
+              <div className="setting-row__label">
+                候选纠错映射
+                <div className="field__hint">每行一个，例如：术语A-&gt;术语B</div>
+              </div>
+              <div className="setting-row__control">
+                <textarea
+                  className="textarea"
+                  value={config.meeting_llm_correction_candidates.join("\n")}
+                  placeholder="每行一个，例如：术语A->术语B"
+                  onChange={(event) =>
+                    update(
+                      "meeting_llm_correction_candidates",
+                      event.target.value.split(/[\n,]/).map((item) => item.trim()).filter(Boolean),
+                    )
+                  }
+                />
+              </div>
+            </div>
           </div>
-        </>}
-      </section>
-    </main>
+        )}
+      </div>
+    </section>
   );
 }
