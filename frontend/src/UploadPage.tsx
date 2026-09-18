@@ -288,6 +288,7 @@ export default function UploadPage() {
   const meetingSocket = useRef<WebSocket | null>(null);
   const cancelledMeetingTask = useRef<string | null>(null);
   const notificationSocket = useRef<WebSocket | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void refreshSpeakers();
@@ -389,8 +390,26 @@ export default function UploadPage() {
     }
   }
 
-  function selectFile(event: ChangeEvent<HTMLInputElement>) {
-    setFile(event.target.files?.[0] ?? null);
+  function openFilePicker() {
+    const input = fileInputRef.current;
+    if (!input) return;
+    // showPicker 是 Chromium/Safari 新版对原生选择器的显式 API;
+    // 不支持时回退 click(),并保留用户 click/keydown 的同步 user activation。
+    input.value = "";
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    } catch {
+      // showPicker 在部分浏览器/安全上下文可能抛异常,click 仍可作为回退。
+      input.click();
+    }
+  }
+
+  function selectFileValue(picked: File | null) {
+    setFile(picked);
     setResult(null);
     setCorrection("");
     setCorrectionTimeline([]);
@@ -401,7 +420,11 @@ export default function UploadPage() {
     cancelledMeetingTask.current = null;
     meetingSocket.current?.close();
     meetingSocket.current = null;
-    setStatus(event.target.files?.[0]?.name ?? "选择一个音频文件开始测试");
+    setStatus(picked?.name ?? "选择一个音频文件开始测试");
+  }
+
+  function selectFile(event: ChangeEvent<HTMLInputElement>) {
+    selectFileValue(event.target.files?.[0] ?? null);
   }
 
   function waitForMeeting(taskId: string, reportPath: string, filename: string): Promise<MeetingResult> {
@@ -788,7 +811,24 @@ export default function UploadPage() {
           <form className="card" onSubmit={upload}>
             <div className="card__head"><h3>新建任务</h3></div>
 
-            <label className="dropzone" role="button" tabIndex={0}>
+            <div
+              className="dropzone"
+              role="button"
+              tabIndex={0}
+              onClick={openFilePicker}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openFilePicker();
+                }
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const dropped = e.dataTransfer.files?.[0];
+                if (dropped) selectFileValue(dropped);
+              }}
+            >
               <div className="dropzone__icon">⇪</div>
               <div className="dropzone__title">{file ? file.name : "拖入音频文件，或点击选择"}</div>
               <div className="dropzone__hint">
@@ -796,8 +836,28 @@ export default function UploadPage() {
                   ? `${file.size.toLocaleString()} bytes · 已就绪`
                   : "支持 m4a / wav / mp3 / flac / aac / mov / mp4"}
               </div>
-              <input type="file" accept="audio/*,.wav" onChange={selectFile} />
-            </label>
+              <button
+                type="button"
+                className="btn btn--secondary btn--sm dropzone__choose"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openFilePicker();
+                }}
+              >
+                选择文件
+              </button>
+              <input
+                className="dropzone__native-input"
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*,.wav"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  event.currentTarget.value = "";
+                }}
+                onChange={selectFile}
+              />
+            </div>
 
             {file && (
               <div className="filecard" style={{ marginTop: "var(--space-4)" }}>
@@ -810,8 +870,7 @@ export default function UploadPage() {
                   type="button"
                   className="btn btn--ghost btn--sm"
                   onClick={() => {
-                    setFile(null);
-                    setStatus("选择一个音频文件开始测试");
+                    selectFileValue(null);
                   }}
                 >
                   移除

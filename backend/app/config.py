@@ -47,7 +47,7 @@ def _bool_env(name: str, default: bool) -> bool:
     return default if value is None else value.lower() in {"1", "true", "yes", "on"}
 
 
-_TTS_BACKENDS = ("piper", "mlx_audio")
+_TTS_BACKENDS = ("piper", "mlx_audio", "cosyvoice")
 
 
 def _tts_backend_env(name: str, default: str) -> str:
@@ -58,6 +58,21 @@ def _tts_backend_env(name: str, default: str) -> str:
     if normalized not in _TTS_BACKENDS:
         raise ValueError(
             f"{name} must be one of {_TTS_BACKENDS}, got {value!r}"
+        )
+    return normalized
+
+
+_COSYVOICE_LANGUAGES = ("zh", "yue", "en", "ja", "ko")
+
+
+def _cosyvoice_language_env(name: str, default: str) -> str:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized not in _COSYVOICE_LANGUAGES:
+        raise ValueError(
+            f"{name} must be one of {_COSYVOICE_LANGUAGES}, got {value!r}"
         )
     return normalized
 
@@ -274,6 +289,13 @@ class Settings:
     tts_mlx_lang_code: str = "z"
     tts_mlx_speed: float = 1.0
     tts_mlx_sample_rate: int = 24000
+    # CosyVoice 是可选的零样本克隆后端。提示词与参考音频只从本地配置读取，
+    # 不通过 /api/config 回显，避免泄漏本机录音路径或文本。
+    tts_cosyvoice_model: str = ""
+    tts_cosyvoice_prompt_wav: str = ""
+    tts_cosyvoice_prompt_text: str = ""
+    tts_cosyvoice_language: str = "zh"
+    tts_cosyvoice_speed: float = 1.0
     meeting_output_dir: str = "~/Astra/meetings"
     task_store_path: str = "~/.astra/tasks.sqlite3"
     meeting_max_concurrent_jobs: int = 1
@@ -287,6 +309,9 @@ class Settings:
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
     meeting_max_duration_seconds: float = 4 * 60 * 60
     ws_max_audio_bytes: int = 25 * 1024 * 1024
+    realtime_recording_dir: str = "~/.astra/realtime-recordings"
+    realtime_recording_max_bytes: int = 2 * 1024 * 1024 * 1024
+    realtime_recording_retention_days: int = 7
     audio_max_concurrent_per_ip: int = 4
     audio_enhancement_enabled: bool = False
     audio_ans_model: str = "none"
@@ -433,6 +458,21 @@ class Settings:
             tts_mlx_sample_rate=_positive_int_env(
                 "TTS_MLX_SAMPLE_RATE", cls.tts_mlx_sample_rate
             ),
+            tts_cosyvoice_model=os.getenv(
+                "TTS_COSYVOICE_MODEL", cls.tts_cosyvoice_model
+            ),
+            tts_cosyvoice_prompt_wav=os.getenv(
+                "TTS_COSYVOICE_PROMPT_WAV", cls.tts_cosyvoice_prompt_wav
+            ),
+            tts_cosyvoice_prompt_text=os.getenv(
+                "TTS_COSYVOICE_PROMPT_TEXT", cls.tts_cosyvoice_prompt_text
+            ),
+            tts_cosyvoice_language=_cosyvoice_language_env(
+                "TTS_COSYVOICE_LANGUAGE", cls.tts_cosyvoice_language
+            ),
+            tts_cosyvoice_speed=_positive_float_env(
+                "TTS_COSYVOICE_SPEED", cls.tts_cosyvoice_speed
+            ),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
             task_store_path=os.getenv("TASK_STORE_PATH", cls.task_store_path),
             meeting_max_concurrent_jobs=_positive_int_env(
@@ -467,6 +507,16 @@ class Settings:
             ),
             ws_max_audio_bytes=_positive_int_env(
                 "WS_MAX_AUDIO_BYTES", cls.ws_max_audio_bytes
+            ),
+            realtime_recording_dir=os.getenv(
+                "REALTIME_RECORDING_DIR", cls.realtime_recording_dir
+            ),
+            realtime_recording_max_bytes=_positive_int_env(
+                "REALTIME_RECORDING_MAX_BYTES", cls.realtime_recording_max_bytes
+            ),
+            realtime_recording_retention_days=_positive_int_env(
+                "REALTIME_RECORDING_RETENTION_DAYS",
+                cls.realtime_recording_retention_days,
             ),
             audio_max_concurrent_per_ip=_positive_int_env(
                 "AUDIO_MAX_CONCURRENT_PER_IP", cls.audio_max_concurrent_per_ip

@@ -14,6 +14,8 @@ PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 
 - [用户使用指引](docs/user-guide.md)：启动服务、上传音频、实时转写、流式修正和会议纪要。
 - [开发指引](docs/development-guide.md)：项目结构、开发环境、测试、模型配置和扩展边界。
+- [当前架构](docs/architecture-analysis.md)：运行时分层、任务可靠性与前端边界。
+- [真实设备验收清单](docs/acceptance-checklist.md)：Mac mini、麦克风、模型和远端 LLM 的独立验收项。
 - [部署预检](deploy/README.md)：Mac mini、远端 LLM 和前端 Compose 验收。
 - [Qwen3-ASR 微调接入设计](docs/qwen3-asr-finetuning-design.md)：会议数据闭环、训练参数、CUDA/Mac mini 可行性和模型发布门禁。
 - [VoiceStudio 借鉴路线图](docs/voicestudio-inspired-roadmap.md)：中文原生 TTS、引擎可插拔抽象、会议内联说话人分离三方向的优先级计划。

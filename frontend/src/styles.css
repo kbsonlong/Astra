@@ -373,7 +373,24 @@ a { color: var(--accent-text); text-decoration: none; }
   transition: border-color var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 .dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
-.dropzone input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.dropzone input {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap;
+  border: 0;
+}
+.dropzone input.dropzone__native-input {
+  position: static; width: auto; height: 36px; padding: 0 var(--space-2); margin: var(--space-1) 0 0;
+  overflow: visible; clip: auto; white-space: normal; border: 1px solid var(--border-default);
+  border-radius: var(--radius-md); opacity: 1; cursor: pointer; color: var(--text-secondary);
+  background: var(--bg-surface); font: inherit; font-size: var(--text-xs);
+}
+.dropzone input.dropzone__native-input::file-selector-button {
+  height: 28px; margin-right: var(--space-2); padding: 0 var(--space-3);
+  border: 1px solid var(--border-default); border-radius: var(--radius-sm);
+  color: var(--text-primary); background: var(--bg-surface); font: inherit; cursor: pointer;
+}
+.dropzone__choose { position: relative; z-index: 1; }
+.dropzone:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dropzone__icon { color: var(--accent); font-size: 30px; line-height: 1; }
 .dropzone__title { font-size: var(--text-base); font-weight: 500; color: var(--text-primary); }
 .dropzone__hint { font-size: var(--text-xs); color: var(--text-tertiary); }

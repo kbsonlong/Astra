@@ -1,6 +1,8 @@
 import base64
 import asyncio
+import io
 import re
+import wave
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 
 from typing import Protocol
@@ -124,8 +126,18 @@ class VoicePipeline:
                 "generation_id": generation_id,
                 "seq": sequence,
                 "mime": "audio/wav",
-                "sample_rate": 22050,
+                "sample_rate": _wav_sample_rate(audio),
                 "audio_b64": base64.b64encode(audio).decode("ascii"),
             }
         )
         return sequence + 1
+
+
+def _wav_sample_rate(audio: bytes) -> int:
+    """从 TTS 返回的 WAV 读取实际采样率；非 WAV 保持 Piper 兼容默认值。"""
+    try:
+        with wave.open(io.BytesIO(audio), "rb") as handle:
+            rate = handle.getframerate()
+            return rate if rate > 0 else 22050
+    except wave.Error:
+        return 22050

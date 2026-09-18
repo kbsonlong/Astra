@@ -7,6 +7,7 @@ import wave
 import pytest
 
 from app.models.tts_client import (
+    CosyVoiceTtsClient,
     MlxAudioTtsClient,
     PiperSdkTtsClient,
     TTSClientError,
@@ -209,3 +210,66 @@ async def test_mlx_synthesis_runs_on_dedicated_worker_without_blocking_loop(
     finally:
         await client.aclose()
         MlxAudioTtsClient.clear_model_cache()
+
+
+@pytest.mark.anyio
+async def test_cosyvoice_zero_shot_synthesis_emits_wav_and_language_tag() -> None:
+    calls: list[dict] = []
+
+    class _FakeCosyVoice:
+        sample_rate = 22_050
+
+        def inference_zero_shot(self, text, prompt_text, prompt, *, stream, speed):
+            calls.append(
+                {
+                    "text": text,
+                    "prompt_text": prompt_text,
+                    "prompt": prompt,
+                    "stream": stream,
+                    "speed": speed,
+                }
+            )
+            return iter(({"tts_speech": [[0.0, 0.5, -0.5]]},))
+
+    client = CosyVoiceTtsClient(
+        "CosyVoice2-0.5B",
+        prompt_wav="reference.wav",
+        prompt_text="这是一段参考音色。",
+        language="yue",
+        speed=1.1,
+        model_instance=_FakeCosyVoice(),
+        prompt_loader=lambda path: f"loaded:{path}",
+    )
+    try:
+        audio = await client.synthesize("你好")
+    finally:
+        await client.aclose()
+
+    assert _read_wav(audio) == {
+        "channels": 1,
+        "sampwidth": 2,
+        "framerate": 22_050,
+        "frames": 3,
+    }
+    assert calls == [
+        {
+            "text": "<|yue|>你好",
+            "prompt_text": "这是一段参考音色。",
+            "prompt": "loaded:reference.wav",
+            "stream": False,
+            "speed": 1.1,
+        }
+    ]
+
+
+def test_cosyvoice_capabilities_and_missing_prompt_are_explicit() -> None:
+    client = CosyVoiceTtsClient(
+        "CosyVoice2-0.5B", prompt_wav="", prompt_text="", model_instance=object()
+    )
+    capabilities = client.capabilities()
+    assert capabilities["clone"] is True
+    assert capabilities["clone_configured"] is False
+    assert "yue" in capabilities["languages"]
+    available, reason = client.is_available()
+    assert available is False
+    assert "PROMPT_WAV/TEXT" in reason

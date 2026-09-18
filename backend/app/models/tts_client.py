@@ -6,6 +6,7 @@ import threading
 import wave
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
 
 
@@ -280,6 +281,144 @@ class MlxAudioTtsClient:
         except ImportError as exc:
             raise TTSClientError("mlx-audio is not installed") from exc
         return load_model(model)
+
+
+class CosyVoiceTtsClient:
+    """CosyVoice 零样本 TTS/声音克隆适配器。
+
+    CosyVoice 的参考音频和转写文本由本机配置提供，避免把录音发送到浏览器或
+    持久化进业务数据库。真实模型和依赖保持可选：没有安装时 health 会说明原因，
+    而不是在首个对话回合静默失败。
+    """
+
+    _LANGUAGE_TAGS = {
+        "zh": "<|zh|>",
+        "yue": "<|yue|>",
+        "en": "<|en|>",
+        "ja": "<|jp|>",
+        "ko": "<|ko|>",
+    }
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        prompt_wav: str,
+        prompt_text: str,
+        language: str = "zh",
+        speed: float = 1.0,
+        model_instance: Any | None = None,
+        model_loader: Callable[[str], Any] | None = None,
+        prompt_loader: Callable[[str], Any] | None = None,
+    ) -> None:
+        self.model = model
+        self.prompt_wav = prompt_wav
+        self.prompt_text = prompt_text
+        self.language = language.lower()
+        self.speed = speed
+        self._model_instance = model_instance
+        self._model_loader = model_loader
+        self._prompt_loader = prompt_loader
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="astra-cosyvoice-tts"
+        )
+        self._closed = False
+
+    def is_ready(self) -> bool:
+        return self._model_instance is not None or bool(self.model)
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "engine": "cosyvoice",
+            "backend": "cosyvoice",
+            "model": self.model,
+            "languages": ["zh", "yue", "en", "ja", "ko"],
+            "clone": True,
+            "clone_configured": bool(self.prompt_wav and self.prompt_text),
+            "streaming": False,
+            "device": ["cuda", "cpu"],
+        }
+
+    def is_available(self) -> tuple[bool, str]:
+        if not self.model:
+            return False, "CosyVoice 模型未配置 (设置 TTS_COSYVOICE_MODEL)"
+        if not self.prompt_wav or not self.prompt_text:
+            return False, "CosyVoice 克隆提示未配置 (设置 TTS_COSYVOICE_PROMPT_WAV/TEXT)"
+        if self._prompt_loader is None and not Path(self.prompt_wav).expanduser().is_file():
+            return False, "CosyVoice 参考音频不存在或不可读"
+        if self._model_instance is not None or self._model_loader is not None:
+            return True, "ready"
+        try:
+            from cosyvoice.cli.cosyvoice import CosyVoice2  # noqa: F401
+            from cosyvoice.utils.file_utils import load_wav  # noqa: F401
+        except ImportError:
+            return False, "CosyVoice 未安装或未加入 PYTHONPATH"
+        return True, "ready"
+
+    async def synthesize(self, text: str) -> bytes:
+        if not text.strip():
+            raise TTSClientError("text must not be empty")
+        if self._closed:
+            raise TTSClientError("CosyVoice TTS client is closed")
+        available, reason = self.is_available()
+        if not available:
+            raise TTSClientError(reason)
+        try:
+            loop = asyncio.get_running_loop()
+            return await loop.run_in_executor(self._executor, self._synthesize_blocking, text)
+        except Exception as exc:
+            if isinstance(exc, TTSClientError):
+                raise
+            logger.exception("CosyVoice synthesis failed for model %s", self.model)
+            raise TTSClientError(
+                f"CosyVoice synthesis failed: {exc.__class__.__name__}: {exc}"
+            ) from exc
+
+    def _synthesize_blocking(self, text: str) -> bytes:
+        model = self._model_instance or self._load_model()
+        prompt = (self._prompt_loader or self._load_prompt_from_sdk)(self.prompt_wav)
+        tagged_text = self._LANGUAGE_TAGS.get(self.language, self._LANGUAGE_TAGS["zh"]) + text
+        results = model.inference_zero_shot(
+            tagged_text, self.prompt_text, prompt, stream=False, speed=self.speed
+        )
+        samples: list[float] = []
+        for result in results:
+            speech = result.get("tts_speech") if isinstance(result, dict) else None
+            if speech is not None:
+                _flatten(speech, samples)
+        if not samples:
+            raise TTSClientError("CosyVoice produced no audio samples")
+        sample_rate = getattr(model, "sample_rate", 22050)
+        if not isinstance(sample_rate, (int, float)) or sample_rate <= 0:
+            sample_rate = 22050
+        return MlxAudioTtsClient._encode_wav(samples, int(sample_rate))
+
+    def _load_model(self) -> Any:
+        loader = self._model_loader or self._load_model_from_sdk
+        self._model_instance = loader(self.model)
+        return self._model_instance
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        await asyncio.to_thread(self._executor.shutdown, wait=True, cancel_futures=True)
+
+    @staticmethod
+    def _load_model_from_sdk(model: str) -> Any:
+        try:
+            from cosyvoice.cli.cosyvoice import CosyVoice2
+        except ImportError as exc:
+            raise TTSClientError("CosyVoice is not installed") from exc
+        return CosyVoice2(model, load_jit=False, load_trt=False, load_vllm=False, fp16=False)
+
+    @staticmethod
+    def _load_prompt_from_sdk(path: str) -> Any:
+        try:
+            from cosyvoice.utils.file_utils import load_wav
+        except ImportError as exc:
+            raise TTSClientError("CosyVoice is not installed") from exc
+        return load_wav(path, 16000)
 
 
 def _flatten(value: Any, out: list[float]) -> None:

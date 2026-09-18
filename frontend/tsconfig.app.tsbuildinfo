@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/loginpage.tsx","./src/reviewpage.tsx","./src/settingspage.tsx","./src/shell.tsx","./src/trainingpage.tsx","./src/uploadpage.tsx","./src/main.tsx","./src/audio/pcm.ts"],"version":"5.9.2"}
+{"root":["./src/app.tsx","./src/loginpage.tsx","./src/reviewpage.tsx","./src/settingspage.tsx","./src/shell.tsx","./src/trainingpage.tsx","./src/uploadpage.tsx","./src/main.tsx","./src/audio/pcm.test.ts","./src/audio/pcm.ts","./src/live/voicedial.tsx","./src/live/session.test.ts","./src/live/session.ts"],"version":"5.9.2"}

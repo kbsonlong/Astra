@@ -1,5 +1,8 @@
 import asyncio
+import io
 import struct
+from uuid import uuid4
+import wave
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -175,6 +178,50 @@ def test_websocket_accepts_10ms_pcm_frames() -> None:
 
         assert websocket.receive_json()["state"] == "REASONING"
         assert websocket.receive_json()["state"] == "LISTENING"
+
+
+def test_websocket_streams_realtime_recording_to_authenticated_download(tmp_path) -> None:
+    recording_id = str(uuid4())
+    client = TestClient(
+        create_app(
+            settings=Settings(
+                realtime_recording_dir=str(tmp_path),
+                task_store_path=str(tmp_path / "tasks.sqlite3"),
+                admin_token="test-admin-token",
+            ),
+            enable_pipeline=False,
+        )
+    )
+    download_url = f"/api/realtime-recordings/{recording_id}"
+    assert client.get(download_url).status_code == 401
+    assert client.post("/api/auth/login", json={"token": "test-admin-token"}).status_code == 200
+
+    with client.websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "start_session", "recording_id": recording_id})
+        assert websocket.receive_json()["state"] == "LISTENING"
+        assert websocket.receive_json() == {
+            "type": "recording_started", "recording_id": recording_id
+        }
+        websocket.send_json(
+            {"type": "audio_format", "format": "pcm16", "sample_rate": 16_000, "frame_samples": 160}
+        )
+        websocket.receive_json()
+        websocket.receive_json()
+        websocket.send_bytes(_pcm_frame(0, 0, 1000))
+        websocket.send_json({"type": "end_session"})
+        assert websocket.receive_json()["state"] == "IDLE"
+        ready = websocket.receive_json()
+        assert ready == {
+            "type": "recording_ready",
+            "recording_id": recording_id,
+            "download_url": download_url,
+        }
+
+    response = client.get(ready["download_url"])
+    assert response.status_code == 200
+    with wave.open(io.BytesIO(response.content), "rb") as output:
+        assert output.getframerate() == 16_000
+        assert output.getnframes() == 160
 
 
 class BlockingPipeline:

@@ -18,6 +18,7 @@ class ClientMessage(BaseModel):
     format: Literal["pcm16"] | None = None
     sample_rate: int | None = None
     frame_samples: int | None = None
+    recording_id: str | None = None
 
 
 class StateChange(BaseModel):

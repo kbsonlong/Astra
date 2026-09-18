@@ -29,22 +29,26 @@ VoiceStudio 验证过、值得借鉴的实践：
 
 | 优先级 | 方向 | 目标 | 状态 |
 |:--:|------|------|:--:|
-| P0 | 方向一：中文原生 TTS | 用 CosyVoice/MLX-Audio 替换/并存 Piper，获得中文+粤语+克隆 | ✅ 已落地 (MlxAudioTtsClient) |
-| P1 | 方向二：引擎可插拔抽象 | 为 ASR/TTS 增加能力声明与可用性探测，支持多后端并存 | ✅ 已落地 (capabilities/is_available + 工厂 + health) |
-| P2 | 方向三：会议内联说话人分离 | 引入 FunASR/SenseVoice 后端，评估转写+分离一体化 | ✅ 已落地 (FunAsrClient + InlineAsrDiarizeStage) |
+| P0 | 方向一：中文原生 TTS | 用 CosyVoice/MLX-Audio 替换/并存 Piper，获得中文+粤语+克隆 | ✅ 代码完成；真机模型验收待执行 |
+| P1 | 方向二：引擎可插拔抽象 | 为 ASR/TTS 增加能力声明与可用性探测，支持多后端并存 | ✅ 代码完成；真机后端切换验收待执行 |
+| P2 | 方向三：会议内联说话人分离 | 引入 FunASR/SenseVoice 后端，评估转写+分离一体化 | ✅ 代码完成；录音对比验收待执行 |
 
 落地记录：
 
-- P0：新增 `MlxAudioTtsClient`，`tts_backend` 可在 piper/mlx_audio 间切换，Piper 兜底保留。
+- P0：新增 `MlxAudioTtsClient` 与 `CosyVoiceTtsClient`。`tts_backend` 可在
+  piper/mlx_audio/cosyvoice 间切换；CosyVoice 使用仅在服务器本地配置的参考 WAV 与转写文本
+  进行零样本克隆，并自动注入 `zh`/`yue` 语言标签。Piper 兜底保留。
 - P1：`MlxAudioAsrClient`/`PiperSdkTtsClient`/`MlxAudioTtsClient`/`AsrWorkerClient` 均实现
   `capabilities()` 与 `is_available()->(bool,reason)`；`_build_realtime_asr`/`_build_tts_client`
-  工厂化；`/api/health` 暴露引擎 mode/available/reason/capabilities，对旧 client 优雅降级。
+  工厂化；实时与会议 ASR 都按 `asr_backend` 选择 MLX 或 FunASR；`/api/health` 暴露引擎
+  mode/available/reason/capabilities，对旧 client 优雅降级。
 - P2：新增 `FunAsrClient`（SenseVoice + cam++ 内联分离，`normalize_funasr_segments` 解析
   `sentence_info`/`spk`/富标签清洗）；`workflow.py` 新增 `InlineAsrDiarizeStage` 与
   `SpeakerRegistryMappingStage`，`AudioWorkflow` 的 `inline_asr` 分支用「整段转写+分离」取代
   VAD+ASR+SD 并把 `Speaker N` 映射到已注册声纹；`asr_backend=funasr` 经 `meeting_cli` 装配启用。
 
-真实模型验收（Mac mini / funasr 环境）仍需在硬件上单独执行，见下方各方向验收标准与末尾说明。
+代码完成仅代表配置、工厂、协议和自动化测试齐备；真实模型验收独立记录在
+[`acceptance-checklist.md`](acceptance-checklist.md)，不计入上述完成状态。
 
 优先级理由（历史，供参考）：方向一直接决定语音助手体感且改动被 `tts_client.py` 协议隔离，风险最低、收益最大，
 故列 P0。方向二是架构性投资，为后续多引擎并存铺路，且方向一落地后再抽象更有依据。方向三收益
@@ -71,10 +75,12 @@ VoiceStudio 验证过、值得借鉴的实践：
 1. 在 `backend/app/models/tts_client.py` 新增 `MlxAudioTtsClient`，实现现有契约
    （`is_ready()`、`async synthesize(text) -> bytes`），复用 MLX 线程本地约定（参考
    `asr_client.py` 的 `_run_mlx` / 模型缓存做法）。
-2. 在 `backend/app/config.py` 增加类型化配置：`tts_backend`（`piper` | `mlx_audio`）、
-   `tts_mlx_model` 等，并在 `Settings.from_env()` 用现有 `_*_env` 辅助读取；同步更新 `.env.example`。
+2. 在 `backend/app/config.py` 增加类型化配置：`tts_backend`（`piper` | `mlx_audio` |
+   `cosyvoice`）、MLX 参数以及 CosyVoice 的模型、参考 WAV、参考文本、语言和速度；参考音频
+   路径与文本不通过配置 API 返回。
 3. 在 `backend/app/main.py` 的 `create_app()` 构建区，按 `tts_backend` 选择实例化的 TTS client。
-4. 补单元测试：仿照 `backend/tests/test_tts_client.py`，用注入 loader 覆盖合成与错误路径。
+4. CosyVoice 通过 `inference_zero_shot` 接入；`zh`/`yue` 转为其语言标签，结果统一封装为 WAV。
+5. 补单元测试：用注入 loader 覆盖合成、语言标签、能力声明与错误路径。
 
 ### 验收标准
 - `PYTHONPATH=backend .venv/bin/pytest -q backend/tests/test_tts_client.py` 通过。
@@ -98,8 +104,10 @@ VoiceStudio 验证过、值得借鉴的实践：
 5. 补测试：能力声明的契约测试 + 不可用后端的降级路径测试。
 
 ### 验收标准
-- 通过配置在 Piper 与 MLX-Audio TTS 之间切换，无需改动业务代码。
+- 通过配置在 Piper、MLX-Audio 与 CosyVoice TTS 之间切换，无需改动业务代码。
 - 后端不可用时 API 返回明确原因，而非静默失败。
+- `asr_backend=funasr` 时，实时对话使用 `FunAsrClient`（不启用内联分离）；会议流程启用
+  SenseVoice + cam++ 内联分离。
 - 现有全部后端测试保持通过。
 
 ---

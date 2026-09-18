@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from .auth import authorize_websocket
 from ..core.pcm_protocol import decode_pcm_frame
+from ..core.realtime_recording import RecordingLimitExceeded, RealtimeRecording
 from ..core.session_manager import Session
 from ..core.pipeline import VoicePipeline
 from ..schemas.ws import ClientMessage, StateChange
@@ -87,6 +88,8 @@ async def session_websocket(websocket: WebSocket) -> None:
     pipeline: VoicePipeline | None = getattr(websocket.app.state, "pipeline", None)
     generation_task: asyncio.Task[None] | None = None
     audio_channel = "microphone"
+    recording: RealtimeRecording | None = None
+    recording_limit_reached = False
     try:
         while True:
             message = await websocket.receive()
@@ -101,7 +104,25 @@ async def session_websocket(websocket: WebSocket) -> None:
                             {"type": "error", "code": "invalid_pcm_frame", "message": str(exc)}
                         )
                         continue
+                    should_record = (
+                        recording is not None
+                        and not recording_limit_reached
+                        and frame.channel == "microphone"
+                        and frame.sequence not in session.pcm_microphone_frames
+                    )
                     accepted = session.append_pcm_frame(frame)
+                    if accepted and should_record:
+                        try:
+                            recording.append(frame.payload)
+                        except RecordingLimitExceeded:
+                            recording_limit_reached = True
+                            await websocket.send_json(
+                                {
+                                    "type": "error",
+                                    "code": "recording_too_large",
+                                    "max_bytes": recording.max_bytes,
+                                }
+                            )
                 else:
                     accepted = session.append_audio(message["bytes"], source=audio_channel)
                 if not accepted:
@@ -123,9 +144,29 @@ async def session_websocket(websocket: WebSocket) -> None:
                 await websocket.send_json({"type": "error", "code": "invalid_message"})
                 continue
 
+            recording_started: dict[str, object] | None = None
+            recording_ready: dict[str, object] | None = None
             if command.type == "start_session":
                 session.start()
                 audio_channel = "microphone"
+                recording_limit_reached = False
+                recording = None
+                if command.recording_id:
+                    try:
+                        recording = RealtimeRecording(
+                            websocket.app.state.settings.realtime_recording_dir,
+                            command.recording_id,
+                            max_bytes=websocket.app.state.settings.realtime_recording_max_bytes,
+                        )
+                    except ValueError as exc:
+                        await websocket.send_json(
+                            {"type": "error", "code": "invalid_recording_id", "message": str(exc)}
+                        )
+                    else:
+                        recording_started = {
+                            "type": "recording_started",
+                            "recording_id": recording.recording_id,
+                        }
             elif command.type == "audio_channel":
                 if command.channel is None:
                     await websocket.send_json(
@@ -185,7 +226,23 @@ async def session_websocket(websocket: WebSocket) -> None:
                     generation_task.cancel()
                     await asyncio.gather(generation_task, return_exceptions=True)
                     generation_task = None
+                if recording is not None:
+                    path = recording.finish()
+                    recording_ready = {
+                        "type": "recording_ready",
+                        "recording_id": recording.recording_id,
+                        "download_url": (
+                            f"/api/realtime-recordings/{recording.recording_id}"
+                            if path is not None
+                            else ""
+                        ),
+                    }
+                    recording = None
             await send_state(websocket, session)
+            if recording_started is not None:
+                await websocket.send_json(recording_started)
+            if recording_ready is not None:
+                await websocket.send_json(recording_ready)
     except WebSocketDisconnect:
         session.end()
         if generation_task is not None:

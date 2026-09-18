@@ -3,7 +3,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.main import create_app
+from app.main import _build_realtime_asr, _build_tts_client, create_app
 from app.core.training import TrainingManager
 
 
@@ -39,6 +39,52 @@ def test_create_app_configures_funasr_meeting_pipeline(tmp_path) -> None:
         "punctuation",
     ]
     assert "vad" not in pipeline.workflow.stage_status()
+
+
+def test_backend_factories_select_funasr_realtime_and_cosyvoice_tts() -> None:
+    settings = Settings(
+        asr_backend="funasr",
+        asr_funasr_model="test-sensevoice",
+        tts_backend="cosyvoice",
+        tts_cosyvoice_model="CosyVoice2-0.5B",
+        tts_cosyvoice_prompt_wav="/private/reference.wav",
+        tts_cosyvoice_prompt_text="参考音频文本",
+        tts_cosyvoice_language="yue",
+    )
+
+    asr = _build_realtime_asr(settings)
+    tts = _build_tts_client(settings)
+
+    assert asr.__class__.__name__ == "FunAsrClient"
+    assert asr.diarizes_inline() is False
+    assert tts.__class__.__name__ == "CosyVoiceTtsClient"
+    assert tts.capabilities()["clone"] is True
+
+
+def test_settings_rejects_unknown_cosyvoice_language(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TTS_COSYVOICE_LANGUAGE", "unknown")
+    with pytest.raises(ValueError, match="TTS_COSYVOICE_LANGUAGE"):
+        Settings.from_env()
+
+
+def test_runtime_config_never_exposes_cosyvoice_reference_material(tmp_path) -> None:
+    settings = Settings(
+        tts_backend="cosyvoice",
+        tts_cosyvoice_model="CosyVoice2-0.5B",
+        tts_cosyvoice_prompt_wav="/private/reference.wav",
+        tts_cosyvoice_prompt_text="这是不可回显的参考文本",
+        task_store_path=str(tmp_path / "tasks.sqlite3"),
+        speaker_store_path=str(tmp_path / "speakers.sqlite3"),
+        speaker_sample_dir=str(tmp_path / "samples"),
+    )
+    client = TestClient(create_app(settings, enable_pipeline=False, enable_meeting=False))
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    assert response.json()["tts_cosyvoice_prompt_configured"] is True
+    assert "/private/reference.wav" not in response.text
+    assert "这是不可回显的参考文本" not in response.text
 
 
 def test_config_masks_api_key(settings: Settings) -> None:
@@ -150,7 +196,10 @@ def test_settings_reads_dotenv_values(monkeypatch: pytest.MonkeyPatch, tmp_path)
         "ASTRA_CONFIG_PATH",
         "ASR_MODEL", "ASR_LANGUAGE", "ASR_MAX_TOKENS", "ASR_REPETITION_PENALTY",
         "ASR_REPETITION_CONTEXT_SIZE", "ASR_HOTWORDS", "ASR_SYSTEM_PROMPT",
-        "TTS_MODEL_PATH", "LLM_MODELS_PATH", "TRANSCRIBE_MAX_UPLOAD_BYTES",
+        "TTS_MODEL_PATH", "TTS_BACKEND", "TTS_COSYVOICE_MODEL",
+        "TTS_COSYVOICE_PROMPT_WAV", "TTS_COSYVOICE_PROMPT_TEXT",
+        "TTS_COSYVOICE_LANGUAGE", "TTS_COSYVOICE_SPEED", "LLM_MODELS_PATH",
+        "TRANSCRIBE_MAX_UPLOAD_BYTES",
         "TRANSCRIBE_MAX_DURATION_SECONDS", "MEETING_MAX_UPLOAD_BYTES",
         "MEETING_MAX_DURATION_SECONDS", "WS_MAX_AUDIO_BYTES",
         "AUDIO_MAX_CONCURRENT_PER_IP", "AUDIO_ENHANCEMENT_ENABLED",

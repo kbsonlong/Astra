@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useState } from "react";
+import { NavLink } from "react-router-dom";
 
 export type NavKey = "live" | "work" | "review" | "train" | "settings";
 
@@ -110,9 +111,9 @@ export default function Shell({ active, title, pendingReview = 0, onLogout, chil
           <nav className="rail__group" aria-label={group.label} key={group.label}>
             <span className="rail__label">{group.label}</span>
             {group.items.map((key) => (
-              <a
+              <NavLink
                 className="navitem"
-                href={NAV_HREF[key]}
+                to={NAV_HREF[key]}
                 key={key}
                 aria-current={active === key ? "page" : undefined}
               >
@@ -121,7 +122,7 @@ export default function Shell({ active, title, pendingReview = 0, onLogout, chil
                 {key === "review" && pendingReview > 0 && (
                   <span className="navitem__count">{pendingReview}</span>
                 )}
-              </a>
+              </NavLink>
             ))}
           </nav>
         ))}

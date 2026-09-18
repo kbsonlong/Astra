@@ -37,7 +37,8 @@ PYTHONPATH=backend .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port
 
 ```bash
 cd frontend
-npm install
+npm ci
+npm test
 npm run dev
 ```
 
@@ -69,7 +70,15 @@ PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 
 ```bash
 cd frontend
+npm test
 npm run build
 ```
 
-静态测试不能证明真实 MLX 推理、远端 LLM 连通性或完整会议任务成功；需要在具备模型和服务的 Mac mini 上单独做验收。
+本机 Homebrew Node 若因 `libllhttp` 缺失而无法启动，可先启用 nvm 的 Node 20：
+
+```bash
+source /Users/zengshenglong/.nvm/nvm.sh
+nvm use 20
+```
+
+静态测试不能证明真实 MLX 推理、远端 LLM 连通性或完整会议任务成功；需要按 [真实设备验收清单](acceptance-checklist.md) 在具备模型和服务的 Mac mini 上单独做验收。

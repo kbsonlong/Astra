@@ -5,57 +5,57 @@ const PCM_FRAME_VERSION = 1;
 const PCM_FRAME_HEADER_BYTES = 14;
 
 export class PcmFrameBuffer {
-  private pending = new Float32Array();
+  // 用一个可增长缓冲 + 读游标(head)避免每次 append/drain 都全量复制。
+  // 仅当剩余数据前移收益明显时才压缩,均摊 O(1)。
+  private buffer = new Float32Array(0);
+  private head = 0;
+  private tail = 0;
+
+  private get size(): number {
+    return this.tail - this.head;
+  }
 
   append(samples: Float32Array): void {
     if (samples.length === 0) return;
-    const next = new Float32Array(this.pending.length + samples.length);
-    next.set(this.pending);
-    next.set(samples, this.pending.length);
-    this.pending = next;
+    const free = this.buffer.length - this.tail;
+    if (free < samples.length) {
+      // 需要扩容或压缩:先把未读数据前移,不够再翻倍扩容。
+      const needed = this.size + samples.length;
+      if (needed <= this.buffer.length) {
+        this.buffer.copyWithin(0, this.head, this.tail);
+      } else {
+        let capacity = Math.max(this.buffer.length * 2, 1024);
+        while (capacity < needed) capacity *= 2;
+        const next = new Float32Array(capacity);
+        next.set(this.buffer.subarray(this.head, this.tail));
+        this.buffer = next;
+      }
+      this.tail = this.size;
+      this.head = 0;
+    }
+    this.buffer.set(samples, this.tail);
+    this.tail += samples.length;
   }
 
   drain(frameSamples = PCM_FRAME_SAMPLES): Float32Array[] {
     const frames: Float32Array[] = [];
-    while (this.pending.length >= frameSamples) {
-      frames.push(this.pending.slice(0, frameSamples));
-      this.pending = this.pending.slice(frameSamples);
+    while (this.size >= frameSamples) {
+      // slice 复制出定长帧(下游会持有/编码),游标前进而非搬移整段。
+      frames.push(this.buffer.slice(this.head, this.head + frameSamples));
+      this.head += frameSamples;
+    }
+    // 读空后重置游标,避免 buffer 无限增长。
+    if (this.head === this.tail) {
+      this.head = 0;
+      this.tail = 0;
     }
     return frames;
   }
 
   clear(): void {
-    this.pending = new Float32Array();
-  }
-}
-
-export class PcmCollector {
-  private readonly chunks: Float32Array[] = [];
-  private length = 0;
-
-  append(samples: Float32Array): void {
-    const copy = new Float32Array(samples);
-    this.chunks.push(copy);
-    this.length += copy.length;
-  }
-
-  clear(): void {
-    this.chunks.length = 0;
-    this.length = 0;
-  }
-
-  toFloat32(): Float32Array {
-    const output = new Float32Array(this.length);
-    let offset = 0;
-    for (const chunk of this.chunks) {
-      output.set(chunk, offset);
-      offset += chunk.length;
-    }
-    return output;
-  }
-
-  toSampleRate(sourceRate: number, targetRate = JAEC_SAMPLE_RATE): Float32Array {
-    return resamplePcm(this.toFloat32(), sourceRate, targetRate);
+    this.buffer = new Float32Array(0);
+    this.head = 0;
+    this.tail = 0;
   }
 }
 

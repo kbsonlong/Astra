@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import UploadPage from "./UploadPage";
 import ReviewPage from "./ReviewPage";
 import TrainingPage from "./TrainingPage";
 import SettingsPage from "./SettingsPage";
 import LoginPage from "./LoginPage";
 import Shell from "./Shell";
+import VoiceDial from "./live/VoiceDial";
+import {
+  acceptsGenerationEvent,
+  generationForNewConnection,
+  nextActiveGeneration,
+} from "./live/session";
 import {
   JAEC_SAMPLE_RATE,
   PCM_FRAME_SAMPLES,
-  PcmCollector,
   PcmFrameBuffer,
   encodePcm16Frame,
-  encodePcm16Wav,
   resamplePcm,
 } from "./audio/pcm";
 
@@ -23,6 +28,10 @@ type ServerEvent = {
   generation_id?: number;
   audio_b64?: string;
   mime?: string;
+  recording_id?: string;
+  download_url?: string;
+  code?: string;
+  max_bytes?: number;
 };
 
 const SILENCE_MS = 800;
@@ -118,40 +127,15 @@ export default function App() {
   }
 
   const onLogout = auth.auth_required ? () => void logout() : undefined;
-  const path = location.pathname;
-
-  if (path === "/upload") {
-    return (
-      <Shell active="work" onLogout={onLogout}>
-        <UploadPage />
-      </Shell>
-    );
-  }
-  if (path === "/review") {
-    return (
-      <Shell active="review" onLogout={onLogout}>
-        <ReviewPage />
-      </Shell>
-    );
-  }
-  if (path === "/training") {
-    return (
-      <Shell active="train" onLogout={onLogout}>
-        <TrainingPage />
-      </Shell>
-    );
-  }
-  if (path === "/settings") {
-    return (
-      <Shell active="settings" onLogout={onLogout}>
-        <SettingsPage />
-      </Shell>
-    );
-  }
   return (
-    <Shell active="live" onLogout={onLogout}>
-      <VoiceAssistant />
-    </Shell>
+    <Routes>
+      <Route path="/" element={<Shell active="live" onLogout={onLogout}><VoiceAssistant /></Shell>} />
+      <Route path="/upload" element={<Shell active="work" onLogout={onLogout}><UploadPage /></Shell>} />
+      <Route path="/review" element={<Shell active="review" onLogout={onLogout}><ReviewPage /></Shell>} />
+      <Route path="/training" element={<Shell active="train" onLogout={onLogout}><TrainingPage /></Shell>} />
+      <Route path="/settings" element={<Shell active="settings" onLogout={onLogout}><SettingsPage /></Shell>} />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   );
 }
 
@@ -165,8 +149,7 @@ function VoiceAssistant() {
   const ttsSources = useRef(new Set<AudioBufferSourceNode>());
   const microphoneFrames = useRef(new PcmFrameBuffer());
   const farEndFrames = useRef(new PcmFrameBuffer());
-  const recordingPcm = useRef(new PcmCollector());
-  const recordingSampleRate = useRef(JAEC_SAMPLE_RATE);
+  const recordingId = useRef<string | null>(null);
   const pcmSequence = useRef(0);
   const captureWindow = useRef(false);
   const nextTtsTime = useRef(0);
@@ -175,16 +158,48 @@ function VoiceAssistant() {
   const silenceSince = useRef<number | null>(null);
   const stateRef = useRef("IDLE");
   const activeGeneration = useRef(0);
+  // 断线重连与录音会话保持
+  const manualStop = useRef(false);
+  const reconnectAttempts = useRef(0);
+  const reconnectTimer = useRef<number | null>(null);
+  const micActive = useRef(false);
   const [state, setState] = useState("IDLE");
   const [transcript, setTranscript] = useState("");
   const [answer, setAnswer] = useState("");
   const [connected, setConnected] = useState(false);
   const [recordingReady, setRecordingReady] = useState(false);
+  const [recordingDownloadUrl, setRecordingDownloadUrl] = useState("");
+  const [stopping, setStopping] = useState(false);
   const [connectionError, setConnectionError] = useState("");
 
-  useEffect(() => () => cleanupAudio(), []);
+  useEffect(() => () => {
+    // 客户端路由切换不会再触发整页卸载；显式关闭连接，避免离开实时页后继续重连。
+    manualStop.current = true;
+    socket.current?.close();
+    cleanupAudio();
+  }, []);
+
+  // 标签页回到前台时,尝试恢复被浏览器挂起的 AudioContext,避免录音静默中断。
+  useEffect(() => {
+    function onVisible() {
+      if (document.visibilityState !== "visible") return;
+      const context = audioContext.current;
+      if (context && context.state === "suspended" && micActive.current) {
+        void context.resume().catch(() => {
+          /* ignore */
+        });
+      }
+    }
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, []);
 
   function cleanupAudio() {
+    if (reconnectTimer.current !== null) {
+      window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+    micActive.current = false;
     if (monitorFrame.current !== null) cancelAnimationFrame(monitorFrame.current);
     monitorFrame.current = null;
     pcmCapture.current?.disconnect();
@@ -206,28 +221,21 @@ function VoiceAssistant() {
     silenceSince.current = null;
   }
 
-  function clearLocalRecording() {
-    recordingPcm.current.clear();
+  function prepareServerRecording() {
+    recordingId.current = crypto.randomUUID();
+    setRecordingDownloadUrl("");
     setRecordingReady(false);
   }
 
   function saveLocalRecording() {
-    const samples = recordingPcm.current.toSampleRate(
-      recordingSampleRate.current,
-      JAEC_SAMPLE_RATE,
-    );
-    if (samples.length === 0) {
-      setConnectionError("当前通话没有采集到可保存的录音");
+    if (!recordingDownloadUrl) {
+      setConnectionError("服务端录音尚未整理完成");
       return;
     }
-    const wav = encodePcm16Wav(samples, JAEC_SAMPLE_RATE);
-    const url = URL.createObjectURL(new Blob([wav], { type: "audio/wav" }));
     const link = document.createElement("a");
-    link.href = url;
-    link.download = `astra-recording-${new Date().toISOString().replace(/[:.]/g, "-")}.wav`;
+    link.href = recordingDownloadUrl;
     link.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setConnectionError("录音已保存到本地下载目录");
+    setConnectionError("正在从 Mac mini 下载录音");
   }
 
   function resetCaptureWindow() {
@@ -313,7 +321,16 @@ function VoiceAssistant() {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
     const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
-    recordingSampleRate.current = context.sampleRate;
+    // 标签页切后台或系统休眠会让 AudioContext 进入 suspended,onaudioprocess 停止,
+    // 录音静默中断。监听 statechange 并尝试自动 resume。
+    context.onstatechange = () => {
+      if (context.state === "suspended" && micActive.current) {
+        void context.resume().catch(() => {
+          /* resume 可能因缺少用户手势失败;可见性恢复时会再试 */
+        });
+      }
+    };
+    micActive.current = true;
     connection.send(
       JSON.stringify({
         type: "audio_format",
@@ -338,8 +355,6 @@ function VoiceAssistant() {
         event.inputBuffer.numberOfChannels > 1
           ? event.inputBuffer.getChannelData(1)
           : new Float32Array(microphone.length);
-      recordingPcm.current.append(microphone);
-      setRecordingReady(true);
       microphoneFrames.current.append(
         context.sampleRate === JAEC_SAMPLE_RATE
           ? microphone
@@ -352,25 +367,26 @@ function VoiceAssistant() {
       );
       const microphoneChunks = microphoneFrames.current.drain(PCM_FRAME_SAMPLES);
       const referenceChunks = farEndFrames.current.drain(PCM_FRAME_SAMPLES);
+      // 用实时的 socket.current 而非闭包捕获的连接:重连后旧连接已失效,
+      // 新连接由 socket.current 指向,保证录音会话跨重连持续送帧。
       for (let index = 0; index < microphoneChunks.length; index += 1) {
         const sequence = pcmSequence.current;
         pcmSequence.current += 1;
-        if (
-          connection.readyState === WebSocket.OPEN &&
-          captureWindow.current &&
-          stateRef.current === "LISTENING"
-        ) {
-          connection.send(
+        const live = socket.current;
+        // 所有麦克风帧均上传：后端只把聆听窗口的帧交给 ASR，其余帧不进入
+        // 会话缓冲，但会持续追加到服务端录音，避免思考/播报期间留下空洞。
+        if (live?.readyState === WebSocket.OPEN) {
+          live.send(
             encodePcm16Frame(microphoneChunks[index], sequence, "microphone", JAEC_SAMPLE_RATE),
           );
         }
         const reference = referenceChunks[index];
         if (
           reference &&
-          connection.readyState === WebSocket.OPEN &&
+          live?.readyState === WebSocket.OPEN &&
           (captureWindow.current || stateRef.current === "SPEAKING")
         ) {
-          connection.send(encodePcm16Frame(reference, sequence, "reference", JAEC_SAMPLE_RATE));
+          live.send(encodePcm16Frame(reference, sequence, "reference", JAEC_SAMPLE_RATE));
         }
       }
     };
@@ -389,26 +405,70 @@ function VoiceAssistant() {
 
   async function connect() {
     if (socket.current?.readyState === WebSocket.OPEN) return;
+    manualStop.current = false;
+    reconnectAttempts.current = 0;
     setConnectionError("");
-    clearLocalRecording();
+    prepareServerRecording();
+    setStopping(false);
     setState("CONNECTING");
+    openSocket(true);
+  }
+
+  function openSocket(startMic: boolean) {
+    if (reconnectTimer.current !== null) {
+      window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
     const connection = new WebSocket(socketUrl);
     connection.onopen = () => {
+      // 服务端为每个 WebSocket 创建一个新的 Session，generation 会从 0 开始。
+      // 因此重连时必须丢弃旧连接的代际水位，不能把新事件当作过期事件过滤。
+      activeGeneration.current = generationForNewConnection();
       setConnected(true);
-      connection.send(JSON.stringify({ type: "start_session" }));
-      void startMicrophone(connection)
-        .then(() => setConnectionError("麦克风已连接，说话后自动提交"))
-        .catch((error: unknown) => {
-          setConnectionError(error instanceof Error ? error.message : "无法访问麦克风");
-          connection.close();
-        });
+      reconnectAttempts.current = 0;
+      connection.send(
+        JSON.stringify({ type: "start_session", recording_id: recordingId.current || undefined }),
+      );
+      if (startMic && !micActive.current) {
+        void startMicrophone(connection)
+          .then(() => setConnectionError("麦克风已连接，说话后自动提交"))
+          .catch((error: unknown) => {
+            setConnectionError(error instanceof Error ? error.message : "无法访问麦克风");
+            manualStop.current = true;
+            connection.close();
+          });
+      } else if (micActive.current) {
+        // 重连成功:麦克风与录音会话仍在,只需重发握手并回到聆听。
+        connection.send(
+          JSON.stringify({
+            type: "audio_format",
+            format: "pcm16",
+            sample_rate: JAEC_SAMPLE_RATE,
+            frame_samples: PCM_FRAME_SAMPLES,
+          }),
+        );
+        captureWindow.current = true;
+        stateRef.current = "LISTENING";
+        setState("LISTENING");
+        setConnectionError("连接已恢复，继续聆听");
+      }
     };
     connection.onclose = () => {
       setConnected(false);
-      cleanupAudio();
-      setState("IDLE");
+      if (manualStop.current) {
+        cleanupAudio();
+        setStopping(false);
+        setState("IDLE");
+        return;
+      }
+      // 意外断连:保留麦克风与录音,自动重连(指数退避,最长 10s)。
+      scheduleReconnect();
     };
-    connection.onerror = () => setConnectionError("无法连接到后端，请确认服务已启动");
+    connection.onerror = () => {
+      if (!manualStop.current) {
+        setConnectionError("连接中断，正在尝试重连…");
+      }
+    };
     connection.onmessage = (message) => {
       try {
         handleEvent(JSON.parse(message.data) as ServerEvent);
@@ -419,11 +479,26 @@ function VoiceAssistant() {
     socket.current = connection;
   }
 
+  function scheduleReconnect() {
+    if (manualStop.current) return;
+    if (reconnectTimer.current !== null) return;
+    const attempt = reconnectAttempts.current;
+    reconnectAttempts.current = attempt + 1;
+    const delay = Math.min(10000, 500 * 2 ** Math.min(attempt, 5));
+    stateRef.current = "CONNECTING";
+    setState("CONNECTING");
+    setConnectionError(`连接已断开，${Math.round(delay / 1000)}s 后自动重连（第 ${attempt + 1} 次）`);
+    reconnectTimer.current = window.setTimeout(() => {
+      reconnectTimer.current = null;
+      if (manualStop.current) return;
+      // 麦克风仍在采集,只重开 socket。
+      openSocket(!micActive.current);
+    }, delay);
+  }
+
   function handleEvent(event: ServerEvent) {
-    if (event.generation_id && event.type !== "state_change") {
-      if (event.generation_id < activeGeneration.current) return;
-      activeGeneration.current = event.generation_id;
-    }
+    if (!acceptsGenerationEvent(event, activeGeneration.current)) return;
+    activeGeneration.current = nextActiveGeneration(event, activeGeneration.current);
     if (event.type === "state_change" && event.state) {
       stateRef.current = event.state;
       setState(event.state);
@@ -440,6 +515,23 @@ function VoiceAssistant() {
       captureWindow.current = true;
       stateRef.current = "LISTENING";
       setState("LISTENING");
+    }
+    if (event.type === "recording_started" && event.recording_id) {
+      recordingId.current = event.recording_id;
+    }
+    if (event.type === "recording_ready") {
+      if (event.download_url) {
+        setRecordingDownloadUrl(event.download_url);
+        setRecordingReady(true);
+        setConnectionError("录音已整理完成，可下载到本地");
+      } else {
+        setConnectionError("本次通话没有可导出的音频");
+      }
+      socket.current?.close();
+    }
+    if (event.type === "error" && event.code === "recording_too_large") {
+      const maxMiB = Math.round((event.max_bytes ?? 0) / 1024 / 1024);
+      setConnectionError(`服务端录音达到 ${maxMiB} MiB 上限；实时通话继续进行`);
     }
   }
 
@@ -468,17 +560,30 @@ function VoiceAssistant() {
   }
 
   function stop() {
-    socket.current?.send(
-      JSON.stringify({
-        type: "interrupt",
-        generation_id: activeGeneration.current || undefined,
-        reason: "manual",
-      }),
-    );
-    socket.current?.send(JSON.stringify({ type: "end_session" }));
+    if (stopping) return;
+    manualStop.current = true;
+    setStopping(true);
+    if (reconnectTimer.current !== null) {
+      window.clearTimeout(reconnectTimer.current);
+      reconnectTimer.current = null;
+    }
+    if (socket.current?.readyState === WebSocket.OPEN) {
+      socket.current.send(
+        JSON.stringify({
+          type: "interrupt",
+          generation_id: activeGeneration.current || undefined,
+          reason: "manual",
+        }),
+      );
+      socket.current.send(JSON.stringify({ type: "end_session" }));
+      cleanupAudio();
+      setConnectionError("正在将服务端 PCM 录音整理为 WAV…");
+      return;
+    }
     socket.current?.close();
     cleanupAudio();
     setConnected(false);
+    setStopping(false);
     stateRef.current = "IDLE";
     setState("IDLE");
   }
@@ -514,8 +619,8 @@ function VoiceAssistant() {
                 开始通话
               </button>
             ) : (
-              <button className="btn btn--danger btn--sm" type="button" onClick={stop}>
-                停止通话
+              <button className="btn btn--danger btn--sm" type="button" onClick={stop} disabled={stopping}>
+                {stopping ? "正在结束…" : "停止通话"}
               </button>
             )}
             <button
@@ -523,9 +628,9 @@ function VoiceAssistant() {
               type="button"
               onClick={saveLocalRecording}
               disabled={!recordingReady || connected}
-              title={connected ? "停止通话后保存录音" : "保存本次通话的麦克风录音"}
+              title={connected ? "停止通话后导出服务端录音" : "下载服务端保存的本次通话录音"}
             >
-              保存本地录音
+              下载录音
             </button>
           </div>
           <div className="dial-meta">
@@ -601,82 +706,5 @@ function VoiceAssistant() {
         </div>
       </div>
     </section>
-  );
-}
-
-const DIAL_BARS = [
-  { rot: 0, h: 14, op: 0.55 },
-  { rot: 22.5, h: 26, op: 0.85 },
-  { rot: 45, h: 18, op: 0.6 },
-  { rot: 67.5, h: 32, op: 1 },
-  { rot: 90, h: 20, op: 0.7 },
-  { rot: 112.5, h: 12, op: 0.45 },
-  { rot: 135, h: 28, op: 0.9 },
-  { rot: 157.5, h: 16, op: 0.6 },
-  { rot: 180, h: 22, op: 0.75 },
-  { rot: 202.5, h: 14, op: 0.5 },
-  { rot: 225, h: 30, op: 0.95 },
-  { rot: 247.5, h: 18, op: 0.65 },
-  { rot: 270, h: 24, op: 0.8 },
-  { rot: 292.5, h: 12, op: 0.45 },
-  { rot: 315, h: 20, op: 0.7 },
-  { rot: 337.5, h: 26, op: 0.85 },
-];
-
-function VoiceDial({ state, label }: { state: string; label: string }) {
-  const active = state === "LISTENING" || state === "SPEAKING";
-  const thinking = state === "REASONING";
-  const barColor =
-    state === "SPEAKING" ? "var(--accent)" : active ? "var(--live)" : "var(--border-strong)";
-  const centerFill = active ? "var(--live-soft)" : "var(--bg-inset)";
-  const centerStroke =
-    state === "SPEAKING" ? "var(--accent)" : active ? "var(--live)" : "var(--border-strong)";
-  const centerText =
-    state === "SPEAKING" ? "var(--accent-text)" : active ? "var(--live-text)" : "var(--text-tertiary)";
-
-  return (
-    <svg
-      width="232"
-      height="232"
-      viewBox="0 0 232 232"
-      role="img"
-      aria-label={`声纹罗盘，当前状态：${label}`}
-    >
-      <circle cx="116" cy="116" r="112" fill="none" stroke="var(--border-subtle)" strokeWidth="1" />
-      <g className={thinking ? "ring--thinking" : undefined} stroke="var(--border-default)" strokeWidth="1">
-        <line x1="116" y1="6" x2="116" y2="14" />
-        <line x1="116" y1="218" x2="116" y2="226" />
-        <line x1="6" y1="116" x2="14" y2="116" />
-        <line x1="218" y1="116" x2="226" y2="116" />
-      </g>
-      <circle
-        cx="116"
-        cy="116"
-        r="84"
-        fill="none"
-        stroke={active ? "var(--live-border)" : "var(--border-subtle)"}
-        strokeWidth="1"
-        strokeDasharray="2 6"
-      />
-      <g className={active ? "wv wv--live" : "wv"} fill={barColor}>
-        {DIAL_BARS.map((bar) => (
-          <g transform={`rotate(${bar.rot} 116 116)`} key={bar.rot}>
-            <rect x="113.5" y={68 - bar.h} width="5" height={bar.h} rx="2.5" opacity={bar.op} />
-          </g>
-        ))}
-      </g>
-      <circle cx="116" cy="116" r="40" fill={centerFill} stroke={centerStroke} strokeWidth="1.5" />
-      <text
-        x="116"
-        y="121"
-        textAnchor="middle"
-        fontFamily="var(--font-mono)"
-        fontSize="12"
-        fontWeight="600"
-        fill={centerText}
-      >
-        {label}
-      </text>
-    </svg>
   );
 }

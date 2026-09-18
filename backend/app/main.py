@@ -31,16 +31,18 @@ from .core.zipenhancer import build_audio_enhancement_pipeline
 from .models.asr_client import MlxAudioAsrClient
 from .models.asr_worker import AsrWorkerClient
 from .models.llm_client import OpenAICompatLLMClient
-from .models.tts_client import MlxAudioTtsClient, PiperSdkTtsClient
+from .models.tts_client import CosyVoiceTtsClient, MlxAudioTtsClient, PiperSdkTtsClient
 from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
 from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
+from .api.realtime_recording_routes import router as realtime_recording_router
 from .api.upload_limits import AudioIPConcurrencyLimiter
 from .core.training import TrainingManager
 from .core.task_store import TaskStore
 from .core.review_store import ReviewStore
 from .core.artifact_retention import clean_meeting_artifacts
+from .core.realtime_recording import clean_expired_realtime_recordings
 
 
 def _reconfigure_llm_client(client: object | None, settings: Settings, *, meeting: bool = False) -> None:
@@ -99,6 +101,11 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "tts_mlx_model": current.tts_mlx_model,
         "tts_mlx_voice": current.tts_mlx_voice,
         "tts_mlx_lang_code": current.tts_mlx_lang_code,
+        "tts_cosyvoice_model": current.tts_cosyvoice_model,
+        "tts_cosyvoice_language": current.tts_cosyvoice_language,
+        "tts_cosyvoice_prompt_configured": bool(
+            current.tts_cosyvoice_prompt_wav and current.tts_cosyvoice_prompt_text
+        ),
         "punctuation_enabled": current.punctuation_enabled,
         "punctuation_engine": current.punctuation_engine,
         "punctuation_device": current.punctuation_device,
@@ -118,6 +125,8 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "meeting_max_upload_bytes": current.meeting_max_upload_bytes,
         "meeting_max_duration_seconds": current.meeting_max_duration_seconds,
         "ws_max_audio_bytes": current.ws_max_audio_bytes,
+        "realtime_recording_max_bytes": current.realtime_recording_max_bytes,
+        "realtime_recording_retention_days": current.realtime_recording_retention_days,
         "audio_max_concurrent_per_ip": current.audio_max_concurrent_per_ip,
         "audio_enhancement_enabled": current.audio_enhancement_enabled,
         "audio_ans_model": current.audio_ans_model,
@@ -136,10 +145,15 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
 
 
 def _build_realtime_asr(current: Settings) -> object:
-    """按 asr_backend 选择实时 ASR client (VoiceStudio 路线图方向二)。
+    """按 asr_backend 选择实时 ASR client。"""
+    if current.asr_backend == "funasr":
+        from .models.funasr_client import FunAsrClient
 
-    目前仅 mlx_audio (Qwen3-ASR); 该工厂为方向三 (FunASR 内联分离) 预留接入点。
-    """
+        return FunAsrClient(
+            current.asr_funasr_model,
+            language=current.asr_funasr_language,
+            diarize=False,
+        )
     return MlxAudioAsrClient(
         current.asr_model,
         current.asr_language,
@@ -156,7 +170,8 @@ def _build_realtime_asr(current: Settings) -> object:
 def _build_tts_client(current: Settings) -> object:
     """按 tts_backend 选择实例化 TTS client (VoiceStudio 路线图方向一)。
 
-    piper (默认): 保留现有 Piper 兜底; mlx_audio: 中文原生 MLX 后端。
+    piper (默认): 保留现有 Piper 兜底；mlx_audio: 中文原生 MLX；
+    cosyvoice: 零样本克隆（参考音频只在服务器本地读取）。
     """
     if current.tts_backend == "mlx_audio":
         return MlxAudioTtsClient(
@@ -165,6 +180,14 @@ def _build_tts_client(current: Settings) -> object:
             lang_code=current.tts_mlx_lang_code,
             speed=current.tts_mlx_speed,
             sample_rate=current.tts_mlx_sample_rate,
+        )
+    if current.tts_backend == "cosyvoice":
+        return CosyVoiceTtsClient(
+            current.tts_cosyvoice_model,
+            prompt_wav=current.tts_cosyvoice_prompt_wav,
+            prompt_text=current.tts_cosyvoice_prompt_text,
+            language=current.tts_cosyvoice_language,
+            speed=current.tts_cosyvoice_speed,
         )
     return PiperSdkTtsClient(current.tts_model_path)
 
@@ -203,6 +226,10 @@ async def app_lifespan(app: FastAPI):
         task_store=app.state.task_store,
         retention_days=app.state.settings.meeting_artifact_retention_days,
         max_bytes=app.state.settings.meeting_artifact_max_bytes,
+    )
+    clean_expired_realtime_recordings(
+        app.state.settings.realtime_recording_dir,
+        app.state.settings.realtime_recording_retention_days,
     )
     yield
     worker = getattr(app.state, "asr_worker", None)
@@ -376,6 +403,7 @@ def create_app(
     app.include_router(auth_router)
     app.include_router(ws_router)
     app.include_router(http_router)
+    app.include_router(realtime_recording_router)
     app.include_router(meeting_router)
     app.include_router(speaker_router)
     app.include_router(notification_router)
