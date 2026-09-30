@@ -61,6 +61,42 @@ def test_backend_factories_select_funasr_realtime_and_cosyvoice_tts() -> None:
     assert tts.capabilities()["clone"] is True
 
 
+def test_backend_factory_selects_indextts_mlx_snapshot_backend() -> None:
+    settings = Settings(
+        tts_backend="indextts_mlx",
+        tts_indextts_model_dir="/private/models/indextts-2.5-mlx",
+        tts_indextts_repo_id="test/index-tts",
+        tts_indextts_model_revision="test-revision",
+    )
+
+    tts = _build_tts_client(settings)
+
+    assert tts.__class__.__name__ == "IndexTTS25MlxClient"
+    assert tts.capabilities()["backend"] == "indextts_mlx"
+    assert tts.capabilities()["model_revision"] == "test-revision"
+    assert tts.capabilities()["clone"] is True
+
+
+def test_runtime_config_exposes_indextts_status_without_model_path(tmp_path) -> None:
+    settings = Settings(
+        tts_backend="indextts_mlx",
+        tts_indextts_model_dir="/private/models/indextts-2.5-mlx",
+        tts_indextts_model_revision="test-revision",
+        task_store_path=str(tmp_path / "tasks.sqlite3"),
+        speaker_store_path=str(tmp_path / "speakers.sqlite3"),
+        speaker_sample_dir=str(tmp_path / "samples"),
+    )
+    client = TestClient(create_app(settings, enable_pipeline=False, enable_meeting=False))
+
+    response = client.get("/api/config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tts_indextts_model_configured"] is True
+    assert payload["tts_indextts_model_revision"] == "test-revision"
+    assert "/private/models/indextts-2.5-mlx" not in response.text
+
+
 def test_settings_rejects_unknown_cosyvoice_language(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TTS_COSYVOICE_LANGUAGE", "unknown")
     with pytest.raises(ValueError, match="TTS_COSYVOICE_LANGUAGE"):

@@ -9,6 +9,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+from ..core.tts_voice_store import TtsVoiceSnapshot
+
 
 logger = logging.getLogger(__name__)
 
@@ -281,6 +283,248 @@ class MlxAudioTtsClient:
         except ImportError as exc:
             raise TTSClientError("mlx-audio is not installed") from exc
         return load_model(model)
+
+
+class IndexTTS25MlxClient:
+    """IndexTTS 2.5 MLX adapter driven by an immutable TTS voice snapshot.
+
+    The third-party package is optional and imported only when this adapter
+    loads a real model. ``TtsVoiceSnapshot`` is validated by the voice store;
+    this client re-checks its reference path and keeps all MLX work on one
+    executor thread so the ASGI event loop is never blocked.
+    """
+
+    _SUPPORTED_LANGUAGES = {"zh", "en", "ja", "yue"}
+    _GENERATION_KEYS = {
+        "greedy",
+        "seed",
+        "top_k",
+        "top_p",
+        "temperature",
+        "repetition_penalty",
+        "max_mel_tokens",
+        "max_text_tokens_per_segment",
+        "interval_silence",
+        "duration_factor",
+        "n_timesteps",
+        "cfg_rate",
+    }
+
+    def __init__(
+        self,
+        model_dir: str = "",
+        *,
+        repo_id: str = "yunfengwang/IndexTTS-2.5-mlx",
+        model_revision: str = "",
+        use_normalization: bool = True,
+        allow_download: bool = False,
+        default_snapshot: TtsVoiceSnapshot | None = None,
+        model_instance: Any | None = None,
+        model_loader: Callable[[str, str, bool, bool], Any] | None = None,
+    ) -> None:
+        self.model_dir = str(Path(model_dir).expanduser()) if model_dir else ""
+        self.repo_id = repo_id
+        self.model_revision = model_revision
+        self.use_normalization = use_normalization
+        self.allow_download = allow_download
+        self.default_snapshot = default_snapshot
+        self._model_instance = model_instance
+        self._model_loader = model_loader
+        self._speaker_contexts: dict[tuple[str, int, str], Any] = {}
+        self._executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="astra-indextts25-mlx"
+        )
+        self._closed = False
+
+    def is_ready(self) -> bool:
+        return self._model_instance is not None or bool(self.model_dir)
+
+    def capabilities(self) -> dict[str, Any]:
+        return {
+            "engine": "indextts25_mlx",
+            "backend": "indextts_mlx",
+            "model": "IndexTTS-2.5-mlx",
+            "model_revision": self.model_revision,
+            "languages": sorted(self._SUPPORTED_LANGUAGES),
+            "clone": True,
+            "clone_configured": self.default_snapshot is not None,
+            "streaming": False,
+            "sample_rate": 22050,
+            "device": ["mps"],
+            "download_allowed": self.allow_download,
+        }
+
+    def is_available(self) -> tuple[bool, str]:
+        if self._model_instance is not None or self._model_loader is not None:
+            return True, "ready (injected)"
+        if not self.model_dir and not self.allow_download:
+            return False, "IndexTTS MLX 模型目录未配置"
+        if self.model_dir and not Path(self.model_dir).is_dir():
+            return False, "IndexTTS MLX 模型目录不可用"
+        try:
+            from index_tts_2_5_mlx import IndexTTS  # noqa: F401
+        except ImportError:
+            return False, "index-tts-2.5-mlx 未安装"
+        return True, "ready (lazy)"
+
+    async def synthesize(self, text: str) -> bytes:
+        """Use the configured default snapshot, if one was supplied."""
+        if self.default_snapshot is None:
+            raise TTSClientError("IndexTTS MLX requires a TTS voice snapshot")
+        return await self.synthesize_snapshot(text, self.default_snapshot)
+
+    async def synthesize_snapshot(
+        self,
+        text: str,
+        snapshot: TtsVoiceSnapshot,
+        **generation: object,
+    ) -> bytes:
+        if not text.strip():
+            raise TTSClientError("text must not be empty")
+        if self._closed:
+            raise TTSClientError("IndexTTS MLX TTS client is closed")
+        self._validate_snapshot(snapshot)
+        options = self._generation_options(snapshot, generation)
+        try:
+            loop = asyncio.get_running_loop()
+            audio = await loop.run_in_executor(
+                self._executor,
+                self._synthesize_snapshot_blocking,
+                text,
+                snapshot,
+                options,
+            )
+        except Exception as exc:
+            if isinstance(exc, TTSClientError):
+                raise
+            logger.exception(
+                "IndexTTS MLX synthesis failed for voice %s revision %s",
+                snapshot.voice_id,
+                snapshot.voice_revision,
+            )
+            raise TTSClientError(
+                f"IndexTTS MLX synthesis failed: {exc.__class__.__name__}"
+            ) from exc
+        if not audio:
+            raise TTSClientError("IndexTTS MLX returned empty audio")
+        return audio
+
+    def _synthesize_snapshot_blocking(
+        self,
+        text: str,
+        snapshot: TtsVoiceSnapshot,
+        generation: dict[str, object],
+    ) -> bytes:
+        model = self._model_instance or self._load_model_blocking()
+        cache_key = (
+            snapshot.voice_id,
+            snapshot.voice_revision,
+            snapshot.reference_sha256,
+        )
+        speaker = self._speaker_contexts.get(cache_key)
+        if speaker is None:
+            speaker = model.build_speaker(str(snapshot.reference_path))
+            self._speaker_contexts[cache_key] = speaker
+        pcm = model.synthesize(
+            text,
+            lang=snapshot.language,
+            spk=speaker,
+            **generation,
+        )
+        sample_rate = getattr(model, "sample_rate", 22050)
+        if not isinstance(sample_rate, (int, float)) or sample_rate <= 0:
+            sample_rate = 22050
+        return self._encode_pcm16_wav(pcm, int(sample_rate))
+
+    def _load_model_blocking(self) -> Any:
+        if self._model_loader is not None:
+            model = self._model_loader(
+                self.model_dir, self.repo_id, self.use_normalization, self.allow_download
+            )
+        else:
+            model = self._load_model_from_sdk()
+        self._model_instance = model
+        return model
+
+    def _load_model_from_sdk(self) -> Any:
+        try:
+            from index_tts_2_5_mlx import IndexTTS
+        except ImportError as exc:
+            raise TTSClientError("index-tts-2.5-mlx 未安装") from exc
+        if self.model_dir:
+            return IndexTTS(
+                model_dir=self.model_dir,
+                use_normalization=self.use_normalization,
+            )
+        if not self.allow_download:
+            raise TTSClientError("IndexTTS MLX 模型目录未配置")
+        return IndexTTS(
+            repo_id=self.repo_id,
+            use_normalization=self.use_normalization,
+        )
+
+    def _validate_snapshot(self, snapshot: TtsVoiceSnapshot) -> None:
+        if snapshot.backend_family not in {"indextts25_mlx", "indextts_mlx"}:
+            raise TTSClientError("TTS voice snapshot is not for IndexTTS MLX")
+        if snapshot.language not in self._SUPPORTED_LANGUAGES:
+            raise TTSClientError("IndexTTS MLX snapshot language is unsupported")
+        path = snapshot.reference_path.expanduser()
+        if not path.is_file() or path.is_symlink():
+            raise TTSClientError("TTS voice snapshot reference audio is unavailable")
+
+    def _generation_options(
+        self,
+        snapshot: TtsVoiceSnapshot,
+        overrides: dict[str, object],
+    ) -> dict[str, object]:
+        unknown = set(overrides) - self._GENERATION_KEYS
+        if unknown:
+            raise TTSClientError(
+                "unsupported IndexTTS generation option: " + sorted(unknown)[0]
+            )
+        options = dict(snapshot.default_params)
+        unknown_defaults = set(options) - self._GENERATION_KEYS
+        if unknown_defaults:
+            raise TTSClientError(
+                "unsupported snapshot generation option: " + sorted(unknown_defaults)[0]
+            )
+        options.update(overrides)
+        return options
+
+    @staticmethod
+    def _encode_pcm16_wav(pcm: Any, sample_rate: int) -> bytes:
+        values = getattr(pcm, "tolist", lambda: pcm)()
+        flattened: list[int] = []
+
+        def flatten(value: Any) -> None:
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    flatten(item)
+                return
+            try:
+                number = int(round(float(value)))
+            except (TypeError, ValueError) as exc:
+                raise TTSClientError("IndexTTS MLX returned invalid PCM") from exc
+            flattened.append(max(-32768, min(32767, number)))
+
+        flatten(values)
+        if not flattened:
+            raise TTSClientError("IndexTTS MLX produced no audio samples")
+        pcm_bytes = b"".join(struct.pack("<h", value) for value in flattened)
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as handle:
+            handle.setnchannels(1)
+            handle.setsampwidth(2)
+            handle.setframerate(sample_rate)
+            handle.writeframes(pcm_bytes)
+        return buffer.getvalue()
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._speaker_contexts.clear()
+        await asyncio.to_thread(self._executor.shutdown, wait=True, cancel_futures=True)
 
 
 class CosyVoiceTtsClient:

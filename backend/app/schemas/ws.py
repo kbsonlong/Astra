@@ -19,9 +19,13 @@ class ClientMessage(BaseModel):
     sample_rate: int | None = None
     frame_samples: int | None = None
     recording_id: str | None = None
+    voice_id: str | None = None
+    voice_revision: int | None = None
 
 
 class StateChange(BaseModel):
     type: Literal["state_change"] = "state_change"
     state: Literal["IDLE", "LISTENING", "REASONING", "SPEAKING"]
     generation_id: int | None = None
+    voice_id: str | None = None
+    voice_revision: int | None = None

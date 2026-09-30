@@ -47,7 +47,7 @@ def _bool_env(name: str, default: bool) -> bool:
     return default if value is None else value.lower() in {"1", "true", "yes", "on"}
 
 
-_TTS_BACKENDS = ("piper", "mlx_audio", "cosyvoice")
+_TTS_BACKENDS = ("piper", "mlx_audio", "cosyvoice", "indextts_mlx")
 
 
 def _tts_backend_env(name: str, default: str) -> str:
@@ -281,6 +281,12 @@ class Settings:
     speaker_max_speakers: int = 32
     speaker_duplicate_threshold: float = 0.82
     speaker_sample_dir: str = "~/.astra/speaker_samples"
+    tts_voice_store_path: str = "~/.astra/tts-voices.sqlite3"
+    tts_voice_audio_dir: str = "~/.astra/tts-voices"
+    tts_voice_min_reference_seconds: float = 5.0
+    tts_voice_max_reference_seconds: float = 15.0
+    tts_voice_max_upload_bytes: int = 20 * 1024 * 1024
+    tts_voice_default_page_size: int = 50
     meeting_prompt_templates_path: str = "~/.astra/meeting-prompt-templates.json"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     tts_backend: str = "piper"
@@ -296,6 +302,11 @@ class Settings:
     tts_cosyvoice_prompt_text: str = ""
     tts_cosyvoice_language: str = "zh"
     tts_cosyvoice_speed: float = 1.0
+    tts_indextts_model_dir: str = "~/.astra/models/indextts-2.5-mlx"
+    tts_indextts_repo_id: str = "yunfengwang/IndexTTS-2.5-mlx"
+    tts_indextts_model_revision: str = ""
+    tts_indextts_allow_download: bool = False
+    tts_indextts_use_normalization: bool = True
     meeting_output_dir: str = "~/Astra/meetings"
     task_store_path: str = "~/.astra/tasks.sqlite3"
     meeting_max_concurrent_jobs: int = 1
@@ -446,6 +457,24 @@ class Settings:
                 "SPEAKER_DUPLICATE_THRESHOLD", cls.speaker_duplicate_threshold
             ),
             speaker_sample_dir=os.getenv("SPEAKER_SAMPLE_DIR", cls.speaker_sample_dir),
+            tts_voice_store_path=os.getenv(
+                "TTS_VOICE_STORE_PATH", cls.tts_voice_store_path
+            ),
+            tts_voice_audio_dir=os.getenv(
+                "TTS_VOICE_AUDIO_DIR", cls.tts_voice_audio_dir
+            ),
+            tts_voice_min_reference_seconds=_positive_float_env(
+                "TTS_VOICE_MIN_REFERENCE_SECONDS", cls.tts_voice_min_reference_seconds
+            ),
+            tts_voice_max_reference_seconds=_positive_float_env(
+                "TTS_VOICE_MAX_REFERENCE_SECONDS", cls.tts_voice_max_reference_seconds
+            ),
+            tts_voice_max_upload_bytes=_positive_int_env(
+                "TTS_VOICE_MAX_UPLOAD_BYTES", cls.tts_voice_max_upload_bytes
+            ),
+            tts_voice_default_page_size=_positive_int_env(
+                "TTS_VOICE_DEFAULT_PAGE_SIZE", cls.tts_voice_default_page_size
+            ),
             meeting_prompt_templates_path=os.getenv(
                 "MEETING_PROMPT_TEMPLATES_PATH", cls.meeting_prompt_templates_path
             ),
@@ -472,6 +501,21 @@ class Settings:
             ),
             tts_cosyvoice_speed=_positive_float_env(
                 "TTS_COSYVOICE_SPEED", cls.tts_cosyvoice_speed
+            ),
+            tts_indextts_model_dir=os.getenv(
+                "TTS_INDEXTTS_MODEL_DIR", cls.tts_indextts_model_dir
+            ),
+            tts_indextts_repo_id=os.getenv(
+                "TTS_INDEXTTS_REPO_ID", cls.tts_indextts_repo_id
+            ),
+            tts_indextts_model_revision=os.getenv(
+                "TTS_INDEXTTS_MODEL_REVISION", cls.tts_indextts_model_revision
+            ),
+            tts_indextts_allow_download=_bool_env(
+                "TTS_INDEXTTS_ALLOW_DOWNLOAD", cls.tts_indextts_allow_download
+            ),
+            tts_indextts_use_normalization=_bool_env(
+                "TTS_INDEXTTS_USE_NORMALIZATION", cls.tts_indextts_use_normalization
             ),
             meeting_output_dir=os.getenv("MEETING_OUTPUT_DIR", cls.meeting_output_dir),
             task_store_path=os.getenv("TASK_STORE_PATH", cls.task_store_path),

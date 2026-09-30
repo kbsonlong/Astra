@@ -9,6 +9,7 @@ from ..core.pcm_protocol import decode_pcm_frame
 from ..core.realtime_recording import RecordingLimitExceeded, RealtimeRecording
 from ..core.session_manager import Session
 from ..core.pipeline import VoicePipeline
+from ..core.tts_voice_store import TtsVoiceError, TtsVoiceSnapshot
 from ..schemas.ws import ClientMessage, StateChange
 
 router = APIRouter()
@@ -18,6 +19,16 @@ async def send_state(websocket: WebSocket, session: Session) -> None:
     payload = StateChange(
         state=session.state,
         generation_id=session.generation_id or None,
+        voice_id=(
+            session.tts_voice_snapshot.voice_id
+            if session.tts_voice_snapshot is not None
+            else None
+        ),
+        voice_revision=(
+            session.tts_voice_snapshot.voice_revision
+            if session.tts_voice_snapshot is not None
+            else None
+        ),
     )
     await websocket.send_json(payload.model_dump(exclude_none=True))
 
@@ -29,6 +40,7 @@ async def run_generation(
     audio: bytes,
     reference: bytes | None,
     generation_id: int,
+    voice_snapshot: TtsVoiceSnapshot | None,
 ) -> None:
     async def emit(event: dict[str, object]) -> None:
         if not session.accepts(generation_id):
@@ -42,11 +54,20 @@ async def run_generation(
         # 历史上下文最多保留最近 20 条消息(10 轮), 本轮 user/assistant
         # 成功后追加; 失败/打断不写入, 避免半截回复污染上下文。
         context = session.history[-20:]
-        if reference is None:
+        if reference is None and voice_snapshot is None:
             user_text, reply_text = await pipeline.run(audio, context, generation_id, emit)
-        else:
+        elif voice_snapshot is None:
             user_text, reply_text = await pipeline.run(
                 audio, context, generation_id, emit, reference=reference
+            )
+        else:
+            user_text, reply_text = await pipeline.run(
+                audio,
+                context,
+                generation_id,
+                emit,
+                reference=reference,
+                voice_snapshot=voice_snapshot,
             )
         if session.accepts(generation_id):
             session.history.append({"role": "user", "content": user_text})
@@ -147,7 +168,32 @@ async def session_websocket(websocket: WebSocket) -> None:
             recording_started: dict[str, object] | None = None
             recording_ready: dict[str, object] | None = None
             if command.type == "start_session":
-                session.start()
+                voice_snapshot = None
+                if command.voice_id is not None:
+                    try:
+                        voice_snapshot = websocket.app.state.tts_voice_store.snapshot(
+                            command.voice_id,
+                            command.voice_revision,
+                        )
+                    except TtsVoiceError as exc:
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "code": "voice_snapshot_unavailable",
+                                "message": str(exc),
+                            }
+                        )
+                        continue
+                elif command.voice_revision is not None:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "code": "voice_snapshot_unavailable",
+                            "message": "voice_revision requires voice_id",
+                        }
+                    )
+                    continue
+                session.start(tts_voice_snapshot=voice_snapshot)
                 audio_channel = "microphone"
                 recording_limit_reached = False
                 recording = None
@@ -212,6 +258,7 @@ async def session_websocket(websocket: WebSocket) -> None:
                             audio,
                             reference,
                             generation_id,
+                            session.tts_voice_snapshot,
                         )
                     )
             elif command.type == "interrupt":

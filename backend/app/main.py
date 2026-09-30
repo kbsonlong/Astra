@@ -31,16 +31,23 @@ from .core.zipenhancer import build_audio_enhancement_pipeline
 from .models.asr_client import MlxAudioAsrClient
 from .models.asr_worker import AsrWorkerClient
 from .models.llm_client import OpenAICompatLLMClient
-from .models.tts_client import CosyVoiceTtsClient, MlxAudioTtsClient, PiperSdkTtsClient
+from .models.tts_client import (
+    CosyVoiceTtsClient,
+    IndexTTS25MlxClient,
+    MlxAudioTtsClient,
+    PiperSdkTtsClient,
+)
 from .models.punctuation_client import build_punctuation_client
 from .core.speaker_registry import SpeakerProfileStore
 from .main_types import LLMSettingsPayload, TrainingConfigPayload
 from .api.training_routes import router as training_router
 from .api.realtime_recording_routes import router as realtime_recording_router
+from .api.tts_voice_routes import router as tts_voice_router
 from .api.upload_limits import AudioIPConcurrencyLimiter
 from .core.training import TrainingManager
 from .core.task_store import TaskStore
 from .core.review_store import ReviewStore
+from .core.tts_voice_store import TtsVoiceStore
 from .core.artifact_retention import clean_meeting_artifacts
 from .core.realtime_recording import clean_expired_realtime_recordings
 
@@ -106,6 +113,9 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "tts_cosyvoice_prompt_configured": bool(
             current.tts_cosyvoice_prompt_wav and current.tts_cosyvoice_prompt_text
         ),
+        "tts_indextts_model_configured": bool(current.tts_indextts_model_dir),
+        "tts_indextts_model_revision": current.tts_indextts_model_revision,
+        "tts_indextts_allow_download": current.tts_indextts_allow_download,
         "punctuation_enabled": current.punctuation_enabled,
         "punctuation_engine": current.punctuation_engine,
         "punctuation_device": current.punctuation_device,
@@ -188,6 +198,14 @@ def _build_tts_client(current: Settings) -> object:
             prompt_text=current.tts_cosyvoice_prompt_text,
             language=current.tts_cosyvoice_language,
             speed=current.tts_cosyvoice_speed,
+        )
+    if current.tts_backend == "indextts_mlx":
+        return IndexTTS25MlxClient(
+            current.tts_indextts_model_dir,
+            repo_id=current.tts_indextts_repo_id,
+            model_revision=current.tts_indextts_model_revision,
+            use_normalization=current.tts_indextts_use_normalization,
+            allow_download=current.tts_indextts_allow_download,
         )
     return PiperSdkTtsClient(current.tts_model_path)
 
@@ -285,6 +303,10 @@ def create_app(
         match_margin=current.speaker_match_margin,
         duplicate_threshold=current.speaker_duplicate_threshold,
         sample_dir=current.speaker_sample_dir,
+    )
+    app.state.tts_voice_store = TtsVoiceStore(
+        current.tts_voice_store_path,
+        current.tts_voice_audio_dir,
     )
     app.state.asr_worker = None
     app.state.pipeline = pipeline
@@ -404,6 +426,7 @@ def create_app(
     app.include_router(ws_router)
     app.include_router(http_router)
     app.include_router(realtime_recording_router)
+    app.include_router(tts_voice_router)
     app.include_router(meeting_router)
     app.include_router(speaker_router)
     app.include_router(notification_router)

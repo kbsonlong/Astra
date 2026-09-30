@@ -8,10 +8,12 @@ import pytest
 
 from app.models.tts_client import (
     CosyVoiceTtsClient,
+    IndexTTS25MlxClient,
     MlxAudioTtsClient,
     PiperSdkTtsClient,
     TTSClientError,
 )
+from app.core.tts_voice_store import TtsVoiceSnapshot
 
 
 @pytest.mark.anyio
@@ -273,3 +275,92 @@ def test_cosyvoice_capabilities_and_missing_prompt_are_explicit() -> None:
     available, reason = client.is_available()
     assert available is False
     assert "PROMPT_WAV/TEXT" in reason
+
+
+def _indextts_snapshot(tmp_path, *, params=None) -> TtsVoiceSnapshot:
+    reference = tmp_path / "reference.wav"
+    reference.write_bytes(b"reference")
+    return TtsVoiceSnapshot(
+        voice_id="voice-1",
+        voice_revision=2,
+        backend_family="indextts25_mlx",
+        language="zh",
+        reference_path=reference,
+        reference_sha256="a" * 64,
+        default_params=params or {"greedy": True},
+    )
+
+
+@pytest.mark.anyio
+async def test_indextts_snapshot_synthesis_caches_speaker_and_emits_wav(tmp_path) -> None:
+    calls: list[dict[str, object]] = []
+
+    class FakeIndexTTS:
+        sample_rate = 22_050
+
+        def build_speaker(self, path: str):
+            calls.append({"op": "build_speaker", "path": path})
+            return "speaker-context"
+
+        def synthesize(self, text, *, lang, spk, **generation):
+            calls.append(
+                {
+                    "op": "synthesize",
+                    "text": text,
+                    "lang": lang,
+                    "spk": spk,
+                    "generation": generation,
+                }
+            )
+            return [-32768, 0, 32767]
+
+    client = IndexTTS25MlxClient(model_instance=FakeIndexTTS())
+    snapshot = _indextts_snapshot(tmp_path)
+    try:
+        first = await client.synthesize_snapshot("你好", snapshot)
+        second = await client.synthesize_snapshot("世界", snapshot, duration_factor=1.1)
+    finally:
+        await client.aclose()
+
+    assert first[:4] == b"RIFF"
+    assert second[:4] == b"RIFF"
+    with wave.open(io.BytesIO(first), "rb") as handle:
+        assert handle.getframerate() == 22_050
+        assert handle.getnchannels() == 1
+        assert handle.getsampwidth() == 2
+        assert handle.getnframes() == 3
+    assert [item["op"] for item in calls] == [
+        "build_speaker",
+        "synthesize",
+        "synthesize",
+    ]
+    assert calls[1]["generation"] == {"greedy": True}
+    assert calls[2]["generation"] == {"greedy": True, "duration_factor": 1.1}
+
+
+@pytest.mark.anyio
+async def test_indextts_snapshot_rejects_wrong_backend_and_unknown_options(tmp_path) -> None:
+    client = IndexTTS25MlxClient(model_instance=object())
+    wrong = _indextts_snapshot(tmp_path)
+    wrong = TtsVoiceSnapshot(
+        voice_id=wrong.voice_id,
+        voice_revision=wrong.voice_revision,
+        backend_family="cosyvoice",
+        language=wrong.language,
+        reference_path=wrong.reference_path,
+        reference_sha256=wrong.reference_sha256,
+        default_params=wrong.default_params,
+    )
+    with pytest.raises(TTSClientError, match="not for IndexTTS"):
+        await client.synthesize_snapshot("测试", wrong)
+    with pytest.raises(TTSClientError, match="unsupported IndexTTS generation option"):
+        await client.synthesize_snapshot("测试", _indextts_snapshot(tmp_path), bad_option=True)
+    await client.aclose()
+
+
+def test_indextts_capabilities_and_lazy_availability(tmp_path) -> None:
+    client = IndexTTS25MlxClient(model_dir=str(tmp_path / "missing"))
+    assert client.capabilities()["backend"] == "indextts_mlx"
+    available, reason = client.is_available()
+    assert available is False
+    assert "模型目录" in reason

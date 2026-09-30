@@ -3,6 +3,7 @@ from uuid import uuid4
 
 from .audio_adapter import pcm16_frames_to_wav_bytes
 from .pcm_protocol import PcmFrame
+from .tts_voice_store import TtsVoiceSnapshot
 
 
 State = str
@@ -23,10 +24,12 @@ class Session:
     pcm_reference_frames: dict[int, bytes] = field(default_factory=dict)
     history: list[dict[str, str]] = field(default_factory=list)
     max_audio_bytes: int = 25 * 1024 * 1024
+    tts_voice_snapshot: TtsVoiceSnapshot | None = None
 
-    def start(self) -> None:
+    def start(self, *, tts_voice_snapshot: TtsVoiceSnapshot | None = None) -> None:
         self._clear_audio()
         self.pcm_mode = False
+        self.tts_voice_snapshot = tts_voice_snapshot
         self.state = "LISTENING"
 
     def configure_pcm(self, *, sample_rate: int, frame_samples: int) -> bool:
@@ -143,6 +146,7 @@ class Session:
     def end(self) -> None:
         self.state = "IDLE"
         self._clear_audio()
+        self.tts_voice_snapshot = None
 
     def _audio_bytes(self) -> int:
         return (

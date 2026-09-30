@@ -4,6 +4,7 @@ import struct
 from uuid import uuid4
 import wave
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -14,6 +15,7 @@ from app.config import Settings
 from app.main import create_app
 from app.core.pcm_protocol import PCM_FRAME_HEADER, PCM_FRAME_MAGIC, PCM_FRAME_VERSION
 from app.core.audio_adapter import decode_audio_bytes
+from app.core.tts_voice_store import TtsVoiceSnapshot
 
 
 class FakePipeline:
@@ -42,6 +44,37 @@ class ReferencePipeline:
         assert audio == b"mic"
         assert reference == b"ref"
         return "用户说的", "好的"
+
+
+class SnapshotPipeline:
+    def __init__(self, expected: TtsVoiceSnapshot) -> None:
+        self.expected = expected
+        self.received: TtsVoiceSnapshot | None = None
+
+    async def run(
+        self,
+        audio: bytes,
+        messages: Sequence[Mapping[str, str]],
+        generation_id: int,
+        emit,
+        reference: bytes | None = None,
+        voice_snapshot: TtsVoiceSnapshot | None = None,
+    ) -> tuple[str, str]:
+        assert audio == b"pcm"
+        assert reference is None
+        assert voice_snapshot == self.expected
+        self.received = voice_snapshot
+        return "用户说的", "好的"
+
+
+class SnapshotStore:
+    def __init__(self, snapshot: TtsVoiceSnapshot) -> None:
+        self.snapshot_value = snapshot
+        self.calls: list[tuple[str, int | None]] = []
+
+    def snapshot(self, voice_id: str, revision: int | None = None) -> TtsVoiceSnapshot:
+        self.calls.append((voice_id, revision))
+        return self.snapshot_value
 
 
 def app_without_pipeline():
@@ -127,6 +160,52 @@ def test_websocket_forwards_far_end_reference_channel() -> None:
             "state": "LISTENING",
             "generation_id": 1,
         }
+
+
+def test_websocket_resolves_and_forwards_voice_snapshot_for_session(tmp_path: Path) -> None:
+    snapshot = TtsVoiceSnapshot(
+        voice_id="voice-1",
+        voice_revision=3,
+        backend_family="indextts25_mlx",
+        language="zh",
+        reference_path=tmp_path / "reference.wav",
+        reference_sha256="a" * 64,
+        default_params={"temperature": 0.7},
+    )
+    pipeline = SnapshotPipeline(snapshot)
+    app = create_app(pipeline=pipeline)
+    store = SnapshotStore(snapshot)
+    app.state.tts_voice_store = store
+
+    with TestClient(app).websocket_connect("/ws") as websocket:
+        websocket.send_json(
+            {"type": "start_session", "voice_id": "voice-1", "voice_revision": 3}
+        )
+        assert websocket.receive_json() == {
+            "type": "state_change",
+            "state": "LISTENING",
+            "voice_id": "voice-1",
+            "voice_revision": 3,
+        }
+        websocket.send_bytes(b"pcm")
+        websocket.send_json({"type": "speech_end"})
+        assert websocket.receive_json() == {
+            "type": "state_change",
+            "state": "REASONING",
+            "generation_id": 1,
+            "voice_id": "voice-1",
+            "voice_revision": 3,
+        }
+        assert websocket.receive_json() == {
+            "type": "state_change",
+            "state": "LISTENING",
+            "generation_id": 1,
+            "voice_id": "voice-1",
+            "voice_revision": 3,
+        }
+
+    assert store.calls == [("voice-1", 3)]
+    assert pipeline.received == snapshot
 
 
 class PcmPipeline:

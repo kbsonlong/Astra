@@ -11,6 +11,7 @@ from .audio_adapter import audio_buffer_to_wav_bytes, decode_audio_bytes
 from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
 from ..models.llm_client import OpenAICompatLLMClient
 from ..models.tts_client import PiperSdkTtsClient
+from .tts_voice_store import TtsVoiceSnapshot
 
 
 class ASRClient(Protocol):
@@ -45,6 +46,7 @@ class VoicePipeline:
         generation_id: int,
         emit: Emit,
         reference: bytes | None = None,
+        voice_snapshot: TtsVoiceSnapshot | None = None,
     ) -> tuple[str, str]:
         """一轮语音对话。返回 (user_asr_text, assistant_reply)。
 
@@ -102,10 +104,14 @@ class VoicePipeline:
             parts = _SENTENCE_END.split(sentence_buffer)
             sentence_buffer = parts.pop()
             for sentence in parts:
-                sequence = await self._synthesize(sentence.strip(), generation_id, sequence, emit)
+                sequence = await self._synthesize(
+                    sentence.strip(), generation_id, sequence, emit, voice_snapshot
+                )
 
         if sentence_buffer.strip():
-            await self._synthesize(sentence_buffer.strip(), generation_id, sequence, emit)
+            await self._synthesize(
+                sentence_buffer.strip(), generation_id, sequence, emit, voice_snapshot
+            )
         await emit({"type": "tts_end", "generation_id": generation_id})
         return text, "".join(reply_parts).strip()
 
@@ -115,10 +121,17 @@ class VoicePipeline:
         generation_id: int,
         sequence: int,
         emit: Emit,
+        voice_snapshot: TtsVoiceSnapshot | None = None,
     ) -> int:
         if not sentence:
             return sequence
-        audio = await self.tts.synthesize(sentence)
+        if voice_snapshot is None:
+            audio = await self.tts.synthesize(sentence)
+        else:
+            synthesize_snapshot = getattr(self.tts, "synthesize_snapshot", None)
+            if not callable(synthesize_snapshot):
+                raise RuntimeError("configured TTS backend does not support voice snapshots")
+            audio = await synthesize_snapshot(sentence, voice_snapshot)
         await emit({"type": "tts_start", "generation_id": generation_id, "seq": sequence})
         await emit(
             {
