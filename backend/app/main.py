@@ -25,6 +25,7 @@ from .config import (
 from .core.meeting import MeetingPipeline
 from .health import collect_health
 from .core.pipeline import VoicePipeline
+from .core.tts_router import TtsRouter
 from .core.correction import parse_correction_rules
 from .core.workflow import CorrectionStage, ResemblyzerDiarizationStage
 from .core.zipenhancer import build_audio_enhancement_pipeline
@@ -116,6 +117,7 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "tts_indextts_model_configured": bool(current.tts_indextts_model_dir),
         "tts_indextts_model_revision": current.tts_indextts_model_revision,
         "tts_indextts_allow_download": current.tts_indextts_allow_download,
+        "tts_indextts_validated": current.tts_indextts_validated,
         "punctuation_enabled": current.punctuation_enabled,
         "punctuation_engine": current.punctuation_engine,
         "punctuation_device": current.punctuation_device,
@@ -177,13 +179,13 @@ def _build_realtime_asr(current: Settings) -> object:
     )
 
 
-def _build_tts_client(current: Settings) -> object:
+def _build_tts_engine(current: Settings, backend: str) -> object:
     """按 tts_backend 选择实例化 TTS client (VoiceStudio 路线图方向一)。
 
     piper (默认): 保留现有 Piper 兜底；mlx_audio: 中文原生 MLX；
     cosyvoice: 零样本克隆（参考音频只在服务器本地读取）。
     """
-    if current.tts_backend == "mlx_audio":
+    if backend == "mlx_audio":
         return MlxAudioTtsClient(
             current.tts_mlx_model,
             voice=current.tts_mlx_voice,
@@ -191,7 +193,7 @@ def _build_tts_client(current: Settings) -> object:
             speed=current.tts_mlx_speed,
             sample_rate=current.tts_mlx_sample_rate,
         )
-    if current.tts_backend == "cosyvoice":
+    if backend == "cosyvoice":
         return CosyVoiceTtsClient(
             current.tts_cosyvoice_model,
             prompt_wav=current.tts_cosyvoice_prompt_wav,
@@ -199,7 +201,7 @@ def _build_tts_client(current: Settings) -> object:
             language=current.tts_cosyvoice_language,
             speed=current.tts_cosyvoice_speed,
         )
-    if current.tts_backend == "indextts_mlx":
+    if backend == "indextts_mlx":
         return IndexTTS25MlxClient(
             current.tts_indextts_model_dir,
             repo_id=current.tts_indextts_repo_id,
@@ -208,6 +210,24 @@ def _build_tts_client(current: Settings) -> object:
             allow_download=current.tts_indextts_allow_download,
         )
     return PiperSdkTtsClient(current.tts_model_path)
+
+
+def _build_tts_client(current: Settings) -> object:
+    """Build the legacy single engine or the configured multi-engine router."""
+    if not current.tts_router_enabled:
+        return _build_tts_engine(current, current.tts_backend)
+    engines = {
+        backend: _build_tts_engine(current, backend)
+        for backend in current.tts_enabled_backends
+    }
+    return TtsRouter(
+        engines,
+        default_backend=current.tts_default_backend,
+        fallback_backend=current.tts_default_fallback_backend,
+        max_queue=current.tts_engine_queue_size,
+        user_enabled_backends=current.tts_user_enabled_backends,
+        indextts_validated=current.tts_indextts_validated,
+    )
 
 
 def _build_meeting_stages(

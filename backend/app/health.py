@@ -96,6 +96,12 @@ def _engine_status(client: object | None, *, default_mode: str) -> dict[str, obj
             engine = caps.get("engine") or caps.get("backend")
             if isinstance(engine, str) and engine:
                 mode = engine
+            # Router fields are duplicated at the stable health boundary so
+            # clients do not need to understand a private capabilities blob.
+            if engine == "router":
+                for key in ("default_backend", "fallback_backend", "engines"):
+                    if key in caps:
+                        extra[key] = caps[key]
 
     avail_fn = getattr(client, "is_available", None)
     if callable(avail_fn):

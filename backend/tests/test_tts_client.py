@@ -21,11 +21,14 @@ async def test_synthesize_uses_piper_sdk() -> None:
     class FakeVoice:
         def synthesize_wav(self, text: str, output) -> None:
             assert text == "hello"
-            output.write(b"RIFFfake-wav")
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(16000)
+            output.writeframes(b"\0\0")
 
     client = PiperSdkTtsClient("test.onnx", voice=FakeVoice())
 
-    assert await client.synthesize("hello") == b"RIFFfake-wav"
+    assert (await client.synthesize("hello")).startswith(b"RIFF")
 
 
 @pytest.mark.anyio
@@ -364,3 +367,19 @@ def test_indextts_capabilities_and_lazy_availability(tmp_path) -> None:
     available, reason = client.is_available()
     assert available is False
     assert "模型目录" in reason
+
+
+def test_indextts_health_probe_checks_package_without_importing_sdk(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    model_dir = tmp_path / "model"
+    model_dir.mkdir()
+    calls = []
+    monkeypatch.setattr(
+        "app.models.tts_client.importlib.util.find_spec",
+        lambda name: calls.append(name) or SimpleNamespace(name=name),
+    )
+    client = IndexTTS25MlxClient(model_dir=str(model_dir))
+
+    assert client.is_available() == (True, "ready (lazy)")
+    assert calls == ["index_tts_2_5_mlx"]

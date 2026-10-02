@@ -3,6 +3,7 @@ import {
   acceptsGenerationEvent,
   generationForNewConnection,
   nextActiveGeneration,
+  startSessionPayload,
 } from "./session";
 
 describe("WebSocket generation handling", () => {
@@ -19,5 +20,15 @@ describe("WebSocket generation handling", () => {
   it("continues rejecting an older payload within one connection", () => {
     expect(acceptsGenerationEvent({ type: "tts_chunk", generation_id: 2 }, 3)).toBe(false);
     expect(acceptsGenerationEvent({ type: "state_change", generation_id: 2 }, 3)).toBe(true);
+  });
+
+  it("pins the selected voice revision in the session handshake", () => {
+    expect(startSessionPayload("recording-1", { voiceId: "voice-1", revision: 3 })).toEqual({
+      type: "start_session",
+      recording_id: "recording-1",
+      voice_id: "voice-1",
+      voice_revision: 3,
+    });
+    expect(startSessionPayload(null, null)).toEqual({ type: "start_session" });
   });
 });

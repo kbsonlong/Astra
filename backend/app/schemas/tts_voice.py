@@ -42,3 +42,16 @@ class ConsentRevokeRequest(BaseModel):
     def trim_note(cls, value: str | None) -> str | None:
         value = value.strip() if value else None
         return value or None
+
+
+class VoicePreviewRequest(BaseModel):
+    revision: int = Field(ge=1)
+    text: str = Field(min_length=1, max_length=200)
+
+    @field_validator("text")
+    @classmethod
+    def trim_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("text is required")
+        return value

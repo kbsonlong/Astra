@@ -13,7 +13,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from ..core.tts_voice_store import (
     TtsVoice,
@@ -31,7 +31,9 @@ from ..schemas.tts_voice import (
     ConsentRequest,
     ConsentRevokeRequest,
     VoiceMetadataPatch,
+    VoicePreviewRequest,
 )
+from ..models.tts_client import TTSClientError
 from .upload_limits import UploadTooLargeError, read_upload_limited
 
 
@@ -55,7 +57,25 @@ def _raise_store_http(exc: Exception) -> None:
     raise exc
 
 
-def _render_revision(revision: TtsVoiceRevision, voice_id: str | None = None) -> dict[str, object]:
+def _revision_actions(revision: TtsVoiceRevision, voice_status: str | None) -> dict[str, object]:
+    revoked = voice_status == "revoked" or revision.lifecycle == "revoked" or revision.consent_status == "revoked"
+    ready = revision.lifecycle == "ready" and revision.consent_status == "confirmed"
+    return {
+        "can_play_reference": not revoked,
+        "can_preview": voice_status == "active" and ready,
+        "can_use_in_session": voice_status == "active" and ready,
+        "reason": (
+            "revoked" if revoked else "ready" if voice_status == "active" and ready
+            else "consent_required" if revision.consent_status != "confirmed"
+            else "voice_not_active" if voice_status != "active"
+            else "revision_not_ready"
+        ),
+    }
+
+
+def _render_revision(
+    revision: TtsVoiceRevision, voice_id: str | None = None, voice_status: str | None = None
+) -> dict[str, object]:
     voice_id = voice_id or revision.voice_id
     return {
         "revision": revision.revision,
@@ -75,6 +95,7 @@ def _render_revision(revision: TtsVoiceRevision, voice_id: str | None = None) ->
         "reference_sha256": revision.reference_sha256,
         "created_at": revision.created_at,
         "audio_url": f"/api/tts/voices/{voice_id}/revisions/{revision.revision}/audio",
+        "actions": _revision_actions(revision, voice_status),
     }
 
 
@@ -88,7 +109,7 @@ def _render_voice(voice: TtsVoice) -> dict[str, object]:
         "updated_at": voice.updated_at,
         "archived_at": voice.archived_at,
         "revoked_at": voice.revoked_at,
-        "revision": _render_revision(voice.revision) if voice.revision else None,
+        "revision": _render_revision(voice.revision, voice_status=voice.status) if voice.revision else None,
     }
 
 
@@ -210,6 +231,29 @@ def _duration_limits(request: Request) -> tuple[int, float, float, Path]:
     )
 
 
+def _preview_headers(tts: object, voice_id: str, revision: int, reference_sha256: str, backend: str) -> dict[str, str]:
+    model_revision = ""
+    capabilities = getattr(tts, "capabilities", None)
+    if callable(capabilities):
+        caps = dict(capabilities())
+        if caps.get("backend") == "router":
+            engines = caps.get("engines")
+            engine_key = "indextts_mlx" if backend in {"indextts25_mlx", "indextts_mlx"} else backend
+            if isinstance(engines, dict) and isinstance(engines.get(engine_key), dict):
+                nested = engines[engine_key].get("capabilities")
+                if isinstance(nested, dict):
+                    model_revision = str(nested.get("model_revision") or "")
+        else:
+            model_revision = str(caps.get("model_revision") or "")
+    return {
+        "X-Astra-Voice-Id": voice_id,
+        "X-Astra-Voice-Revision": str(revision),
+        "X-Astra-Reference-SHA256": reference_sha256,
+        "X-Astra-Backend": backend,
+        "X-Astra-Model-Revision": model_revision,
+    }
+
+
 @router.post("")
 async def create_voice(
     request: Request,
@@ -308,11 +352,12 @@ async def update_voice(
 @router.get("/{voice_id}/revisions")
 async def list_revisions(request: Request, voice_id: UUID) -> dict[str, object]:
     try:
+        voice = await asyncio.to_thread(_store(request).get, str(voice_id))
         revisions = await asyncio.to_thread(_store(request).list_revisions, str(voice_id))
     except Exception as exc:
         _raise_store_http(exc)
         raise AssertionError("unreachable")
-    return {"items": [_render_revision(item, str(voice_id)) for item in revisions]}
+    return {"items": [_render_revision(item, str(voice_id), voice.status) for item in revisions]}
 
 
 @router.get("/{voice_id}/revisions/{revision}")
@@ -320,13 +365,14 @@ async def get_revision(
     request: Request, voice_id: UUID, revision: int
 ) -> dict[str, object]:
     try:
+        voice = await asyncio.to_thread(_store(request).get, str(voice_id))
         result = await asyncio.to_thread(
             _store(request).get_revision, str(voice_id), revision
         )
     except Exception as exc:
         _raise_store_http(exc)
         raise AssertionError("unreachable")
-    return _render_revision(result, str(voice_id))
+    return _render_revision(result, str(voice_id), voice.status)
 
 
 @router.post("/{voice_id}/revisions")
@@ -370,9 +416,10 @@ async def add_voice_revision(
         _cleanup_assets(audio_dir, original_relative, reference_relative)
         _raise_store_http(exc)
         raise AssertionError("unreachable")
+    voice = await asyncio.to_thread(_store(request).get, str(voice_id))
     return JSONResponse(
         status_code=201,
-        content=_render_revision(revision, str(voice_id)),
+        content=_render_revision(revision, str(voice_id), voice.status),
     )
 
 
@@ -395,7 +442,8 @@ async def confirm_consent(
     except Exception as exc:
         _raise_store_http(exc)
         raise AssertionError("unreachable")
-    return _render_revision(result, str(voice_id))
+    voice = await asyncio.to_thread(_store(request).get, str(voice_id))
+    return _render_revision(result, str(voice_id), voice.status)
 
 
 @router.post("/{voice_id}/revisions/{revision}/revoke-consent")
@@ -415,7 +463,8 @@ async def revoke_consent(
     except Exception as exc:
         _raise_store_http(exc)
         raise AssertionError("unreachable")
-    return _render_revision(result, str(voice_id))
+    voice = await asyncio.to_thread(_store(request).get, str(voice_id))
+    return _render_revision(result, str(voice_id), voice.status)
 
 
 @router.post("/{voice_id}/activate")
@@ -428,6 +477,45 @@ async def activate_voice(
         _raise_store_http(exc)
         raise AssertionError("unreachable")
     return _render_voice(voice)
+
+
+@router.post("/{voice_id}/test")
+async def preview_voice(
+    request: Request, voice_id: UUID, payload: VoicePreviewRequest
+) -> Response:
+    """Synthesize short preview audio from an immutable, authorized revision."""
+    try:
+        snapshot = await asyncio.to_thread(
+            _store(request).snapshot, str(voice_id), payload.revision
+        )
+    except Exception as exc:
+        _raise_store_http(exc)
+        raise AssertionError("unreachable")
+    pipeline = getattr(request.app.state, "pipeline", None)
+    tts = getattr(pipeline, "tts", None)
+    synthesize = getattr(tts, "synthesize_snapshot", None)
+    if not callable(synthesize):
+        raise HTTPException(status_code=503, detail="voice preview backend is unavailable")
+    try:
+        audio = await synthesize(payload.text, snapshot)
+    except TTSClientError as exc:
+        status_code = 429 if "queue is full" in str(exc) else 503
+        raise HTTPException(status_code=status_code, detail="voice preview synthesis failed") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="voice preview synthesis failed") from exc
+    if not audio:
+        raise HTTPException(status_code=503, detail="voice preview returned empty audio")
+    return Response(
+        content=audio,
+        media_type="audio/wav",
+        headers=_preview_headers(
+            tts,
+            snapshot.voice_id,
+            snapshot.voice_revision,
+            snapshot.reference_sha256,
+            snapshot.backend_family,
+        ),
+    )
 
 
 @router.post("/{voice_id}/archive")

@@ -1,4 +1,5 @@
 import asyncio
+import importlib.util
 import io
 import logging
 import struct
@@ -94,7 +95,11 @@ class PiperSdkTtsClient:
     @staticmethod
     def _synthesize_sync(voice: Any, text: str) -> bytes:
         output = io.BytesIO()
-        voice.synthesize_wav(text, output)
+        # piper-tts 1.7 expects a ``wave.Wave_write`` object rather than a
+        # raw file-like buffer. Let the SDK own the WAV header so upgrades do
+        # not turn a successful model load into a runtime synthesis failure.
+        with wave.open(output, "wb") as wav_file:
+            voice.synthesize_wav(text, wav_file)
         return output.getvalue()
 
 
@@ -361,9 +366,12 @@ class IndexTTS25MlxClient:
             return False, "IndexTTS MLX 模型目录未配置"
         if self.model_dir and not Path(self.model_dir).is_dir():
             return False, "IndexTTS MLX 模型目录不可用"
-        try:
-            from index_tts_2_5_mlx import IndexTTS  # noqa: F401
-        except ImportError:
+        # Importing the SDK registers MLX's native Device enums. Health checks
+        # can run on the ASGI thread while inference loads the SDK on its
+        # dedicated executor; importing on both threads can abort the process
+        # with duplicate nanobind enum registration. Probe package metadata
+        # only here and defer the real import to the inference worker.
+        if importlib.util.find_spec("index_tts_2_5_mlx") is None:
             return False, "index-tts-2.5-mlx 未安装"
         return True, "ready (lazy)"
 
@@ -449,7 +457,9 @@ class IndexTTS25MlxClient:
     def _load_model_from_sdk(self) -> Any:
         try:
             from index_tts_2_5_mlx import IndexTTS
-        except ImportError as exc:
+        except ModuleNotFoundError as exc:
+            if exc.name != "index_tts_2_5_mlx":
+                raise
             raise TTSClientError("index-tts-2.5-mlx 未安装") from exc
         if self.model_dir:
             return IndexTTS(

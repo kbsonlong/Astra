@@ -62,6 +62,16 @@ def _tts_backend_env(name: str, default: str) -> str:
     return normalized
 
 
+def _tts_backends_env(name: str, default: tuple[str, ...]) -> tuple[str, ...]:
+    values = _csv_env(name, default)
+    if not values:
+        raise ValueError(f"{name} must include at least one backend")
+    unknown = set(values).difference(_TTS_BACKENDS)
+    if unknown:
+        raise ValueError(f"{name} contains unsupported backend(s): {sorted(unknown)}")
+    return tuple(dict.fromkeys(values))
+
+
 _COSYVOICE_LANGUAGES = ("zh", "yue", "en", "ja", "ko")
 
 
@@ -290,6 +300,16 @@ class Settings:
     meeting_prompt_templates_path: str = "~/.astra/meeting-prompt-templates.json"
     tts_model_path: str = "models/zh_CN-huayan-medium.onnx"
     tts_backend: str = "piper"
+    # Opt-in preserves existing deployments that configure only TTS_BACKEND.
+    tts_router_enabled: bool = False
+    tts_enabled_backends: tuple[str, ...] = ("piper", "indextts_mlx")
+    tts_user_enabled_backends: tuple[str, ...] = ("piper",)
+    # A configured IndexTTS model is not automatically a user-facing feature.
+    # This flag is set only after the target device passes the L2/L3 checks.
+    tts_indextts_validated: bool = False
+    tts_default_backend: str = "piper"
+    tts_default_fallback_backend: str = ""
+    tts_engine_queue_size: int = 2
     tts_mlx_model: str = "mlx-community/Kokoro-82M-4bit"
     tts_mlx_voice: str = "zf_xiaobei"
     tts_mlx_lang_code: str = "z"
@@ -480,6 +500,25 @@ class Settings:
             ),
             tts_model_path=os.getenv("TTS_MODEL_PATH", cls.tts_model_path),
             tts_backend=_tts_backend_env("TTS_BACKEND", cls.tts_backend),
+            tts_router_enabled=_bool_env("TTS_ROUTER_ENABLED", cls.tts_router_enabled),
+            tts_enabled_backends=_tts_backends_env(
+                "TTS_ENABLED_BACKENDS", cls.tts_enabled_backends
+            ),
+            tts_user_enabled_backends=_tts_backends_env(
+                "TTS_USER_ENABLED_BACKENDS", cls.tts_user_enabled_backends
+            ),
+            tts_indextts_validated=_bool_env(
+                "TTS_INDEXTTS_VALIDATED", cls.tts_indextts_validated
+            ),
+            tts_default_backend=_tts_backend_env(
+                "TTS_DEFAULT_BACKEND", cls.tts_default_backend
+            ),
+            tts_default_fallback_backend=os.getenv(
+                "TTS_DEFAULT_FALLBACK_BACKEND", cls.tts_default_fallback_backend
+            ).strip().lower(),
+            tts_engine_queue_size=_positive_int_env(
+                "TTS_ENGINE_QUEUE_SIZE", cls.tts_engine_queue_size
+            ),
             tts_mlx_model=os.getenv("TTS_MLX_MODEL", cls.tts_mlx_model),
             tts_mlx_voice=os.getenv("TTS_MLX_VOICE", cls.tts_mlx_voice),
             tts_mlx_lang_code=os.getenv("TTS_MLX_LANG_CODE", cls.tts_mlx_lang_code),

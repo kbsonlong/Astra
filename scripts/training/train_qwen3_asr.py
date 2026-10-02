@@ -9,8 +9,6 @@ from pathlib import Path
 import mlx.core as mx
 import numpy as np
 import soundfile as sf
-from mlx_tune import FastSTTModel, STTDataCollator, STTSFTConfig, STTSFTTrainer
-
 from app.config import Qwen3TrainingConfig
 
 
@@ -46,6 +44,12 @@ def load_dataset(path: str) -> list[dict[str, object]]:
 
 
 def run_training(config: Qwen3TrainingConfig) -> None:
+    try:
+        from mlx_tune import FastSTTModel, STTDataCollator, STTSFTConfig, STTSFTTrainer
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "mlx_tune is required only to run Qwen3-ASR training; install the training extras first"
+        ) from exc
     train_dataset = load_dataset(config.train_file)
     eval_dataset = load_dataset(config.eval_file) if Path(config.eval_file).expanduser().is_file() else None
     model, processor = FastSTTModel.from_pretrained(config.model_path, max_seq_length=448)

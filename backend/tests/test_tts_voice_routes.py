@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import create_app
 from app.schemas.tts_voice import CONSENT_CONFIRMATION
+from app.models.tts_client import TTSClientError
 
 
 def _wav_bytes(duration_s: float = 6.0) -> bytes:
@@ -139,3 +140,122 @@ def test_invalid_uploads_and_revoked_audio(tmp_path: Path) -> None:
         )
         assert revoked.status_code == 200
         assert client.get(f"/api/tts/voices/{voice_id}/revisions/1/audio").status_code == 409
+
+
+def test_revoked_noncurrent_revision_audio_is_not_readable(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        created = _create(client)
+        voice_id = created["voice_id"]
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions/1/consent",
+            json={"confirmation": CONSENT_CONFIRMATION},
+        ).status_code == 200
+        assert client.post(f"/api/tts/voices/{voice_id}/activate?revision=1").status_code == 200
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions",
+            data={"language": "zh", "default_params": "{}"},
+            files={"file": ("r2.wav", _wav_bytes(7), "audio/wav")},
+        ).status_code == 201
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions/2/consent",
+            json={"confirmation": CONSENT_CONFIRMATION},
+        ).status_code == 200
+        assert client.post(f"/api/tts/voices/{voice_id}/activate?revision=2").status_code == 200
+
+        revoked = client.post(
+            f"/api/tts/voices/{voice_id}/revisions/1/revoke-consent",
+            json={"note": "撤销旧版本"},
+        )
+        assert revoked.status_code == 200
+        assert revoked.json()["actions"] == {
+            "can_play_reference": False,
+            "can_preview": False,
+            "can_use_in_session": False,
+            "reason": "revoked",
+        }
+        assert client.get(f"/api/tts/voices/{voice_id}/revisions/1/audio").status_code == 409
+        assert client.get(f"/api/tts/voices/{voice_id}/revisions/2/audio").status_code == 200
+
+
+def test_voice_actions_are_safe_lifecycle_contract(tmp_path: Path) -> None:
+    with _client(tmp_path) as client:
+        created = _create(client)
+        voice_id = created["voice_id"]
+        assert created["revision"]["actions"]["reason"] == "consent_required"
+        assert created["revision"]["actions"]["can_play_reference"] is True
+        assert created["revision"]["actions"]["can_use_in_session"] is False
+
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions/1/consent",
+            json={"confirmation": CONSENT_CONFIRMATION},
+        ).status_code == 200
+        active = client.post(f"/api/tts/voices/{voice_id}/activate?revision=1")
+        assert active.status_code == 200
+        assert active.json()["revision"]["actions"] == {
+            "can_play_reference": True,
+            "can_preview": True,
+            "can_use_in_session": True,
+            "reason": "ready",
+        }
+
+
+def test_voice_preview_uses_authorized_pinned_revision(tmp_path: Path) -> None:
+    class PreviewTts:
+        def __init__(self) -> None:
+            self.calls = []
+
+        async def synthesize_snapshot(self, text, snapshot) -> bytes:
+            self.calls.append((text, snapshot))
+            return b"RIFFpreview"
+
+        def capabilities(self) -> dict:
+            return {"backend": "indextts_mlx", "model_revision": "model-r1"}
+
+    with _client(tmp_path) as client:
+        created = _create(client)
+        voice_id = created["voice_id"]
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions/1/consent",
+            json={"confirmation": CONSENT_CONFIRMATION},
+        ).status_code == 200
+        assert client.post(f"/api/tts/voices/{voice_id}/activate?revision=1").status_code == 200
+        tts = PreviewTts()
+        client.app.state.pipeline = type("Pipeline", (), {"tts": tts})()
+
+        response = client.post(
+            f"/api/tts/voices/{voice_id}/test",
+            json={"revision": 1, "text": "你好，Astra。"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("audio/wav")
+        assert response.headers["x-astra-voice-id"] == voice_id
+        assert response.headers["x-astra-voice-revision"] == "1"
+        assert response.headers["x-astra-backend"] == "indextts25_mlx"
+        assert response.headers["x-astra-model-revision"] == "model-r1"
+        assert tts.calls[0][0] == "你好，Astra。"
+        assert tts.calls[0][1].voice_revision == 1
+
+
+def test_voice_preview_rejects_unusable_revision_and_queue_overload(tmp_path: Path) -> None:
+    class QueueFullTts:
+        async def synthesize_snapshot(self, text, snapshot) -> bytes:
+            raise TTSClientError("TTS backend indextts_mlx queue is full")
+
+    with _client(tmp_path) as client:
+        created = _create(client)
+        voice_id = created["voice_id"]
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/test",
+            json={"revision": 1, "text": "未授权"},
+        ).status_code == 409
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/revisions/1/consent",
+            json={"confirmation": CONSENT_CONFIRMATION},
+        ).status_code == 200
+        assert client.post(f"/api/tts/voices/{voice_id}/activate?revision=1").status_code == 200
+        client.app.state.pipeline = type("Pipeline", (), {"tts": QueueFullTts()})()
+        assert client.post(
+            f"/api/tts/voices/{voice_id}/test",
+            json={"revision": 1, "text": "排队"},
+        ).status_code == 429

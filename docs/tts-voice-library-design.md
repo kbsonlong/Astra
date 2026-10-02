@@ -2,8 +2,10 @@
 
 更新时间：2026-10-01
 
-本文是 TTS 音色库的实现前设计，不修改代码和数据库。目标是为 IndexTTS 2.5 MLX、
+本文最初是 TTS 音色库的实现前设计。当前仓库已实现 Store、基础 CRUD、revision、授权、激活、归档、撤销、参考音频下载和指定 revision 的合成试听；前端页面与真实 IndexTTS 真机验证仍未完成。目标是为 IndexTTS 2.5 MLX、
 CosyVoice 及未来其他克隆型 TTS 提供统一的本地参考音频、授权、版本和试听管理能力。
+
+> 实现状态应以代码与 [音色库实现任务清单](tts-voice-library-implementation-plan.md) 为准。前端页面、试听 UI 和 IndexTTS 用户开放仍属于待实现能力，不能据此视为已交付。
 
 ## 1. 设计决策
 

@@ -7,10 +7,15 @@ import SettingsPage from "./SettingsPage";
 import LoginPage from "./LoginPage";
 import Shell from "./Shell";
 import VoiceDial from "./live/VoiceDial";
+import VoiceLibraryPage from "./tts/VoiceLibraryPage";
+import { getTtsHealth, getVoice, listVoices } from "./tts/voiceApi";
+import { sessionSelectableVoices } from "./tts/voiceState";
+import type { TtsHealth, TtsVoice } from "./tts/voice";
 import {
   acceptsGenerationEvent,
   generationForNewConnection,
   nextActiveGeneration,
+  startSessionPayload,
 } from "./live/session";
 import {
   JAEC_SAMPLE_RATE,
@@ -68,6 +73,10 @@ type AuthStatus = {
   auth_required: boolean;
   authenticated: boolean;
 };
+
+type SessionVoice = { voiceId: string; revision: number; label: string; backend: string };
+type MicAccessIssue = "permission" | "device" | "unavailable";
+type MicDevice = { deviceId: string; label: string };
 
 export default function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
@@ -133,6 +142,7 @@ export default function App() {
       <Route path="/upload" element={<Shell active="work" onLogout={onLogout}><UploadPage /></Shell>} />
       <Route path="/review" element={<Shell active="review" onLogout={onLogout}><ReviewPage /></Shell>} />
       <Route path="/training" element={<Shell active="train" onLogout={onLogout}><TrainingPage /></Shell>} />
+      <Route path="/voices" element={<Shell active="voices" onLogout={onLogout}><VoiceLibraryPage /></Shell>} />
       <Route path="/settings" element={<Shell active="settings" onLogout={onLogout}><SettingsPage /></Shell>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -171,6 +181,86 @@ function VoiceAssistant() {
   const [recordingDownloadUrl, setRecordingDownloadUrl] = useState("");
   const [stopping, setStopping] = useState(false);
   const [connectionError, setConnectionError] = useState("");
+  const [micAccessIssue, setMicAccessIssue] = useState<MicAccessIssue | null>(null);
+  const [microphoneDevices, setMicrophoneDevices] = useState<MicDevice[]>([]);
+  const [selectedMicDeviceId, setSelectedMicDeviceId] = useState("");
+  const [voiceChoices, setVoiceChoices] = useState<TtsVoice[]>([]);
+  const [ttsHealth, setTtsHealth] = useState<TtsHealth>();
+  const [selectedVoiceId, setSelectedVoiceId] = useState("");
+  const sessionVoice = useRef<SessionVoice | null>(null);
+
+  async function refreshMicrophoneDevices() {
+    if (!navigator.mediaDevices?.enumerateDevices) return;
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const microphones = devices
+        .filter((device) => device.kind === "audioinput")
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `麦克风 ${index + 1}`,
+        }));
+      setMicrophoneDevices(microphones);
+      setSelectedMicDeviceId((current) => microphones.some((device) => device.deviceId === current) ? current : "");
+    } catch {
+      setMicrophoneDevices([]);
+    }
+  }
+
+  useEffect(() => {
+    void refreshMicrophoneDevices();
+    const onDeviceChange = () => void refreshMicrophoneDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", onDeviceChange);
+    return () => navigator.mediaDevices?.removeEventListener?.("devicechange", onDeviceChange);
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all([listVoices({ status: "active", pageSize: 200 }, { signal: controller.signal }), getTtsHealth({ signal: controller.signal })])
+      .then(([result, health]) => {
+        const choices = sessionSelectableVoices(result.items, health);
+        setVoiceChoices(choices);
+        setTtsHealth(health);
+        const requestedVoice = new URLSearchParams(location.search).get("voice_id");
+        const requestedRevision = Number(new URLSearchParams(location.search).get("voice_revision"));
+        if (requestedVoice && choices.some((voice) => voice.voice_id === requestedVoice && voice.revision?.revision === requestedRevision)) {
+          setSelectedVoiceId(requestedVoice);
+          setConnectionError("已预选来自音色库的回复音色；开始通话后将固定该版本。");
+        }
+      })
+      .catch(() => setConnectionError("无法读取可用音色；仍可使用系统默认 TTS。"));
+    return () => controller.abort();
+  }, []);
+
+  const selectedVoice = voiceChoices.find((voice) => voice.voice_id === selectedVoiceId);
+
+  useEffect(() => {
+    if (!connected || !sessionVoice.current?.voiceId) return;
+    let active = true;
+    const checkPinnedVoice = () => {
+      const voiceId = sessionVoice.current?.voiceId;
+      if (!voiceId) return;
+      void Promise.all([getVoice(voiceId), getTtsHealth()]).then(([voice, health]) => {
+        if (!active || sessionSelectableVoices([voice], health).length) return;
+        setConnectionError("当前会话的回复音色已撤销授权或不可用。请结束通话；新的会话不会继续使用该音色。");
+      }).catch(() => {
+        if (active) setConnectionError("无法确认当前音色状态；如需继续，请改用系统默认 TTS 后重新开始通话。");
+      });
+    };
+    checkPinnedVoice();
+    const timer = window.setInterval(checkPinnedVoice, 15000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [connected]);
+
+  function selectedSessionVoice(): SessionVoice | null {
+    const revision = selectedVoice?.revision;
+    if (!selectedVoice || !revision) return null;
+    return {
+      voiceId: selectedVoice.voice_id,
+      revision: revision.revision,
+      label: selectedVoice.display_name,
+      backend: revision.backend_family,
+    };
+  }
 
   useEffect(() => () => {
     // 客户端路由切换不会再触发整页卸载；显式关闭连接，避免离开实时页后继续重连。
@@ -318,7 +408,7 @@ function VoiceAssistant() {
     if (!navigator.mediaDevices?.getUserMedia) {
       throw new Error("当前浏览器不支持麦克风录音，请使用 HTTPS 或 localhost");
     }
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = mediaStream.current ?? await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
     const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
     // 标签页切后台或系统休眠会让 AudioContext 进入 suspended,onaudioprocess 停止,
@@ -405,9 +495,68 @@ function VoiceAssistant() {
 
   async function connect() {
     if (socket.current?.readyState === WebSocket.OPEN) return;
+    setMicAccessIssue(null);
+    setConnectionError("");
+    setState("CONNECTING");
+    // Request permission directly from the user's click, before network checks
+    // can consume the browser's user-activation window.
+    if (!mediaStream.current) {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error("当前浏览器不支持麦克风录音，请使用 HTTPS 或 localhost");
+        }
+        mediaStream.current = await navigator.mediaDevices.getUserMedia({
+          audio: selectedMicDeviceId ? { deviceId: { exact: selectedMicDeviceId } } : true,
+        });
+        await refreshMicrophoneDevices();
+      } catch (error) {
+        await refreshMicrophoneDevices();
+        const name = error instanceof Error ? error.name : "";
+        const issue: MicAccessIssue = name === "NotAllowedError" || name === "SecurityError"
+          ? "permission"
+          : name === "NotFoundError" || name === "OverconstrainedError"
+            ? "device"
+            : "unavailable";
+        const message = issue === "permission"
+          ? "麦克风权限未授予，请在浏览器或系统设置中允许访问后重试。"
+          : issue === "device"
+            ? "未找到可用的麦克风，请连接或启用输入设备后重试。"
+            : error instanceof Error ? error.message : "无法访问麦克风";
+        setMicAccessIssue(issue);
+        setConnectionError(message);
+        setState("IDLE");
+        return;
+      }
+    }
+    let pinned = selectedSessionVoice();
+    if (selectedVoiceId) {
+      try {
+        const [voice, health] = await Promise.all([getVoice(selectedVoiceId), getTtsHealth()]);
+        if (!sessionSelectableVoices([voice], health).length || !pinned) {
+          cleanupAudio();
+          setSelectedVoiceId("");
+          setState("IDLE");
+          setConnectionError("所选音色已撤销授权或引擎不可用，已切换为系统默认 TTS。请再次开始通话。");
+          return;
+        }
+        // Re-read the revision immediately before the handshake so an update
+        // between list rendering and clicking "开始通话" cannot pin stale data.
+        pinned = {
+          voiceId: voice.voice_id,
+          revision: voice.revision!.revision,
+          label: voice.display_name,
+          backend: voice.revision!.backend_family,
+        };
+      } catch {
+        cleanupAudio();
+        setState("IDLE");
+        setConnectionError("无法确认所选音色的最新状态；请稍后重试或切换系统默认 TTS。");
+        return;
+      }
+    }
     manualStop.current = false;
     reconnectAttempts.current = 0;
-    setConnectionError("");
+    sessionVoice.current = pinned;
     prepareServerRecording();
     setStopping(false);
     setState("CONNECTING");
@@ -426,13 +575,18 @@ function VoiceAssistant() {
       activeGeneration.current = generationForNewConnection();
       setConnected(true);
       reconnectAttempts.current = 0;
-      connection.send(
-        JSON.stringify({ type: "start_session", recording_id: recordingId.current || undefined }),
-      );
+      connection.send(JSON.stringify(startSessionPayload(recordingId.current, sessionVoice.current)));
       if (startMic && !micActive.current) {
         void startMicrophone(connection)
           .then(() => setConnectionError("麦克风已连接，说话后自动提交"))
           .catch((error: unknown) => {
+            const name = error instanceof Error ? error.name : "";
+            const issue: MicAccessIssue = name === "NotAllowedError" || name === "SecurityError"
+              ? "permission"
+              : name === "NotFoundError" || name === "OverconstrainedError"
+                ? "device"
+                : "unavailable";
+            setMicAccessIssue(issue);
             setConnectionError(error instanceof Error ? error.message : "无法访问麦克风");
             manualStop.current = true;
             connection.close();
@@ -459,6 +613,7 @@ function VoiceAssistant() {
         cleanupAudio();
         setStopping(false);
         setState("IDLE");
+        sessionVoice.current = null;
         return;
       }
       // 意外断连:保留麦克风与录音,自动重连(指数退避,最长 10s)。
@@ -593,6 +748,31 @@ function VoiceAssistant() {
 
   return (
     <section className="view" aria-label="实时助手">
+      {micAccessIssue && (
+        <div className="mic-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setMicAccessIssue(null);
+        }}>
+          <section className="mic-dialog" role="dialog" aria-modal="true" aria-labelledby="mic-dialog-title">
+            <div className="mic-dialog__icon" aria-hidden="true">♩</div>
+            <h2 id="mic-dialog-title">
+              {micAccessIssue === "permission" ? "需要麦克风权限" : micAccessIssue === "device" ? "没有找到麦克风" : "无法访问麦克风"}
+            </h2>
+            <p>
+              {micAccessIssue === "permission"
+                ? "Astra 需要麦克风才能进行实时语音对话。点击下方按钮重新请求权限；如果浏览器已阻止，请在地址栏的网站设置或 macOS“系统设置 → 隐私与安全性 → 麦克风”中允许当前浏览器。"
+                : micAccessIssue === "device"
+                  ? "请连接麦克风，并在 macOS“系统设置 → 声音 → 输入”中确认设备可用，然后重试。"
+                  : "请确认浏览器拥有麦克风权限，且输入设备没有被其他应用独占，再重新尝试。"}
+            </p>
+            <div className="mic-dialog__actions">
+              <button className="btn btn--secondary" type="button" onClick={() => setMicAccessIssue(null)}>稍后处理</button>
+              <button className="btn btn--primary" type="button" onClick={() => void connect()}>
+                {micAccessIssue === "permission" ? "重新请求权限" : "重试连接"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       <div className="page-head">
         <div className="page-head__text">
           <div className="eyebrow">01 · 实时助手</div>
@@ -614,6 +794,52 @@ function VoiceAssistant() {
             </p>
           </div>
           <div className="dial-controls">
+            <label className="live-voice-select">
+              <span>回复音色</span>
+              <select
+                className="select"
+                value={selectedVoiceId}
+                disabled={connected || stopping}
+                onChange={(event) => setSelectedVoiceId(event.target.value)}
+                aria-describedby="live-voice-hint"
+              >
+                <option value="">系统默认（{ttsHealth?.default_backend || "当前引擎"}）</option>
+                {voiceChoices.map((voice) => (
+                  <option value={voice.voice_id} key={voice.voice_id}>
+                    {voice.display_name} · r{voice.revision?.revision} · {voice.revision?.backend_family}
+                  </option>
+                ))}
+              </select>
+              <span className="field__hint" id="live-voice-hint">
+                {connected
+                  ? "会话进行中，音色版本已锁定。"
+                  : voiceChoices.length
+                    ? "仅显示已授权、可用且通过设备验证的音色。"
+                    : "暂无可用克隆音色；可继续使用系统默认 TTS。"}
+              </span>
+            </label>
+            <label className="live-voice-select">
+              <span>麦克风输入</span>
+              <select
+                className="select"
+                value={selectedMicDeviceId}
+                disabled={connected || stopping || state === "CONNECTING"}
+                onChange={(event) => setSelectedMicDeviceId(event.target.value)}
+                aria-describedby="live-mic-hint"
+              >
+                <option value="">系统默认设备</option>
+                {microphoneDevices.map((device, index) => (
+                  <option value={device.deviceId} key={`${device.deviceId}-${index}`}>
+                    {device.label || `麦克风 ${index + 1}`}
+                  </option>
+                ))}
+              </select>
+              <span className="field__hint" id="live-mic-hint">
+                {microphoneDevices.length
+                  ? "已检测到输入设备；首次使用时浏览器会请求麦克风权限。"
+                  : "尚未检测到输入设备；允许麦克风权限后可重新检测。"}
+              </span>
+            </label>
             {!connected ? (
               <button className="btn btn--primary btn--sm" type="button" onClick={connect}>
                 开始通话
@@ -644,7 +870,7 @@ function VoiceAssistant() {
             </div>
             <div>
               <div className="dial-meta__k">输入设备</div>
-              <div className="dial-meta__v">Mac mini 麦克风</div>
+              <div className="dial-meta__v">{microphoneDevices.find((device) => device.deviceId === selectedMicDeviceId)?.label || "系统默认输入"}</div>
             </div>
             <div>
               <div className="dial-meta__k">采样率</div>
@@ -662,6 +888,11 @@ function VoiceAssistant() {
                 <span className="badge__dot" />
                 {connected ? "进行中" : "未连接"}
               </span>
+            </div>
+            <div className="live-voice-summary">
+              <span>当前回复</span>
+              <strong>{sessionVoice.current ? `${sessionVoice.current.label} · ${sessionVoice.current.backend} · r${sessionVoice.current.revision}` : `系统默认 · ${ttsHealth?.default_backend || "当前引擎"}`}</strong>
+              {connected && <span className="badge badge--accent">版本已锁定</span>}
             </div>
             <div className="spine">
               <div className="spine-row">

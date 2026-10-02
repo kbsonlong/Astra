@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.main import _build_realtime_asr, _build_tts_client, create_app
 from app.core.training import TrainingManager
+from app.health import collect_health
 
 
 @pytest.fixture
@@ -50,6 +51,7 @@ def test_backend_factories_select_funasr_realtime_and_cosyvoice_tts() -> None:
         tts_cosyvoice_prompt_wav="/private/reference.wav",
         tts_cosyvoice_prompt_text="参考音频文本",
         tts_cosyvoice_language="yue",
+        tts_router_enabled=False,
     )
 
     asr = _build_realtime_asr(settings)
@@ -67,6 +69,7 @@ def test_backend_factory_selects_indextts_mlx_snapshot_backend() -> None:
         tts_indextts_model_dir="/private/models/indextts-2.5-mlx",
         tts_indextts_repo_id="test/index-tts",
         tts_indextts_model_revision="test-revision",
+        tts_router_enabled=False,
     )
 
     tts = _build_tts_client(settings)
@@ -75,6 +78,45 @@ def test_backend_factory_selects_indextts_mlx_snapshot_backend() -> None:
     assert tts.capabilities()["backend"] == "indextts_mlx"
     assert tts.capabilities()["model_revision"] == "test-revision"
     assert tts.capabilities()["clone"] is True
+
+
+def test_backend_factory_builds_opt_in_multi_engine_router() -> None:
+    settings = Settings(
+        tts_router_enabled=True,
+        tts_enabled_backends=("piper", "indextts_mlx"),
+        tts_default_backend="piper",
+        tts_indextts_model_dir="/private/models/indextts-2.5-mlx",
+    )
+
+    tts = _build_tts_client(settings)
+
+    assert tts.__class__.__name__ == "TtsRouter"
+    caps = tts.capabilities()
+    assert caps["default_backend"] == "piper"
+    assert set(caps["engines"]) == {"piper", "indextts_mlx"}
+
+
+@pytest.mark.anyio
+async def test_health_exposes_router_engines_at_stable_boundary() -> None:
+    class Llm:
+        pass
+
+    class Pipeline:
+        asr = None
+        tts = _build_tts_client(
+            Settings(
+                tts_router_enabled=True,
+                tts_enabled_backends=("piper",),
+                tts_default_backend="piper",
+            )
+        )
+
+    payload = await collect_health(Settings(llm_base_url="http://127.0.0.1:1"), Pipeline(), None)
+    tts = payload["tts"]
+    assert tts["mode"] == "router"
+    assert tts["default_backend"] == "piper"
+    assert "piper" in tts["engines"]
+    assert tts["engines"]["piper"]["user_enabled"] is True
 
 
 def test_runtime_config_exposes_indextts_status_without_model_path(tmp_path) -> None:
@@ -94,6 +136,7 @@ def test_runtime_config_exposes_indextts_status_without_model_path(tmp_path) -> 
     payload = response.json()
     assert payload["tts_indextts_model_configured"] is True
     assert payload["tts_indextts_model_revision"] == "test-revision"
+    assert payload["tts_indextts_validated"] is False
     assert "/private/models/indextts-2.5-mlx" not in response.text
 
 

@@ -552,7 +552,11 @@ class TtsVoiceStore:
         if kind not in {"original", "reference"}:
             raise TtsVoiceValidationError("audio kind must be original or reference")
         row = self._revision_row_for_public_read(voice_id, revision)
-        if row["voice_status"] == "revoked":
+        if (
+            row["voice_status"] == "revoked"
+            or row["lifecycle"] == "revoked"
+            or row["consent_status"] == "revoked"
+        ):
             raise TtsVoiceConflictError("revoked voice audio is not available")
         return self._require_audio_file(row[f"{kind}_relpath"])
 

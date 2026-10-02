@@ -1,13 +1,14 @@
 import { ReactNode, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 
-export type NavKey = "live" | "work" | "review" | "train" | "settings";
+export type NavKey = "live" | "work" | "review" | "train" | "voices" | "settings";
 
 const NAV_TITLES: Record<NavKey, string> = {
   live: "实时助手",
   work: "音频工作台",
   review: "会议复核",
   train: "模型训练",
+  voices: "音色库",
   settings: "管理设置",
 };
 
@@ -16,6 +17,7 @@ const NAV_HREF: Record<NavKey, string> = {
   work: "/upload",
   review: "/review",
   train: "/training",
+  voices: "/voices",
   settings: "/settings",
 };
 
@@ -95,7 +97,7 @@ export default function Shell({ active, title, pendingReview = 0, onLogout, chil
   }, []);
 
   const navGroups: { label: string; items: NavKey[] }[] = [
-    { label: "工作区", items: ["live", "work", "review", "train"] },
+    { label: "工作区", items: ["live", "work", "review", "train", "voices"] },
     { label: "系统", items: ["settings"] },
   ];
 
@@ -188,6 +190,8 @@ function navIcon(key: NavKey): string {
       return "≡";
     case "train":
       return "◈";
+    case "voices":
+      return "◌";
     case "settings":
       return "⚙";
   }

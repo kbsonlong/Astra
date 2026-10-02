@@ -9,3 +9,5 @@ __pycache__/
 !/recordings/.gitkeep
 *.txt
 _asr*
+/*.m4a
+/:memory:.ses

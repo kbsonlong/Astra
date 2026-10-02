@@ -35,6 +35,15 @@
 
 ### P0：TTS 后端
 
+#### 音色库与 IndexTTS 用户开放门禁
+
+- [ ] 保持 `TTS_INDEXTTS_VALIDATED=false` 启动，确认健康接口将 IndexTTS 标示为技术可用但未验证，前端不提供试听或实时选择。
+- [ ] 以已获授权的单声道 WAV 完成“创建 → 授权 → 试听 → 启用 → 实时会话”闭环，并记录音色 revision、模型 revision、首音与整段时延。
+- [ ] 创建新 revision 后，确认已开始会话维持旧 revision；新会话才使用新 revision。
+- [ ] 会话期间断网并重连，确认回复音色仍固定为开始时版本。
+- [ ] 撤销授权，确认新试听和新会话选择被阻止，界面显示明确原因；切换系统默认 Piper 后仍能完成一轮实时对话。
+- [ ] 仅在以上项目及 L2/L3 指标记录完成后，设置 `TTS_INDEXTTS_VALIDATED=true` 并复测健康接口与选择器。
+
 - [ ] `TTS_BACKEND=mlx_audio`：普通话合成后人工播放 WAV，记录冷/热启动耗时、音频时长、RSS 与 Metal 内存。
 - [ ] `TTS_BACKEND=cosyvoice`：仅在受控本地路径配置 `TTS_COSYVOICE_MODEL`、`TTS_COSYVOICE_PROMPT_WAV`、`TTS_COSYVOICE_PROMPT_TEXT`；确认 `/api/health` 的 `clone_configured=true`。
 - [ ] 用同一参考音频分别执行 `TTS_COSYVOICE_LANGUAGE=zh` 与 `yue`，复听语言自然度、音色相似度和可懂度；记录模型版本和失败栈。
