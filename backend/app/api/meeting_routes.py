@@ -40,8 +40,10 @@ from typing import Literal
 
 from ..config import llm_environment_values
 from ..core.review_store import ReviewConflictError
+from ..core.task_store import TaskStore
 from .auth import authorize_websocket
 from .upload_limits import (
+    AudioProbeError,
     AudioTooLongError,
     UploadTooLargeError,
     save_upload_limited,
@@ -70,16 +72,22 @@ _SEGMENT_ID_RE = re.compile(r"^seg-\d{6}$")
 _SEPARATED_AUDIO_RE = re.compile(r"^source-\d+\.wav$")
 
 
+def _write_json_atomic(path: Path, payload: dict[str, object]) -> None:
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, path)
+
+
 class TrainingReviewPayload(BaseModel):
     review_status: Literal["pending", "approved", "rejected"]
     corrected_text: str = Field(min_length=1, max_length=20_000)
-    version: int | None = Field(default=None, ge=1)
+    version: int = Field(ge=1)
 
 
 class BatchTrainingReviewItem(BaseModel):
     segment_id: str = Field(min_length=1, max_length=32)
     corrected_text: str = Field(min_length=1, max_length=20_000)
-    version: int | None = Field(default=None, ge=1)
+    version: int = Field(ge=1)
 
 
 class BatchTrainingReviewPayload(BaseModel):
@@ -114,6 +122,29 @@ def _new_task_id() -> str:
     # uuid 后缀: 避免同秒同文件名时 hash()%10000 撞车覆盖上一次报告
     # (hash() 对 str 跨进程随机, %10000 只有万分之一空间, 双碰撞风险)。
     return f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+
+
+async def _reap_meeting_process(
+    process: asyncio.subprocess.Process, task_store: Any, task_id: str
+) -> None:
+    """Persist the child result even when no browser is watching the task."""
+    return_code = await process.wait()
+    record = task_store.get(task_id)
+    if record is None or record.status != "processing":
+        return
+    try:
+        status_payload = json.loads(
+            (Path(record.output_dir) / "status.json").read_text(encoding="utf-8")
+        )
+    except (OSError, json.JSONDecodeError):
+        status_payload = {}
+    final_status = status_payload.get("status")
+    status = final_status if final_status in {"done", "failed", "stopped"} else (
+        "done" if return_code == 0 else "failed"
+    )
+    detail: dict[str, object] = {"returncode": return_code}
+    detail.update(status_payload)
+    task_store.update(task_id, status=status, detail=detail)
 
 
 def _render_markdown(result: Any, meta: dict[str, object]) -> str:
@@ -184,7 +215,10 @@ def _status_payload(
     status_path = out_dir / "status.json"
     if not status_path.exists():
         raise HTTPException(status_code=404, detail="task not found")
-    status = json.loads(status_path.read_text(encoding="utf-8"))
+    try:
+        status = json.loads(status_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="meeting status is temporarily unavailable") from exc
     if task_store is not None and status.get("status") == "processing":
         try:
             record = task_store.reconcile_task(  # type: ignore[attr-defined]
@@ -194,9 +228,7 @@ def _status_payload(
             record = None
         if record is not None and record.status != "processing":
             status = {**status, "status": record.status, **record.detail}
-            status_path.write_text(
-                json.dumps(status, ensure_ascii=False), encoding="utf-8"
-            )
+            _write_json_atomic(status_path, status)
     result: dict[str, object] = {"type": "meeting_status", "task_id": task_id, **status}
     artifact_paths = status.get("separation_artifacts")
     if isinstance(artifact_paths, list):
@@ -372,7 +404,7 @@ async def batch_review_training_data(
         updates.append({
             "segment_id": item.segment_id,
             "corrected_text": corrected_text,
-            "version": item.version or rows_by_id[item.segment_id]["version"],
+            "version": item.version,
         })
     try:
         store.update_many(task_id, updates, payload.review_status)
@@ -410,7 +442,7 @@ async def review_training_data(
             [{
                 "segment_id": segment_id,
                 "corrected_text": payload.corrected_text.strip(),
-                "version": payload.version or row["version"],
+                "version": payload.version,
             }],
             payload.review_status,
         )
@@ -472,7 +504,10 @@ async def process_meeting(
                 file, in_path, settings.meeting_max_upload_bytes
             )
             await validate_audio_file_duration(
-                in_path, settings.meeting_max_duration_seconds
+                in_path,
+                settings.meeting_max_duration_seconds,
+                probe_timeout_seconds=settings.audio_probe_timeout_seconds,
+                probe_temp_max_bytes=settings.audio_probe_temp_max_bytes,
             )
         except UploadTooLargeError as exc:
             out_dir.rmdir()
@@ -487,18 +522,22 @@ async def process_meeting(
                 status_code=413,
                 detail=f"audio duration too long (max {exc.max_seconds:g} seconds)",
             ) from exc
+        except AudioProbeError as exc:
+            in_path.unlink(missing_ok=True)
+            out_dir.rmdir()
+            raise HTTPException(status_code=422, detail=f"audio validation failed: {exc}") from exc
     finally:
         await limiter.release(client_ip)
     if not uploaded_bytes:
         in_path.unlink(missing_ok=True)
         out_dir.rmdir()
         raise HTTPException(status_code=400, detail="file is empty")
-    (out_dir / "status.json").write_text(
-        json.dumps(
-            {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")},
-            ensure_ascii=False,
-        ),
-        encoding="utf-8",
+    _write_json_atomic(
+        out_dir / "status.json",
+        {
+            "status": "processing",
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
     )
 
     task_store = request.app.state.task_store
@@ -548,6 +587,7 @@ async def process_meeting(
             status="processing",
             pid=pid,
             pgid=pgid,
+            process_identity=TaskStore.process_identity(pid),
             output_dir=str(out_dir),
             log_path=str(log_path),
             detail={
@@ -556,11 +596,12 @@ async def process_meeting(
                 "separate": separate,
             },
         )
+        asyncio.create_task(
+            _reap_meeting_process(process, request.app.state.task_store, task_id)
+        )
     except Exception as exc:
         failure = {"status": "failed", "error": f"spawn failed: {exc}"}
-        (out_dir / "status.json").write_text(
-            json.dumps(failure), encoding="utf-8"
-        )
+        _write_json_atomic(out_dir / "status.json", failure)
         request.app.state.task_store.register(
             task_id=task_id,
             kind="meeting",
@@ -584,6 +625,18 @@ async def process_meeting(
     }
 
 
+@router.get("/{task_id}")
+async def meeting_status(task_id: str, request: Request) -> dict[str, object]:
+    """Return a reconnect-safe snapshot for a meeting task."""
+    settings = request.app.state.settings
+    return _status_payload(
+        Path(settings.meeting_output_dir).expanduser(),
+        task_id,
+        request.app.state.task_store,
+        timeout_seconds=settings.meeting_task_timeout_seconds,
+    )
+
+
 @router.delete("/{task_id}")
 async def cancel_meeting(task_id: str, request: Request) -> dict[str, object]:
     base = Path(request.app.state.settings.meeting_output_dir).expanduser()
@@ -592,8 +645,10 @@ async def cancel_meeting(task_id: str, request: Request) -> dict[str, object]:
     if not status_path.is_file():
         raise HTTPException(status_code=404, detail="task not found")
     try:
-        record = request.app.state.task_store.terminate(
-            task_id, reason="cancelled by administrator"
+        record = await asyncio.to_thread(
+            request.app.state.task_store.terminate_and_wait,
+            task_id,
+            reason="cancelled by administrator",
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="task not found") from exc
@@ -602,7 +657,7 @@ async def cancel_meeting(task_id: str, request: Request) -> dict[str, object]:
     except (OSError, json.JSONDecodeError):
         status = {}
     status.update({"status": record.status, **record.detail})
-    status_path.write_text(json.dumps(status, ensure_ascii=False), encoding="utf-8")
+    _write_json_atomic(status_path, status)
     return {"task_id": task_id, "status": record.status, **record.detail}
 
 

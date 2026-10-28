@@ -8,7 +8,10 @@ from fastapi.testclient import TestClient
 
 from app.api.upload_limits import (
     AudioIPConcurrencyLimiter,
+    AudioProbeStorageError,
+    AudioProbeTimeoutError,
     AudioTooLongError,
+    probe_audio_duration,
     validate_audio_duration,
 )
 from app.config import Settings
@@ -29,6 +32,59 @@ def wav_bytes(seconds: float) -> bytes:
 def test_validate_audio_duration_rejects_decoded_audio_over_limit() -> None:
     with pytest.raises(AudioTooLongError, match="duration exceeds"):
         asyncio.run(validate_audio_duration(wav_bytes(2), "recording.wav", 1))
+
+
+def test_audio_probe_terminates_a_hung_decoder(monkeypatch, tmp_path) -> None:
+    class HungDecoder:
+        returncode = None
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    decoder = HungDecoder()
+    monkeypatch.setattr("app.api.upload_limits.subprocess.Popen", lambda *args, **kwargs: decoder)
+
+    with pytest.raises(AudioProbeTimeoutError, match="exceeded"):
+        probe_audio_duration(tmp_path / "input.m4a", timeout_seconds=0.01)
+
+
+def test_audio_probe_rejects_decoder_temp_storage_over_budget(monkeypatch, tmp_path) -> None:
+    class GrowingDecoder:
+        returncode = None
+
+        def __init__(self, command):
+            Path(command[-1]).write_bytes(b"x" * 10)
+
+        def poll(self):
+            return self.returncode
+
+        def terminate(self):
+            self.returncode = -15
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+        def kill(self):
+            self.returncode = -9
+
+    from pathlib import Path
+
+    monkeypatch.setattr(
+        "app.api.upload_limits.subprocess.Popen",
+        lambda command, **kwargs: GrowingDecoder(command),
+    )
+
+    with pytest.raises(AudioProbeStorageError, match="temporary storage"):
+        probe_audio_duration(tmp_path / "input.m4a", max_temp_bytes=1)
 
 
 class NoopASR:

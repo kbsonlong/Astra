@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import os
 import signal
 import sys
@@ -28,14 +29,29 @@ class TrainingJob:
 
 def _training_worker(config_data: dict[str, object], log_path: str) -> None:
     """子进程入口；训练本身通过 mlx-tune SDK 调用。"""
+    output_dir = Path(str(config_data["output_dir"])).expanduser()
+    status_path = output_dir / "training-status.json"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    def write_status(payload: dict[str, object]) -> None:
+        temporary = status_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        temporary.replace(status_path)
+
     with Path(log_path).open("a", encoding="utf-8", buffering=1) as log:
         with contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
-            repo_root = Path(__file__).resolve().parents[3]
-            sys.path.insert(0, str(repo_root))
-            sys.path.insert(0, str(repo_root / "backend"))
-            from scripts.training.train_qwen3_asr import run_training
+            try:
+                repo_root = Path(__file__).resolve().parents[3]
+                sys.path.insert(0, str(repo_root))
+                sys.path.insert(0, str(repo_root / "backend"))
+                from scripts.training.train_qwen3_asr import run_training
 
-            run_training(Qwen3TrainingConfig.from_mapping(config_data))
+                run_training(Qwen3TrainingConfig.from_mapping(config_data))
+            except BaseException as exc:
+                write_status({"status": "failed", "error": str(exc)})
+                raise
+            else:
+                write_status({"status": "done"})
 
 
 class TrainingManager:
@@ -120,7 +136,8 @@ class TrainingManager:
             if self._task_store is not None:
                 self._task_store.register(
                     task_id=task_id, kind="training", status="processing", pid=pid,
-                    pgid=None, output_dir=str(output_dir), log_path=str(log_path),
+                    pgid=None, process_identity=TaskStore.process_identity(pid),
+                    output_dir=str(output_dir), log_path=str(log_path),
                 )
             asyncio.create_task(self._reap(process, task_id))
             return self.status()
@@ -143,8 +160,10 @@ class TrainingManager:
             if not self._running() or not self._job or not self._job.pid:
                 raise RuntimeError("当前没有运行中的训练任务")
             if self._task_store is not None:
-                self._task_store.terminate(
-                    self._job.task_id, reason="cancelled by administrator"
+                await asyncio.to_thread(
+                    self._task_store.terminate_and_wait,
+                    self._job.task_id,
+                    reason="cancelled by administrator",
                 )
             else:
                 os.kill(self._job.pid, signal.SIGTERM)

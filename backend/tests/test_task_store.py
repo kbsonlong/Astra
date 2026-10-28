@@ -1,5 +1,7 @@
 import asyncio
 import os
+import signal
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -40,6 +42,59 @@ def test_task_store_marks_dead_training_failed(tmp_path, monkeypatch) -> None:
 
     assert record.status == "failed"
     assert record.detail["error"] == "process exited without a final status"
+
+
+def test_task_store_recovers_dead_training_from_worker_status(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    output_dir = tmp_path / "model"
+    output_dir.mkdir()
+    (output_dir / "training-status.json").write_text(
+        '{"status":"done","checkpoint":"final"}', encoding="utf-8"
+    )
+    store.register(
+        task_id="training-done", kind="training", status="processing", pid=123,
+        pgid=None, output_dir=str(output_dir), log_path="training.log",
+    )
+    monkeypatch.setattr(TaskStore, "pid_alive", staticmethod(lambda pid: False))
+
+    record = store.reconcile_task("training-done")
+
+    assert record.status == "done"
+    assert record.detail["status_json"]["checkpoint"] == "final"
+
+
+def test_task_store_rejects_reused_pid_on_reconcile(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id="meeting-reused", kind="meeting", status="processing", pid=123,
+        pgid=123, process_identity="old-start", output_dir=str(tmp_path),
+    )
+    monkeypatch.setattr(TaskStore, "process_identity", staticmethod(lambda pid: "new-start"))
+    monkeypatch.setattr(TaskStore, "pid_alive", staticmethod(lambda pid: True))
+
+    record = store.reconcile_task("meeting-reused")
+
+    assert record.status == "failed"
+    assert record.detail["identity_mismatch"] is True
+
+
+def test_task_store_does_not_signal_reused_pid_on_stop(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id="training-reused", kind="training", status="processing", pid=123,
+        pgid=None, process_identity="old-start", output_dir=str(tmp_path),
+    )
+    monkeypatch.setattr(TaskStore, "process_identity", staticmethod(lambda pid: "new-start"))
+    calls: list[int] = []
+    monkeypatch.setattr("app.core.task_store.os.kill", lambda pid, sig: calls.append(pid))
+
+    record = store.terminate_and_wait(
+        "training-reused", reason="cancelled by administrator", grace_seconds=0, force_seconds=0
+    )
+
+    assert calls == []
+    assert record.status == "stopped"
+    assert record.detail["identity_mismatch"] is True
 
 
 def test_meeting_status_converges_dead_processing_task(tmp_path, monkeypatch) -> None:
@@ -116,8 +171,19 @@ async def test_training_manager_persists_start_reap_and_stop(tmp_path, monkeypat
     assert store.get(task_id).status == "done"
 
     # Restore a live PID view to exercise stop without a multiprocessing handle.
+    alive = True
+
+    def fake_alive(pid: int | None) -> bool:
+        return alive and pid == 4321
+
+    def fake_kill(pid: int, sig: int) -> None:
+        nonlocal alive
+        alive = False
+
+    monkeypatch.setattr(TaskStore, "pid_alive", staticmethod(fake_alive))
+    monkeypatch.setattr(training.os, "kill", fake_kill)
     store.register(
-        task_id="training-stop", kind="training", status="processing", pid=os.getpid(),
+        task_id="training-stop", kind="training", status="processing", pid=4321,
         pgid=None, output_dir=str(tmp_path / "model"), log_path="training-stop.log",
     )
     manager.restore(store.get("training-stop"))
@@ -143,6 +209,27 @@ def test_task_store_reserves_kind_slots_atomically(tmp_path) -> None:
     )
 
 
+def test_task_store_supervisor_lease_allows_one_worker_and_failover(tmp_path) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+
+    assert store.try_acquire_supervisor("worker-a", lease_seconds=30)
+    assert not store.try_acquire_supervisor("worker-b", lease_seconds=30)
+    assert store.try_acquire_supervisor("worker-a", lease_seconds=30)
+
+    store.release_supervisor("worker-a")
+
+    assert store.try_acquire_supervisor("worker-b", lease_seconds=30)
+
+
+def test_task_store_supervisor_lease_expires_for_dead_worker(tmp_path) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+
+    assert store.try_acquire_supervisor("worker-a", lease_seconds=0.01)
+    time.sleep(0.02)
+
+    assert store.try_acquire_supervisor("worker-b", lease_seconds=30)
+
+
 def test_task_store_terminates_meeting_process_group(tmp_path, monkeypatch) -> None:
     store = TaskStore(tmp_path / "tasks.sqlite3")
     store.register(
@@ -157,6 +244,34 @@ def test_task_store_terminates_meeting_process_group(tmp_path, monkeypatch) -> N
     assert calls and calls[0][0] == 456
     assert record.status == "stopped"
     assert record.detail["error"] == "cancelled by administrator"
+
+
+def test_task_store_force_kills_when_graceful_stop_does_not_exit(tmp_path, monkeypatch) -> None:
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id="training-1", kind="training", status="processing", pid=123,
+        pgid=None, output_dir=str(tmp_path), log_path="training.log",
+    )
+    alive = True
+    calls: list[int] = []
+
+    monkeypatch.setattr(TaskStore, "pid_alive", staticmethod(lambda pid: alive))
+
+    def fake_kill(pid: int, sig: int) -> None:
+        nonlocal alive
+        calls.append(sig)
+        if sig == signal.SIGKILL:
+            alive = False
+
+    monkeypatch.setattr("app.core.task_store.os.kill", fake_kill)
+
+    record = store.terminate_and_wait(
+        "training-1", reason="cancelled by administrator", grace_seconds=0, force_seconds=0
+    )
+
+    assert calls == [signal.SIGTERM, signal.SIGKILL]
+    assert record.status == "stopped"
+    assert record.detail["forced"] is True
 
 
 def test_task_store_times_out_live_task(tmp_path, monkeypatch) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import UploadFile
@@ -22,6 +23,18 @@ class AudioTooLongError(ValueError):
         self.max_seconds = max_seconds
         self.duration_seconds = duration_seconds
         super().__init__(f"audio duration exceeds {max_seconds} seconds")
+
+
+class AudioProbeError(ValueError):
+    """The local decoder exceeded a safety budget while probing an upload."""
+
+
+class AudioProbeTimeoutError(AudioProbeError):
+    pass
+
+
+class AudioProbeStorageError(AudioProbeError):
+    pass
 
 
 class AudioIPConcurrencyLimiter:
@@ -89,7 +102,12 @@ def _soundfile_duration(path: Path) -> float | None:
         return None
 
 
-def probe_audio_duration(path: Path) -> float | None:
+def probe_audio_duration(
+    path: Path,
+    *,
+    timeout_seconds: float = 30.0,
+    max_temp_bytes: int = 1024 * 1024 * 1024,
+) -> float | None:
     """Return decoded duration when a local decoder can identify the file."""
     duration = _soundfile_duration(path)
     if duration is not None:
@@ -97,31 +115,58 @@ def probe_audio_duration(path: Path) -> float | None:
 
     # libsndfile does not handle every format accepted by afconvert (notably
     # some m4a/mp3 files). Keep this fallback local and bounded to the upload.
+    if timeout_seconds <= 0 or max_temp_bytes <= 0:
+        raise ValueError("audio probe budgets must be positive")
     with tempfile.TemporaryDirectory(prefix="astra_duration_") as directory:
         decoded = Path(directory) / "decoded.wav"
+        command = [
+            "afconvert", "-f", "WAVE", "-d", "LEI16@16000", "-c", "1",
+            str(path), str(decoded),
+        ]
         try:
-            subprocess.run(
-                [
-                    "afconvert",
-                    "-f",
-                    "WAVE",
-                    "-d",
-                    "LEI16@16000",
-                    "-c",
-                    "1",
-                    str(path),
-                    str(decoded),
-                ],
-                check=True,
-                capture_output=True,
-            )
-        except (OSError, subprocess.CalledProcessError):
+            process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
             return None
+        started = time.monotonic()
+        while process.poll() is None:
+            if time.monotonic() - started >= timeout_seconds:
+                process.terminate()
+                try:
+                    process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+                raise AudioProbeTimeoutError(f"audio decoder exceeded {timeout_seconds:g}s")
+            try:
+                if decoded.stat().st_size > max_temp_bytes:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+                    raise AudioProbeStorageError(
+                        f"audio decoder exceeded temporary storage budget of {max_temp_bytes} bytes"
+                    )
+            except FileNotFoundError:
+                pass
+            time.sleep(0.02)
+        if process.returncode != 0:
+            return None
+        if decoded.exists() and decoded.stat().st_size > max_temp_bytes:
+            raise AudioProbeStorageError(
+                f"audio decoder exceeded temporary storage budget of {max_temp_bytes} bytes"
+            )
         return _soundfile_duration(decoded)
 
 
 async def validate_audio_duration(
-    audio: bytes, filename: str, max_seconds: float
+    audio: bytes,
+    filename: str,
+    max_seconds: float,
+    *,
+    probe_timeout_seconds: float = 30.0,
+    probe_temp_max_bytes: int = 1024 * 1024 * 1024,
 ) -> None:
     """Reject a decodable upload whose duration exceeds the configured limit."""
     with tempfile.NamedTemporaryFile(
@@ -129,12 +174,28 @@ async def validate_audio_duration(
     ) as temporary:
         temporary.write(audio)
         temporary.flush()
-        duration = await asyncio.to_thread(probe_audio_duration, Path(temporary.name))
+        duration = await asyncio.to_thread(
+            probe_audio_duration,
+            Path(temporary.name),
+            timeout_seconds=probe_timeout_seconds,
+            max_temp_bytes=probe_temp_max_bytes,
+        )
     if duration is not None and duration > max_seconds:
         raise AudioTooLongError(max_seconds, duration)
 
 
-async def validate_audio_file_duration(path: Path, max_seconds: float) -> None:
-    duration = await asyncio.to_thread(probe_audio_duration, path)
+async def validate_audio_file_duration(
+    path: Path,
+    max_seconds: float,
+    *,
+    probe_timeout_seconds: float = 30.0,
+    probe_temp_max_bytes: int = 1024 * 1024 * 1024,
+) -> None:
+    duration = await asyncio.to_thread(
+        probe_audio_duration,
+        path,
+        timeout_seconds=probe_timeout_seconds,
+        max_temp_bytes=probe_temp_max_bytes,
+    )
     if duration is not None and duration > max_seconds:
         raise AudioTooLongError(max_seconds, duration)

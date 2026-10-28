@@ -1,5 +1,8 @@
+import asyncio
+import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -136,6 +139,8 @@ def _runtime_config_response(current: Settings) -> dict[str, object]:
         "transcribe_max_duration_seconds": current.transcribe_max_duration_seconds,
         "meeting_max_upload_bytes": current.meeting_max_upload_bytes,
         "meeting_max_duration_seconds": current.meeting_max_duration_seconds,
+        "audio_probe_timeout_seconds": current.audio_probe_timeout_seconds,
+        "audio_probe_temp_max_bytes": current.audio_probe_temp_max_bytes,
         "ws_max_audio_bytes": current.ws_max_audio_bytes,
         "realtime_recording_max_bytes": current.realtime_recording_max_bytes,
         "realtime_recording_retention_days": current.realtime_recording_retention_days,
@@ -253,23 +258,44 @@ def _build_meeting_stages(
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
-    records = app.state.task_store.reconcile({
-        "meeting": app.state.settings.meeting_task_timeout_seconds,
-        "training": app.state.settings.training_task_timeout_seconds,
-    })
+    supervisor_id = uuid4().hex
+    app.state.supervisor_id = supervisor_id
+    owns_supervisor_lease = await asyncio.to_thread(
+        app.state.task_store.try_acquire_supervisor, supervisor_id
+    )
+    records = (
+        await asyncio.to_thread(
+            app.state.task_store.reconcile,
+            {
+                "meeting": app.state.settings.meeting_task_timeout_seconds,
+                "training": app.state.settings.training_task_timeout_seconds,
+            },
+        )
+        if owns_supervisor_lease
+        else app.state.task_store.processing_tasks()
+    )
     for record in records:
         app.state.training_manager.restore(record)
-    clean_meeting_artifacts(
-        base_dir=app.state.settings.meeting_output_dir,
-        task_store=app.state.task_store,
-        retention_days=app.state.settings.meeting_artifact_retention_days,
-        max_bytes=app.state.settings.meeting_artifact_max_bytes,
-    )
-    clean_expired_realtime_recordings(
-        app.state.settings.realtime_recording_dir,
-        app.state.settings.realtime_recording_retention_days,
-    )
-    yield
+    if owns_supervisor_lease:
+        clean_meeting_artifacts(
+            base_dir=app.state.settings.meeting_output_dir,
+            task_store=app.state.task_store,
+            retention_days=app.state.settings.meeting_artifact_retention_days,
+            max_bytes=app.state.settings.meeting_artifact_max_bytes,
+        )
+        clean_expired_realtime_recordings(
+            app.state.settings.realtime_recording_dir,
+            app.state.settings.realtime_recording_retention_days,
+        )
+    supervisor = asyncio.create_task(_task_supervisor(app, supervisor_id))
+    try:
+        yield
+    finally:
+        supervisor.cancel()
+        await asyncio.gather(supervisor, return_exceptions=True)
+        await asyncio.to_thread(
+            app.state.task_store.release_supervisor, supervisor_id
+        )
     worker = getattr(app.state, "asr_worker", None)
     if worker is not None:
         await worker.aclose()
@@ -277,6 +303,45 @@ async def app_lifespan(app: FastAPI):
     close_tts = getattr(tts, "aclose", None)
     if callable(close_tts):
         await close_tts()
+
+
+async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
+    """收敛无浏览器连接时的退出、超时和异常任务。"""
+    last_cleanup = 0.0
+    while True:
+        try:
+            owns_lease = await asyncio.to_thread(
+                app.state.task_store.try_acquire_supervisor, supervisor_id
+            )
+            if owns_lease:
+                await asyncio.to_thread(
+                    app.state.task_store.reconcile,
+                    {
+                        "meeting": app.state.settings.meeting_task_timeout_seconds,
+                        "training": app.state.settings.training_task_timeout_seconds,
+                    },
+                )
+                now = time.monotonic()
+                if now - last_cleanup >= 60:
+                    await asyncio.to_thread(
+                        clean_meeting_artifacts,
+                        base_dir=app.state.settings.meeting_output_dir,
+                        task_store=app.state.task_store,
+                        retention_days=app.state.settings.meeting_artifact_retention_days,
+                        max_bytes=app.state.settings.meeting_artifact_max_bytes,
+                    )
+                    await asyncio.to_thread(
+                        clean_expired_realtime_recordings,
+                        app.state.settings.realtime_recording_dir,
+                        app.state.settings.realtime_recording_retention_days,
+                    )
+                    last_cleanup = now
+            await asyncio.sleep(5)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A transient SQLite/filesystem error must not kill supervision.
+            await asyncio.sleep(1)
 
 
 def create_app(

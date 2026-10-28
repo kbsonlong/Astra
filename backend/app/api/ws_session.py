@@ -1,7 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket
 from pydantic import ValidationError
 
 from .auth import authorize_websocket
@@ -290,10 +290,22 @@ async def session_websocket(websocket: WebSocket) -> None:
                 await websocket.send_json(recording_started)
             if recording_ready is not None:
                 await websocket.send_json(recording_ready)
-    except WebSocketDisconnect:
+    finally:
         session.end()
         if generation_task is not None:
             generation_task.cancel()
-            await asyncio.gather(generation_task, return_exceptions=True)
-    finally:
-        await limiter.release(client_ip)
+            cleanup = asyncio.gather(generation_task, return_exceptions=True)
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                await asyncio.shield(cleanup)
+            generation_task = None
+        try:
+            if recording is not None:
+                recording.finish()
+        finally:
+            release = asyncio.create_task(limiter.release(client_ip))
+            try:
+                await asyncio.shield(release)
+            except asyncio.CancelledError:
+                await asyncio.shield(release)

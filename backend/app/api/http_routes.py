@@ -19,6 +19,7 @@ from ..models.asr_client import ASRClientError
 from ..models.llm_client import LLMClientError
 from .upload_limits import (
     AudioIPConcurrencyLimiter,
+    AudioProbeError,
     AudioTooLongError,
     UploadTooLargeError,
     read_upload_limited,
@@ -157,6 +158,8 @@ async def _validate_transcribe_duration(
             audio,
             filename,
             request.app.state.settings.transcribe_max_duration_seconds,
+            probe_timeout_seconds=request.app.state.settings.audio_probe_timeout_seconds,
+            probe_temp_max_bytes=request.app.state.settings.audio_probe_temp_max_bytes,
         )
     except AudioTooLongError as exc:
         raise HTTPException(
@@ -166,6 +169,8 @@ async def _validate_transcribe_duration(
                 f"(max {exc.max_seconds:g} seconds)"
             ),
         ) from exc
+    except AudioProbeError as exc:
+        raise HTTPException(status_code=422, detail=f"audio validation failed: {exc}") from exc
 
 
 @router.post("/transcribe")

@@ -1,68 +1,33 @@
 import { ChangeEvent, FormEvent, Fragment, ReactNode, useEffect, useRef, useState } from "react";
-
-type TranscriptionResult = {
-  filename: string;
-  bytes: number;
-  text: string;
-};
-
-
-type TimelineSegment = {
-  index: number;
-  start: number;
-  end: number;
-  text: string;
-  source_index?: number;
-};
-
-type EnhancementStatus = {
-  stage_name: string;
-  status: "applied" | "not_applicable" | "failed" | "disabled";
-  latency_ms: number;
-  fallback_reason?: string | null;
-};
-
-type SeparationStatus = {
-  stage_name: string;
-  status: "applied" | "not_applicable" | "failed" | "disabled";
-  output_count: number;
-  latency_ms: number;
-  fallback_reason?: string | null;
-};
-
-type MeetingPromptTemplate = {
-  id: string;
-  name: string;
-  description: string;
-  chunk_system_prompt: string;
-  merge_system_prompt: string;
-  builtin?: boolean;
-  editable?: boolean;
-};
-
-type PromptEditorState = {
-  id?: string;
-  name: string;
-  description: string;
-  chunk_system_prompt: string;
-  merge_system_prompt: string;
-};
-
-type OverlapDetection = {
-  status?: "ok" | "failed";
-  suspected: boolean;
-  score: number;
-  active_frames: number;
-  candidate_frames: number;
-  threshold: number;
-  details?: {
-    sample_rate?: number;
-    frame_seconds?: number;
-    hop_seconds?: number;
-    frequency_band_hz?: number[];
-    eligible_frames?: number;
-  };
-};
+import { MeetingResult, OverlapDetection, waitForMeeting } from "./meeting/task";
+import {
+  deleteMeetingPromptTemplate,
+  listMeetingPromptTemplates,
+  saveMeetingPromptTemplate,
+  MeetingPromptTemplate,
+  PromptEditorState,
+} from "./meeting/prompts";
+import {
+  approveSpeaker as approveSpeakerApi,
+  createSpeaker as createSpeakerApi,
+  disableSpeaker as disableSpeakerApi,
+  listSpeakerSamples,
+  listSpeakers,
+  renameSpeaker as renameSpeakerApi,
+  SpeakerProfile,
+  SpeakerSample,
+  uploadSpeakerSample as uploadSpeakerSampleApi,
+} from "./meeting/speakers";
+import {
+  cancelMeeting as cancelMeetingApi,
+  startMeeting,
+  streamTranscription,
+  transcribe,
+  EnhancementStatus,
+  SeparationStatus,
+  TimelineSegment,
+  TranscriptionResult,
+} from "./meeting/transcription";
 
 function OverlapDetectionView({ detection }: { detection: OverlapDetection }) {
   const score = Math.max(0, Math.min(1, detection.score));
@@ -181,63 +146,9 @@ function MarkdownContent({ source }: { source: string }) {
   return <div className="markdown-content">{blocks}</div>;
 }
 
-type MeetingResult = {
-  task_id: string;
-  filename: string;
-  duration_s: number;
-  language: string;
-  segments: number;
-  speakers: string[];
-  report_path: string;
-  summary: string;
-  timeline_preview: string;
-  prompt_template?: string;
-  training_artifacts?: {
-    clips_dir?: string;
-    transcript_segments?: string;
-    training_candidates?: string;
-    candidate_segments?: number;
-  };
-  separation_audio_urls?: string[];
-  overlap_detection?: OverlapDetection;
-};
-
-type MeetingStatus = {
-  type?: string;
-  task_id: string;
-  status: "processing" | "done" | "failed" | "stopped";
-  duration_s?: number;
-  segments?: number;
-  speakers?: string[];
-  report_path?: string;
-  summary_preview?: string;
-  transcript_preview?: string;
-  elapsed_s?: number;
-  error?: string;
-  message?: string;
-  training_artifacts?: MeetingResult["training_artifacts"];
-  prompt_template?: string;
-  separation_audio_urls?: string[];
-  overlap_detection?: OverlapDetection;
-};
-
-const meetingEventUrl = (taskId: string) => {
-  const protocol = location.protocol === "https:" ? "wss" : "ws";
-  return `${protocol}://${location.host}/api/meeting/${encodeURIComponent(taskId)}/events`;
-};
-
 const notificationEventUrl = () => {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   return `${protocol}://${location.host}/api/notifications/events`;
-};
-
-type SpeakerProfile = {
-  speaker_id: string;
-  display_name: string;
-  status: string;
-  sample_count: number;
-  embedding_model: string;
-  updated_at: string;
 };
 
 type SpeakerNotification = {
@@ -249,16 +160,6 @@ type SpeakerNotification = {
 type NotificationEvent = {
   type: "notifications";
   items?: SpeakerNotification[];
-};
-
-type SpeakerSample = {
-  sample_id: string;
-  duration_s: number;
-  speech_duration_s: number;
-  quality_score: number | null;
-  original_filename: string;
-  audio_url: string | null;
-  created_at: string;
 };
 
 export default function UploadPage() {
@@ -302,15 +203,13 @@ export default function UploadPage() {
 
   async function loadPromptTemplates(preferredId?: string) {
     try {
-      const response = await fetch("/api/meeting/prompt-templates");
-      const payload = await response.json() as { default?: string; items?: MeetingPromptTemplate[] };
-      if (!response.ok) return;
-      const items = payload.items ?? [];
+      const payload = await listMeetingPromptTemplates();
+      const items = payload.items;
       setPromptTemplates(items);
       setPromptTemplate((current) => {
         if (preferredId && items.some((item) => item.id === preferredId)) return preferredId;
         if (items.some((item) => item.id === current)) return current;
-        return payload.default ?? items[0]?.id ?? "standard";
+        return payload.defaultId ?? items[0]?.id ?? "standard";
       });
     } catch {
       // The standard template remains usable if metadata loading fails.
@@ -349,26 +248,10 @@ export default function UploadPage() {
     if (!promptEditor) return;
     setPromptEditorStatus("保存中...");
     try {
-      const response = await fetch(
-        promptEditor.id
-          ? `/api/meeting/prompt-templates/${encodeURIComponent(promptEditor.id)}`
-          : "/api/meeting/prompt-templates",
-        {
-          method: promptEditor.id ? "PUT" : "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: promptEditor.name,
-            description: promptEditor.description,
-            chunk_system_prompt: promptEditor.chunk_system_prompt,
-            merge_system_prompt: promptEditor.merge_system_prompt,
-          }),
-        },
-      );
-      const payload = await response.json() as { detail?: string; item?: MeetingPromptTemplate };
-      if (!response.ok || !payload.item) throw new Error(payload.detail ?? "模板保存失败");
+      const item = await saveMeetingPromptTemplate(promptEditor);
       setPromptEditor(null);
       setPromptEditorStatus("");
-      await loadPromptTemplates(payload.item.id);
+      await loadPromptTemplates(item.id);
       setStatus("纪要模板已保存");
     } catch (error) {
       setPromptEditorStatus(error instanceof Error ? error.message : "模板保存失败");
@@ -379,9 +262,7 @@ export default function UploadPage() {
     const selected = promptTemplates.find((template) => template.id === promptTemplate);
     if (!selected?.editable || !window.confirm(`确定删除“${selected.name}”吗？`)) return;
     try {
-      const response = await fetch(`/api/meeting/prompt-templates/${encodeURIComponent(selected.id)}`, { method: "DELETE" });
-      const payload = await response.json() as { detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "模板删除失败");
+      await deleteMeetingPromptTemplate(selected.id);
       await loadPromptTemplates("standard");
       setPromptEditorStatus("");
       setStatus("自定义纪要模板已删除");
@@ -427,75 +308,6 @@ export default function UploadPage() {
     selectFileValue(event.target.files?.[0] ?? null);
   }
 
-  function waitForMeeting(taskId: string, reportPath: string, filename: string): Promise<MeetingResult> {
-    meetingSocket.current?.close();
-    return new Promise((resolve, reject) => {
-      const connection = new WebSocket(meetingEventUrl(taskId));
-      let finished = false;
-      meetingSocket.current = connection;
-
-      connection.onmessage = (message) => {
-        let current: MeetingStatus;
-        try {
-          current = JSON.parse(message.data) as MeetingStatus;
-        } catch {
-          finished = true;
-          connection.close();
-          reject(new Error("会议状态 WebSocket 返回了无法识别的消息"));
-          return;
-        }
-        if (current.type === "error") {
-          finished = true;
-          connection.close();
-          reject(new Error(current.message ?? "会议状态订阅失败"));
-          return;
-        }
-        if (current.status === "processing") {
-          setStatus(`会议处理中 ${current.elapsed_s ?? 0}s`);
-          return;
-        }
-        if (current.status === "failed" || current.status === "stopped") {
-          finished = true;
-          connection.close();
-          reject(new Error(current.error ?? (current.status === "stopped" ? "会议已取消" : "会议处理失败，请查看服务端日志")));
-          return;
-        }
-        finished = true;
-        resolve({
-          task_id: current.task_id,
-          filename,
-          duration_s: current.duration_s ?? 0,
-          language: "Chinese",
-          segments: current.segments ?? 0,
-          speakers: current.speakers ?? [],
-          report_path: current.report_path ?? reportPath,
-          summary: current.summary_preview ?? "",
-          timeline_preview: current.transcript_preview ?? "",
-          training_artifacts: current.training_artifacts,
-          prompt_template: current.prompt_template,
-          separation_audio_urls: current.separation_audio_urls,
-          overlap_detection: current.overlap_detection,
-        });
-      };
-
-      connection.onerror = () => {
-        if (!finished) {
-          finished = true;
-          reject(new Error("会议状态 WebSocket 连接失败"));
-        }
-      };
-      connection.onclose = () => {
-        if (meetingSocket.current === connection) meetingSocket.current = null;
-        if (!finished) {
-          finished = true;
-          reject(new Error(
-            cancelledMeetingTask.current === taskId ? "会议已取消" : "会议状态 WebSocket 已断开",
-          ));
-        }
-      };
-    });
-  }
-
   async function uploadWithCorrection() {
     if (!file) {
       setStatus("请先选择音频文件");
@@ -508,58 +320,16 @@ export default function UploadPage() {
     setEnhancementStatus([]);
     setSeparationStatus(null);
     setStatus("正在转写并流式修正...");
-    const form = new FormData();
-    form.append("file", file);
     try {
-      const streamPath = streamSeparate
-        ? "/api/transcribe/stream?separate=true"
-        : "/api/transcribe/stream";
-      const response = await fetch(streamPath, { method: "POST", body: form });
-      if (!response.ok) {
-        const payload = await response.json() as { detail?: string };
-        throw new Error(payload.detail ?? "流式修正失败");
-      }
-      if (!response.body) throw new Error("服务端未返回流");
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-        const events = buffer.split("\n\n");
-        buffer = events.pop() ?? "";
-        for (const event of events) {
-          const line = event.split("\n").find((item) => item.startsWith("data: "));
-          if (!line) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-          const payload = JSON.parse(data) as {
-            type: string; text?: string; token?: string; message?: string;
-            index?: number; start?: number; end?: number; source_index?: number;
-            stages?: EnhancementStatus[];
-            stage?: SeparationStatus;
-          };
-          if (payload.type === "asr_final") setResult({ filename: file.name, bytes: file.size, text: payload.text ?? "" });
-          if (payload.type === "enhancement_status") setEnhancementStatus(payload.stages ?? []);
-          if (payload.type === "separation_status" && payload.stage) setSeparationStatus(payload.stage);
-          if (payload.type === "asr_segment" && payload.index !== undefined) {
-            const segment = {
-              index: payload.index,
-              start: payload.start ?? 0,
-              end: payload.end ?? 0,
-              text: payload.text ?? "",
-              source_index: payload.source_index,
-            };
-            setCorrectionTimeline((current) => [...current.filter((item) => item.index !== segment.index), segment].sort((a, b) => a.start - b.start));
-          }
-          if (payload.type === "correction_token") setCorrection((current) => current + (payload.token ?? ""));
-          if (payload.type === "correction_segment" && payload.index !== undefined) {
-            setCorrectionTimeline((current) => current.map((item) => item.index === payload.index ? { ...item, text: payload.text ?? item.text } : item));
-          }
-          if (payload.type === "error") setStatus(payload.message ?? "流式修正失败，已保留原始文本");
-        }
-        if (done) break;
-      }
+      await streamTranscription(file, streamSeparate, {
+        onResult: setResult,
+        onCorrection: (token) => setCorrection((current) => current + token),
+        onSegment: (segment) => setCorrectionTimeline((current) => [...current.filter((item) => item.index !== segment.index), segment].sort((a, b) => a.start - b.start)),
+        onCorrectionSegment: (index, text) => setCorrectionTimeline((current) => current.map((item) => item.index === index ? { ...item, text } : item)),
+        onEnhancement: setEnhancementStatus,
+        onSeparation: setSeparationStatus,
+        onError: setStatus,
+      });
       setStatus("流式修正完成");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "流式修正失败");
@@ -577,13 +347,8 @@ export default function UploadPage() {
     setBusy(true);
     setResult(null);
     setStatus("正在转写...");
-    const form = new FormData();
-    form.append("file", file);
     try {
-      const response = await fetch("/api/transcribe", { method: "POST", body: form });
-      const payload = await response.json() as TranscriptionResult | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "上传失败");
-      setResult(payload as TranscriptionResult);
+      setResult(await transcribe(file));
       setStatus("转写完成");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "上传失败");
@@ -600,22 +365,20 @@ export default function UploadPage() {
     setBusy(true);
     setMeeting(null);
     setStatus("正在处理会议(转写→说话人分离→AI纪要)，几分钟，请稍候...");
-    const form = new FormData();
-    form.append("file", file);
-    form.append("topic", topic);
-    form.append("prompt_template", promptTemplate);
-    if (separateSpeakers) form.append("separate", "true");
     let taskId: string | null = null;
     try {
-      const response = await fetch("/api/meeting/process", { method: "POST", body: form });
-      const payload = await response.json() as MeetingResult | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "会议处理失败");
-      const job = payload as { task_id: string; report_path?: string };
+      const job = await startMeeting(file, topic, promptTemplate, separateSpeakers);
       taskId = job.task_id;
       cancelledMeetingTask.current = null;
       setActiveMeetingTask(taskId);
       setStatus("会议处理中，请稍候...");
-      const completed = await waitForMeeting(job.task_id, job.report_path ?? "", file.name);
+      const completed = await waitForMeeting(
+        job.task_id,
+        job.report_path ?? "",
+        file.name,
+        meetingSocket,
+        setStatus,
+      );
       setMeeting(completed);
       localStorage.setItem("astra:lastMeetingTask", completed.task_id);
       setStatus("会议纪要生成完成");
@@ -631,9 +394,7 @@ export default function UploadPage() {
     if (!activeMeetingTask) return;
     const taskId = activeMeetingTask;
     try {
-      const response = await fetch(`/api/meeting/${encodeURIComponent(taskId)}`, { method: "DELETE" });
-      const payload = await response.json() as { detail?: string; status?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "取消会议处理失败");
+      const payload = await cancelMeetingApi(taskId);
       cancelledMeetingTask.current = taskId;
       meetingSocket.current?.close();
       meetingSocket.current = null;
@@ -647,10 +408,7 @@ export default function UploadPage() {
 
   async function refreshSpeakers() {
     try {
-      const response = await fetch("/api/speakers");
-      const payload = await response.json() as { items?: SpeakerProfile[]; detail?: string };
-      if (!response.ok) throw new Error(payload.detail ?? "无法读取声纹档案");
-      const items = payload.items ?? [];
+      const items = await listSpeakers();
       setSpeakers(items);
       setRenaming(Object.fromEntries(items.map((speaker) => [speaker.speaker_id, speaker.display_name])));
       await refreshSampleLists(items);
@@ -661,12 +419,10 @@ export default function UploadPage() {
   }
 
   async function refreshSampleLists(items: SpeakerProfile[]) {
-    const entries = await Promise.all(items.map(async (speaker) => {
-      const response = await fetch(`/api/speakers/${encodeURIComponent(speaker.speaker_id)}/samples`);
-      if (!response.ok) return [speaker.speaker_id, []] as const;
-      const payload = await response.json() as { items?: SpeakerSample[] };
-      return [speaker.speaker_id, payload.items ?? []] as const;
-    }));
+    const entries = await Promise.all(items.map(async (speaker) => [
+      speaker.speaker_id,
+      await listSpeakerSamples(speaker.speaker_id),
+    ] as const));
     setSpeakerSamples(Object.fromEntries(entries));
   }
 
@@ -694,13 +450,7 @@ export default function UploadPage() {
       return;
     }
     try {
-      const response = await fetch("/api/speakers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: displayName }),
-      });
-      const payload = await response.json() as SpeakerProfile | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "创建失败");
+      await createSpeakerApi(displayName);
       setSpeakerName("");
       setSpeakerStatus(`已创建 ${displayName}`);
       await refreshSpeakers();
@@ -723,13 +473,7 @@ export default function UploadPage() {
     const nextName = (renaming[speaker.speaker_id] ?? "").trim();
     if (!nextName || nextName === speaker.display_name) return;
     try {
-      const response = await fetch(`/api/speakers/${encodeURIComponent(speaker.speaker_id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ display_name: nextName }),
-      });
-      const payload = await response.json() as SpeakerProfile | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "改名失败");
+      await renameSpeakerApi(speaker.speaker_id, nextName);
       setSpeakerStatus(`已改名为 ${nextName}`);
       await refreshSpeakers();
     } catch (error) {
@@ -739,11 +483,7 @@ export default function UploadPage() {
 
   async function approveSpeaker(speaker: SpeakerProfile) {
     try {
-      const response = await fetch(`/api/speakers/${encodeURIComponent(speaker.speaker_id)}/approve`, {
-        method: "POST",
-      });
-      const payload = await response.json() as SpeakerProfile | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "审核失败");
+      await approveSpeakerApi(speaker.speaker_id);
       setSpeakerStatus(`已审核 ${speaker.display_name}，后续会议将参与匹配`);
       await refreshSpeakers();
     } catch (error) {
@@ -753,11 +493,7 @@ export default function UploadPage() {
 
   async function disableSpeaker(speaker: SpeakerProfile) {
     try {
-      const response = await fetch(`/api/speakers/${encodeURIComponent(speaker.speaker_id)}`, {
-        method: "DELETE",
-      });
-      const payload = await response.json() as SpeakerProfile | { detail?: string };
-      if (!response.ok) throw new Error("detail" in payload ? payload.detail : "禁用失败");
+      await disableSpeakerApi(speaker.speaker_id);
       setSpeakerStatus(`已禁用 ${speaker.display_name}`);
       await refreshSpeakers();
     } catch (error) {
@@ -768,16 +504,9 @@ export default function UploadPage() {
   async function uploadSpeakerSample(speaker: SpeakerProfile, files: FileList | null) {
     const sample = files?.[0];
     if (!sample) return;
-    const form = new FormData();
-    form.append("file", sample);
     setSpeakerStatus(`正在注册 ${speaker.display_name} 的样本...`);
     try {
-      const response = await fetch(`/api/speakers/${encodeURIComponent(speaker.speaker_id)}/samples`, {
-        method: "POST",
-        body: form,
-      });
-      const payload = await response.json() as { detail?: string; speech_duration_s?: number; quality_score?: number };
-      if (!response.ok) throw new Error(payload.detail ?? "样本注册失败");
+      const payload = await uploadSpeakerSampleApi(speaker.speaker_id, sample);
       setSpeakerStatus(
         `已注册 ${speaker.display_name}: 语音 ${payload.speech_duration_s?.toFixed(1) ?? "-"}s, 质量 ${payload.quality_score?.toFixed(2) ?? "-"}`,
       );

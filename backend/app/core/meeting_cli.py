@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import time
 import traceback
@@ -147,9 +148,9 @@ def _build_pipeline(prompt_templates_path: str = ""):
 
 
 def _write_status(out_dir: Path, payload: dict) -> None:
-    (out_dir / "status.json").write_text(
-        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
-    )
+    temporary = out_dir / ".status.json.tmp"
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, out_dir / "status.json")
 
 
 def _merge_training_segments(segments: list[object], *, max_gap_s: float = 1.5) -> list[object]:

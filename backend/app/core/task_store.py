@@ -5,6 +5,8 @@ import json
 import os
 import signal
 import sqlite3
+import subprocess
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +20,7 @@ class TaskRecord:
     status: str
     pid: int | None
     pgid: int | None
+    process_identity: str | None
     output_dir: str
     log_path: str
     started_at: str
@@ -43,6 +46,7 @@ class TaskStore:
                 status TEXT NOT NULL CHECK(status IN ('processing', 'done', 'failed', 'stopped')),
                 pid INTEGER,
                 pgid INTEGER,
+                process_identity TEXT,
                 output_dir TEXT NOT NULL,
                 log_path TEXT NOT NULL DEFAULT '',
                 started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -61,9 +65,57 @@ class TaskStore:
             );
             CREATE INDEX IF NOT EXISTS idx_artifact_cleanup_events_created
                 ON artifact_cleanup_events(created_at DESC);
+            CREATE TABLE IF NOT EXISTS task_supervisor_lease (
+                lease_name TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                expires_at REAL NOT NULL
+            );
             """
         )
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(tasks)").fetchall()
+        }
+        if "process_identity" not in columns:
+            connection.execute("ALTER TABLE tasks ADD COLUMN process_identity TEXT")
         return connection
+
+    def processing_tasks(self) -> list[TaskRecord]:
+        """Read active tasks without changing their state."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM tasks WHERE status = 'processing' ORDER BY started_at, rowid"
+            ).fetchall()
+        return [self._record(row) for row in rows]
+
+    def try_acquire_supervisor(
+        self, owner_id: str, *, lease_name: str = "default", lease_seconds: float = 30.0
+    ) -> bool:
+        """Acquire or renew the single database-backed supervisor lease."""
+        if not owner_id or lease_seconds <= 0:
+            raise ValueError("owner_id and lease_seconds must be valid")
+        now = time.time()
+        expires_at = now + lease_seconds
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT owner_id, expires_at FROM task_supervisor_lease WHERE lease_name = ?",
+                (lease_name,),
+            ).fetchone()
+            if row is not None and row["owner_id"] != owner_id and float(row["expires_at"]) > now:
+                return False
+            connection.execute(
+                "INSERT INTO task_supervisor_lease(lease_name, owner_id, expires_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(lease_name) DO UPDATE SET owner_id=excluded.owner_id, expires_at=excluded.expires_at",
+                (lease_name, owner_id, expires_at),
+            )
+        return True
+
+    def release_supervisor(self, owner_id: str, *, lease_name: str = "default") -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "DELETE FROM task_supervisor_lease WHERE lease_name = ? AND owner_id = ?",
+                (lease_name, owner_id),
+            )
 
     @staticmethod
     def _record(row: sqlite3.Row) -> TaskRecord:
@@ -77,6 +129,7 @@ class TaskStore:
             status=row["status"],
             pid=row["pid"],
             pgid=row["pgid"],
+            process_identity=row["process_identity"],
             output_dir=row["output_dir"],
             log_path=row["log_path"],
             started_at=row["started_at"],
@@ -92,6 +145,7 @@ class TaskStore:
         status: str,
         pid: int | None,
         pgid: int | None,
+        process_identity: str | None = None,
         output_dir: str,
         log_path: str = "",
         detail: dict[str, Any] | None = None,
@@ -103,16 +157,17 @@ class TaskStore:
         with self._connect() as connection:
             connection.execute(
                 """
-                INSERT INTO tasks(task_id, kind, status, pid, pgid, output_dir, log_path, detail)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO tasks(task_id, kind, status, pid, pgid, process_identity, output_dir, log_path, detail)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(task_id) DO UPDATE SET
                     kind=excluded.kind, status=excluded.status, pid=excluded.pid,
-                    pgid=excluded.pgid, output_dir=excluded.output_dir,
+                    pgid=excluded.pgid, process_identity=excluded.process_identity,
+                    output_dir=excluded.output_dir,
                     log_path=excluded.log_path, detail=excluded.detail,
                     finished_at=CASE WHEN excluded.status = 'processing' THEN NULL ELSE CURRENT_TIMESTAMP END
                 """,
                 (
-                    task_id, kind, status, pid, pgid, output_dir, log_path,
+                    task_id, kind, status, pid, pgid, process_identity, output_dir, log_path,
                     json.dumps(detail or {}, ensure_ascii=False),
                 ),
             )
@@ -247,6 +302,24 @@ class TaskStore:
         return True
 
     @staticmethod
+    def process_identity(pid: int | None) -> str | None:
+        """Return a stable process-start token where the host exposes one."""
+        if not pid:
+            return None
+        try:
+            result = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "lstart="],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=0.5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        token = result.stdout.strip()
+        return token or None
+
+    @staticmethod
     def _elapsed_seconds(started_at: str) -> float:
         try:
             started = datetime.fromisoformat(started_at).replace(tzinfo=timezone.utc)
@@ -269,6 +342,76 @@ class TaskStore:
             pass
         return self.update(task_id, status=status, detail={"error": reason})
 
+    def terminate_and_wait(
+        self,
+        task_id: str,
+        *,
+        reason: str,
+        grace_seconds: float = 5.0,
+        force_seconds: float = 2.0,
+    ) -> TaskRecord:
+        """Stop a child, confirm exit, and only then publish its terminal state."""
+        if grace_seconds < 0 or force_seconds < 0:
+            raise ValueError("termination timeouts must not be negative")
+        record = self.get(task_id)
+        if record is None:
+            raise KeyError(task_id)
+        if record.status != "processing":
+            return record
+        if not record.pid:
+            return self.update(task_id, status="stopped", detail={"error": reason})
+        if record.process_identity:
+            current_identity = self.process_identity(record.pid)
+            if current_identity is None and self.pid_alive(record.pid):
+                return self.update(
+                    task_id,
+                    status="failed",
+                    detail={"error": "cannot verify original process identity", "identity_unverified": True},
+                )
+            if current_identity is not None and current_identity != record.process_identity:
+                return self.update(
+                    task_id,
+                    status="stopped",
+                    detail={"error": "original process is no longer present", "identity_mismatch": True},
+                )
+
+        try:
+            if record.kind == "meeting" and record.pgid:
+                os.killpg(record.pgid, signal.SIGTERM)
+            else:
+                os.kill(record.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return self.update(task_id, status="stopped", detail={"error": reason})
+
+        deadline = time.monotonic() + grace_seconds
+        while self.pid_alive(record.pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        forced = False
+        if self.pid_alive(record.pid):
+            forced = True
+            try:
+                if record.kind == "meeting" and record.pgid:
+                    os.killpg(record.pgid, signal.SIGKILL)
+                else:
+                    os.kill(record.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            deadline = time.monotonic() + force_seconds
+            while self.pid_alive(record.pid) and time.monotonic() < deadline:
+                time.sleep(0.05)
+
+        if self.pid_alive(record.pid):
+            return self.update(
+                task_id,
+                status="failed",
+                detail={"error": f"unable to stop process: {reason}", "forced": forced},
+            )
+        return self.update(
+            task_id,
+            status="stopped",
+            detail={"error": reason, "forced": forced},
+        )
+
     def reconcile(self, timeouts: dict[str, float] | None = None) -> list[TaskRecord]:
         """Converge stale processing entries after API restart or child exit."""
         with self._connect() as connection:
@@ -290,7 +433,6 @@ class TaskStore:
             return record
         if (
             timeout_seconds is not None
-            and record.pid is not None
             and self._elapsed_seconds(record.started_at) >= timeout_seconds
         ):
             return self.terminate(
@@ -298,6 +440,15 @@ class TaskStore:
                 status="failed",
                 reason=f"task timed out after {timeout_seconds:g}s",
             )
+        # reserve() creates the processing row before the child is spawned.
+        # Give that short hand-off window a chance to register its PID.
+        if record.pid is None:
+            return record
+        if record.process_identity:
+            current_identity = self.process_identity(record.pid)
+            if current_identity is not None and current_identity != record.process_identity:
+                status, detail = self._terminal_status(record)
+                return self.update(record.task_id, status=status, detail={**detail, "identity_mismatch": True})
         if self.pid_alive(record.pid):
             return record
         status, detail = self._terminal_status(record)
@@ -306,6 +457,15 @@ class TaskStore:
     def _terminal_status(self, record: TaskRecord) -> tuple[str, dict[str, Any]]:
         if record.kind == "meeting":
             status_path = Path(record.output_dir) / "status.json"
+            try:
+                payload = json.loads(status_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+            final_status = payload.get("status")
+            if final_status in {"done", "failed"}:
+                return str(final_status), {"status_json": payload}
+        if record.kind == "training":
+            status_path = Path(record.output_dir) / "training-status.json"
             try:
                 payload = json.loads(status_path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):

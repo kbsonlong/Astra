@@ -11,6 +11,7 @@ type ReviewRow = {
   raw_text: string;
   corrected_text: string;
   review_status: ReviewStatus;
+  version: number;
   audio_url: string;
 };
 
@@ -78,7 +79,7 @@ export default function ReviewPage() {
   async function review(row: ReviewRow, reviewStatus: ReviewStatus) {
     setBusy(true);
     try {
-      const response = await fetch(`/api/meeting/${encodeURIComponent(taskId.trim())}/training-data/${encodeURIComponent(row.segment_id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrected_text: row.corrected_text.trim(), review_status: reviewStatus }) });
+      const response = await fetch(`/api/meeting/${encodeURIComponent(taskId.trim())}/training-data/${encodeURIComponent(row.segment_id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ corrected_text: row.corrected_text.trim(), review_status: reviewStatus, version: row.version }) });
       const payload = await response.json() as { item?: ReviewRow; detail?: string };
       if (!response.ok || !payload.item) throw new Error(payload.detail ?? "保存审校结果失败");
       await load(pagination.page);
@@ -93,7 +94,7 @@ export default function ReviewPage() {
   async function batchReview(reviewStatus: ReviewStatus) {
     const items = rows
       .filter((row) => selected.has(row.segment_id))
-      .map((row) => ({ segment_id: row.segment_id, corrected_text: row.corrected_text.trim() }));
+      .map((row) => ({ segment_id: row.segment_id, corrected_text: row.corrected_text.trim(), version: row.version }));
     if (!items.length) {
       setStatus("请先选择当前页的分段");
       return;

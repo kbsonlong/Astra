@@ -339,6 +339,8 @@ class Settings:
     transcribe_max_duration_seconds: float = 60 * 60
     meeting_max_upload_bytes: int = 500 * 1024 * 1024
     meeting_max_duration_seconds: float = 4 * 60 * 60
+    audio_probe_timeout_seconds: float = 30.0
+    audio_probe_temp_max_bytes: int = 1024 * 1024 * 1024
     ws_max_audio_bytes: int = 25 * 1024 * 1024
     realtime_recording_dir: str = "~/.astra/realtime-recordings"
     realtime_recording_max_bytes: int = 2 * 1024 * 1024 * 1024
@@ -587,6 +589,12 @@ class Settings:
             ),
             meeting_max_duration_seconds=_positive_float_env(
                 "MEETING_MAX_DURATION_SECONDS", cls.meeting_max_duration_seconds
+            ),
+            audio_probe_timeout_seconds=_positive_float_env(
+                "AUDIO_PROBE_TIMEOUT_SECONDS", cls.audio_probe_timeout_seconds
+            ),
+            audio_probe_temp_max_bytes=_positive_int_env(
+                "AUDIO_PROBE_TEMP_MAX_BYTES", cls.audio_probe_temp_max_bytes
             ),
             ws_max_audio_bytes=_positive_int_env(
                 "WS_MAX_AUDIO_BYTES", cls.ws_max_audio_bytes

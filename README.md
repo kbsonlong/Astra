@@ -15,6 +15,7 @@ PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 - [用户使用指引](docs/user-guide.md)：启动服务、上传音频、实时转写、流式修正和会议纪要。
 - [开发指引](docs/development-guide.md)：项目结构、开发环境、测试、模型配置和扩展边界。
 - [当前架构](docs/architecture-analysis.md)：运行时分层、任务可靠性与前端边界。
+- [分阶段改进计划](docs/improvement-plan.md)：按优先级推进可靠性、恢复能力、结构治理和发布验收。
 - [真实设备验收清单](docs/acceptance-checklist.md)：Mac mini、麦克风、模型和远端 LLM 的独立验收项。
 - [TTS 音色库发布与验收说明](docs/tts-voice-library-release.md)：音色库配置、IndexTTS 用户门禁和真机验收步骤。
 - [部署预检](deploy/README.md)：Mac mini、远端 LLM 和前端 Compose 验收。

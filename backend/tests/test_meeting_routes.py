@@ -1,4 +1,5 @@
 """meeting_routes 单元测试: task_id / job_dir / 渲染 / WebSocket 状态事件。"""
+import asyncio
 import json
 
 import pytest
@@ -9,11 +10,43 @@ from app.api.meeting_routes import (
     ENGINE_LABEL,
     _job_dir,
     _new_task_id,
+    _reap_meeting_process,
     _render_markdown,
 )
 from app.core.task_store import TaskStore
 from app.config import Settings
 from app.core.meeting import MeetingResult, Segment
+
+
+def test_meeting_process_reaper_persists_terminal_status(tmp_path) -> None:
+    class FinishedProcess:
+        async def wait(self) -> int:
+            return 0
+
+    task_id = "20260905-123456-1a2b3c4d"
+    output_dir = tmp_path / task_id
+    output_dir.mkdir()
+    (output_dir / "status.json").write_text(
+        json.dumps({"status": "done", "duration_s": 12.5}), encoding="utf-8"
+    )
+    store = TaskStore(tmp_path / "tasks.sqlite3")
+    store.register(
+        task_id=task_id,
+        kind="meeting",
+        status="processing",
+        pid=123,
+        pgid=123,
+        output_dir=str(output_dir),
+    )
+
+    asyncio.run(_reap_meeting_process(FinishedProcess(), store, task_id))
+
+    record = store.get(task_id)
+    assert record is not None
+    assert record.status == "done"
+    assert record.detail["returncode"] == 0
+    assert record.detail["duration_s"] == 12.5
+    assert store.active_count("meeting") == 0
 
 
 def test_prompt_templates_endpoint_and_invalid_selection(tmp_path) -> None:
@@ -283,6 +316,11 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
         with pytest.raises(WebSocketDisconnect):
             websocket.receive_json()
 
+    snapshot = client.get(f"/api/meeting/{task_id}")
+    assert snapshot.status_code == 200
+    assert snapshot.json()["status"] == "done"
+    assert snapshot.json()["summary_preview"] == "# 摘要\n完成"
+
     audio = client.get(f"/api/meeting/{task_id}/separated/source-0.wav")
     assert audio.status_code == 200
     assert audio.content == b"RIFF"
@@ -326,9 +364,15 @@ def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
     assert review.json()["counts"] == {"pending": 1, "approved": 0, "rejected": 0}
     assert review.json()["items"][0]["audio_url"].endswith("/seg-000001/audio")
 
-    response = client.patch(
+    missing_version = client.patch(
         f"/api/meeting/{task_id}/training-data/seg-000001",
         json={"corrected_text": "云资源中心", "review_status": "approved"},
+    )
+    assert missing_version.status_code == 422
+
+    response = client.patch(
+        f"/api/meeting/{task_id}/training-data/seg-000001",
+        json={"corrected_text": "云资源中心", "review_status": "approved", "version": 1},
     )
     assert response.status_code == 200
     assert response.json()["item"]["review_status"] == "approved"
@@ -411,8 +455,8 @@ def test_training_review_paginates_and_batch_updates_segments(tmp_path) -> None:
         json={
             "review_status": "approved",
             "items": [
-                {"segment_id": "seg-000001", "corrected_text": "确认一"},
-                {"segment_id": "seg-000002", "corrected_text": "确认二"},
+                {"segment_id": "seg-000001", "corrected_text": "确认一", "version": 1},
+                {"segment_id": "seg-000002", "corrected_text": "确认二", "version": 1},
             ],
         },
     )

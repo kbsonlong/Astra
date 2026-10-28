@@ -3,6 +3,8 @@ import io
 import struct
 from uuid import uuid4
 import wave
+import threading
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
@@ -30,6 +32,27 @@ class FakePipeline:
         await emit({"type": "tts_start", "generation_id": generation_id, "seq": 0})
         await emit({"type": "tts_end", "generation_id": generation_id})
         return "用户说的", "好的"
+
+
+class HangingPipeline:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.cancelled = threading.Event()
+
+    async def run(
+        self,
+        audio: bytes,
+        messages: Sequence[Mapping[str, str]],
+        generation_id: int,
+        emit,
+    ) -> tuple[str, str]:
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        return "", ""
 
 
 class ReferencePipeline:
@@ -134,6 +157,25 @@ def test_websocket_runs_injected_pipeline_and_returns_to_listening() -> None:
             "state": "LISTENING",
             "generation_id": 1,
         }
+
+
+def test_websocket_disconnect_cancels_generation_and_releases_ip_slot() -> None:
+    pipeline = HangingPipeline()
+    app = create_app(pipeline=pipeline)
+
+    with TestClient(app).websocket_connect("/ws") as websocket:
+        websocket.send_json({"type": "start_session"})
+        websocket.receive_json()
+        websocket.send_bytes(b"pcm")
+        websocket.send_json({"type": "speech_end"})
+        assert websocket.receive_json()["state"] == "REASONING"
+        assert pipeline.started.wait(timeout=2)
+
+    assert pipeline.cancelled.wait(timeout=2)
+    deadline = time.monotonic() + 2
+    while app.state.audio_ip_limiter._active and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert app.state.audio_ip_limiter._active == {}
 
 
 def test_websocket_forwards_far_end_reference_channel() -> None:
