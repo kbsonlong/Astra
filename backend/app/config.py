@@ -2,7 +2,7 @@ from dataclasses import asdict, dataclass, fields
 import json
 import os
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
@@ -664,6 +664,254 @@ class Settings:
         if len(self.llm_api_key) <= 8:
             return "********"
         return f"{self.llm_api_key[:4]}...{self.llm_api_key[-4:]}"
+
+    # --- Domain-grouped views -------------------------------------------
+    # The flat fields above remain the single source of truth (keyword
+    # constructor, env names and ``settings.<field>`` access are a public
+    # contract). These read-only views let new code group related settings by
+    # domain, e.g. ``settings.asr.model`` instead of ``settings.asr_model``,
+    # without renaming any field or breaking existing call sites.
+    @property
+    def asr(self) -> "AsrSettingsView":
+        return AsrSettingsView(self)
+
+    @property
+    def tts(self) -> "TtsSettingsView":
+        return TtsSettingsView(self)
+
+    @property
+    def speaker(self) -> "SpeakerSettingsView":
+        return SpeakerSettingsView(self)
+
+    @property
+    def audio(self) -> "AudioSettingsView":
+        return AudioSettingsView(self)
+
+    @property
+    def meeting(self) -> "MeetingSettingsView":
+        return MeetingSettingsView(self)
+
+    def runtime_config_public(self) -> dict[str, object]:
+        """Build the ``/api/config`` runtime payload from a grouped allowlist.
+
+        Generated from :data:`RUNTIME_CONFIG_FIELDS` so adding a setting is a
+        one-line change and no secret or local path leaks by being silently
+        copied: a field is exposed only if it is explicitly listed.
+        """
+        payload: dict[str, object] = {}
+        for spec in RUNTIME_CONFIG_FIELDS:
+            payload[spec.key] = spec.render(self)
+        return payload
+
+
+@dataclass(frozen=True)
+class _SettingsView:
+    """Base for read-only domain views backed by a flat :class:`Settings`."""
+
+    _settings: "Settings"
+
+
+class AsrSettingsView(_SettingsView):
+    @property
+    def model(self) -> str:
+        return self._settings.asr_model
+
+    @property
+    def backend(self) -> str:
+        return self._settings.asr_backend
+
+    @property
+    def language(self) -> str:
+        return self._settings.asr_language
+
+    @property
+    def max_tokens(self) -> int:
+        return self._settings.asr_max_tokens
+
+    @property
+    def hotwords(self) -> tuple[str, ...]:
+        return self._settings.asr_hotwords
+
+    @property
+    def system_prompt(self) -> str:
+        return self._settings.asr_system_prompt
+
+
+class TtsSettingsView(_SettingsView):
+    @property
+    def backend(self) -> str:
+        return self._settings.tts_backend
+
+    @property
+    def router_enabled(self) -> bool:
+        return self._settings.tts_router_enabled
+
+    @property
+    def indextts_validated(self) -> bool:
+        return self._settings.tts_indextts_validated
+
+
+class SpeakerSettingsView(_SettingsView):
+    @property
+    def store_path(self) -> str:
+        return self._settings.speaker_store_path
+
+    @property
+    def match_threshold(self) -> float:
+        return self._settings.speaker_match_threshold
+
+    @property
+    def max_speakers(self) -> int:
+        return self._settings.speaker_max_speakers
+
+
+class AudioSettingsView(_SettingsView):
+    @property
+    def enhancement_enabled(self) -> bool:
+        return self._settings.audio_enhancement_enabled
+
+    @property
+    def separation_model(self) -> str:
+        return self._settings.audio_separation_model
+
+    @property
+    def enhancement_device(self) -> str:
+        return self._settings.audio_enhancement_device
+
+
+class MeetingSettingsView(_SettingsView):
+    @property
+    def output_dir(self) -> str:
+        return self._settings.meeting_output_dir
+
+    @property
+    def max_concurrent_jobs(self) -> int:
+        return self._settings.meeting_max_concurrent_jobs
+
+    @property
+    def task_timeout_seconds(self) -> float:
+        return self._settings.meeting_task_timeout_seconds
+
+
+@dataclass(frozen=True)
+class RuntimeConfigField:
+    """One entry in the ``/api/config`` allowlist.
+
+    ``key`` is the public JSON key. ``source`` is the flat ``Settings`` field
+    read by default; ``transform`` optionally maps the raw value (e.g. tuples
+    to lists, or a secret path to a boolean ``*_configured`` flag).
+    """
+
+    key: str
+    source: str | None = None
+    transform: "Callable[[Settings], object] | None" = None
+
+    def render(self, settings: "Settings") -> object:
+        if self.transform is not None:
+            return self.transform(settings)
+        # A plain field defaults to reading the attribute named by ``key``.
+        return getattr(settings, self.source or self.key)
+
+
+def _as_list(field: str) -> "Callable[[Settings], object]":
+    return lambda s: list(getattr(s, field))
+
+
+def _is_set(field: str) -> "Callable[[Settings], object]":
+    return lambda s: bool(getattr(s, field))
+
+
+# Domain-grouped allowlist of fields exposed by ``GET /api/config``. Grouping is
+# by comment section; a field is public only if listed here. Secret values and
+# local paths (api key, reference wav/text, model dirs, store paths) are exposed
+# only as ``*_configured`` booleans, never raw.
+RUNTIME_CONFIG_FIELDS: tuple["RuntimeConfigField", ...] = (
+    # Correction
+    RuntimeConfigField("meeting_rule_correction_enabled"),
+    # ASR
+    RuntimeConfigField("asr_model"),
+    RuntimeConfigField("asr_backend"),
+    RuntimeConfigField("asr_funasr_model"),
+    RuntimeConfigField("asr_funasr_language"),
+    RuntimeConfigField("asr_funasr_diarize"),
+    RuntimeConfigField("asr_language"),
+    RuntimeConfigField("asr_max_tokens"),
+    RuntimeConfigField("asr_repetition_penalty"),
+    RuntimeConfigField("asr_repetition_context_size"),
+    RuntimeConfigField("asr_chunk_duration_seconds"),
+    RuntimeConfigField("asr_long_audio_threshold_seconds"),
+    RuntimeConfigField("asr_worker_queue_size"),
+    RuntimeConfigField("asr_worker_request_timeout_seconds"),
+    RuntimeConfigField("asr_worker_shutdown_timeout_seconds"),
+    RuntimeConfigField("asr_hotwords", transform=_as_list("asr_hotwords")),
+    RuntimeConfigField(
+        "asr_system_prompt_configured", transform=_is_set("asr_system_prompt")
+    ),
+    # TTS
+    RuntimeConfigField("tts_backend"),
+    RuntimeConfigField("tts_mlx_model"),
+    RuntimeConfigField("tts_mlx_voice"),
+    RuntimeConfigField("tts_mlx_lang_code"),
+    RuntimeConfigField("tts_cosyvoice_model"),
+    RuntimeConfigField("tts_cosyvoice_language"),
+    RuntimeConfigField(
+        "tts_cosyvoice_prompt_configured",
+        transform=lambda s: bool(
+            s.tts_cosyvoice_prompt_wav and s.tts_cosyvoice_prompt_text
+        ),
+    ),
+    RuntimeConfigField(
+        "tts_indextts_model_configured",
+        transform=_is_set("tts_indextts_model_dir"),
+    ),
+    RuntimeConfigField("tts_indextts_model_revision"),
+    RuntimeConfigField("tts_indextts_allow_download"),
+    RuntimeConfigField("tts_indextts_validated"),
+    # Punctuation
+    RuntimeConfigField("punctuation_enabled"),
+    RuntimeConfigField("punctuation_engine"),
+    RuntimeConfigField("punctuation_device"),
+    # Speaker diarization
+    RuntimeConfigField("sd_engine"),
+    RuntimeConfigField("speaker_match_threshold"),
+    RuntimeConfigField("speaker_match_margin"),
+    RuntimeConfigField("speaker_max_speakers"),
+    RuntimeConfigField("speaker_duplicate_threshold"),
+    # Meeting / training jobs
+    RuntimeConfigField("meeting_max_concurrent_jobs"),
+    RuntimeConfigField("training_max_concurrent_jobs"),
+    RuntimeConfigField("meeting_task_timeout_seconds"),
+    RuntimeConfigField("training_task_timeout_seconds"),
+    RuntimeConfigField("meeting_artifact_retention_days"),
+    RuntimeConfigField("meeting_artifact_max_bytes"),
+    # Upload / probe limits
+    RuntimeConfigField("transcribe_max_upload_bytes"),
+    RuntimeConfigField("transcribe_max_duration_seconds"),
+    RuntimeConfigField("meeting_max_upload_bytes"),
+    RuntimeConfigField("meeting_max_duration_seconds"),
+    RuntimeConfigField("audio_probe_timeout_seconds"),
+    RuntimeConfigField("audio_probe_temp_max_bytes"),
+    # Realtime / websocket
+    RuntimeConfigField("ws_max_audio_bytes"),
+    RuntimeConfigField("realtime_recording_max_bytes"),
+    RuntimeConfigField("realtime_recording_retention_days"),
+    RuntimeConfigField("audio_max_concurrent_per_ip"),
+    # Audio enhancement / separation
+    RuntimeConfigField("audio_enhancement_enabled"),
+    RuntimeConfigField("audio_ans_model"),
+    RuntimeConfigField("audio_aec_model"),
+    RuntimeConfigField("audio_separation_model"),
+    RuntimeConfigField("audio_separation_trigger"),
+    RuntimeConfigField("audio_separation_window_seconds"),
+    RuntimeConfigField("audio_overlap_detector_model"),
+    RuntimeConfigField("audio_overlap_model_dir"),
+    RuntimeConfigField("audio_enhancement_device"),
+    RuntimeConfigField("audio_enhancement_model_dir"),
+    RuntimeConfigField("audio_enhancement_max_queue"),
+    RuntimeConfigField("audio_enhancement_frame_timeout_ms"),
+    # Meta
+    RuntimeConfigField("version"),
+)
 
 
 def llm_environment_values(settings: Settings) -> dict[str, str]:
