@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
+from .sqlite_util import enable_wal
+
 
 class SpeakerNotFoundError(LookupError):
     pass
@@ -72,6 +74,10 @@ class SpeakerProfileStore:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # Share this database across the realtime and workbench processes.
+        # enable_wal skips an in-memory database automatically.
+        enable_wal(connection)
+        connection.execute("PRAGMA busy_timeout = 5000")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS speaker_profiles (
