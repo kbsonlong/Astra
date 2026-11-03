@@ -192,44 +192,66 @@ def _build_meeting_stages(
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
+    want_workbench = getattr(app.state, "want_workbench", True)
+    want_realtime = getattr(app.state, "want_realtime", True)
+    supervisor: asyncio.Task[None] | None = None
+    recording_cleaner: asyncio.Task[None] | None = None
     supervisor_id = uuid4().hex
     app.state.supervisor_id = supervisor_id
-    owns_supervisor_lease = await asyncio.to_thread(
-        app.state.task_store.try_acquire_supervisor, supervisor_id
-    )
-    records = (
-        await asyncio.to_thread(
-            app.state.task_store.reconcile,
-            {
-                "meeting": app.state.settings.meeting_task_timeout_seconds,
-                "training": app.state.settings.training_task_timeout_seconds,
-            },
+
+    # Workbench owns the task registry: reconcile/restore in-flight jobs and run
+    # the meeting-artifact cleanup under a single supervisor lease.
+    if want_workbench and app.state.task_store is not None:
+        owns_supervisor_lease = await asyncio.to_thread(
+            app.state.task_store.try_acquire_supervisor, supervisor_id
         )
-        if owns_supervisor_lease
-        else app.state.task_store.processing_tasks()
-    )
-    for record in records:
-        app.state.training_manager.restore(record)
-    if owns_supervisor_lease:
-        clean_meeting_artifacts(
-            base_dir=app.state.settings.meeting_output_dir,
-            task_store=app.state.task_store,
-            retention_days=app.state.settings.meeting_artifact_retention_days,
-            max_bytes=app.state.settings.meeting_artifact_max_bytes,
+        records = (
+            await asyncio.to_thread(
+                app.state.task_store.reconcile,
+                {
+                    "meeting": app.state.settings.meeting_task_timeout_seconds,
+                    "training": app.state.settings.training_task_timeout_seconds,
+                },
+            )
+            if owns_supervisor_lease
+            else app.state.task_store.processing_tasks()
         )
+        for record in records:
+            app.state.training_manager.restore(record)
+        if owns_supervisor_lease:
+            clean_meeting_artifacts(
+                base_dir=app.state.settings.meeting_output_dir,
+                task_store=app.state.task_store,
+                retention_days=app.state.settings.meeting_artifact_retention_days,
+                max_bytes=app.state.settings.meeting_artifact_max_bytes,
+            )
+        supervisor = asyncio.create_task(_task_supervisor(app, supervisor_id))
+
+    # Realtime owns its recording directory cleanup.
+    if want_realtime:
         clean_expired_realtime_recordings(
             app.state.settings.realtime_recording_dir,
             app.state.settings.realtime_recording_retention_days,
         )
-    supervisor = asyncio.create_task(_task_supervisor(app, supervisor_id))
+        # A realtime-only process runs its own periodic cleaner; when it shares
+        # a process with workbench ("all"), the supervisor handles the recurring
+        # cleanup instead.
+        if not want_workbench:
+            recording_cleaner = asyncio.create_task(
+                _realtime_recording_cleaner(app)
+            )
     try:
         yield
     finally:
-        supervisor.cancel()
-        await asyncio.gather(supervisor, return_exceptions=True)
-        await asyncio.to_thread(
-            app.state.task_store.release_supervisor, supervisor_id
-        )
+        if recording_cleaner is not None:
+            recording_cleaner.cancel()
+            await asyncio.gather(recording_cleaner, return_exceptions=True)
+        if supervisor is not None:
+            supervisor.cancel()
+            await asyncio.gather(supervisor, return_exceptions=True)
+            await asyncio.to_thread(
+                app.state.task_store.release_supervisor, supervisor_id
+            )
     worker = getattr(app.state, "asr_worker", None)
     if worker is not None:
         await worker.aclose()
@@ -241,6 +263,10 @@ async def app_lifespan(app: FastAPI):
 
 async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
     """收敛无浏览器连接时的退出、超时和异常任务。"""
+    # When this process also serves realtime (profile "all"), the supervisor
+    # keeps cleaning recordings as before. A workbench-only process leaves
+    # recording cleanup to the realtime process's own cleaner.
+    also_clean_recordings = getattr(app.state, "want_realtime", True)
     last_cleanup = 0.0
     while True:
         try:
@@ -264,11 +290,12 @@ async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
                         retention_days=app.state.settings.meeting_artifact_retention_days,
                         max_bytes=app.state.settings.meeting_artifact_max_bytes,
                     )
-                    await asyncio.to_thread(
-                        clean_expired_realtime_recordings,
-                        app.state.settings.realtime_recording_dir,
-                        app.state.settings.realtime_recording_retention_days,
-                    )
+                    if also_clean_recordings:
+                        await asyncio.to_thread(
+                            clean_expired_realtime_recordings,
+                            app.state.settings.realtime_recording_dir,
+                            app.state.settings.realtime_recording_retention_days,
+                        )
                     last_cleanup = now
             await asyncio.sleep(5)
         except asyncio.CancelledError:
@@ -278,6 +305,25 @@ async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
             await asyncio.sleep(1)
 
 
+async def _realtime_recording_cleaner(app: FastAPI) -> None:
+    """Periodically expire realtime recordings in a realtime-only process.
+
+    The workbench supervisor owns this cleanup when both roles share a process
+    (profile "all"); a dedicated realtime process needs its own loop.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(
+                clean_expired_realtime_recordings,
+                app.state.settings.realtime_recording_dir,
+                app.state.settings.realtime_recording_retention_days,
+            )
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(5)
+
 def create_app(
     settings: Settings | None = None,
     pipeline: VoicePipeline | None = None,
@@ -285,9 +331,23 @@ def create_app(
     *,
     enable_pipeline: bool = True,
     enable_meeting: bool = True,
+    profile: str = "all",
 ) -> FastAPI:
+    # Profiles let the realtime voice link and the heavier workbench
+    # (meeting / training / voice library / speaker) run as separate processes
+    # that no longer contend for GPU/CPU in one app. "all" keeps the original
+    # single-process behavior and is the default for every existing caller.
+    if profile not in {"all", "realtime", "workbench"}:
+        raise ValueError(
+            f"profile must be one of all/realtime/workbench, got {profile!r}"
+        )
+    want_realtime = profile in {"all", "realtime"}
+    want_workbench = profile in {"all", "workbench"}
     app = FastAPI(title="Astra API", version="0.1.0", lifespan=app_lifespan)
     current = settings or Settings.from_env()
+    app.state.profile = profile
+    app.state.want_realtime = want_realtime
+    app.state.want_workbench = want_workbench
     app.state.settings = current
     app.state.audio_ip_limiter = AudioIPConcurrencyLimiter(
         current.audio_max_concurrent_per_ip
@@ -306,30 +366,41 @@ def create_app(
             )
         return await call_next(request)
 
-    app.state.task_store = TaskStore(current.task_store_path)
-    app.state.review_store = ReviewStore(current.task_store_path)
-    app.state.training_manager = TrainingManager(
-        app.state.task_store,
-        max_concurrent_jobs=current.training_max_concurrent_jobs,
-        task_timeout_seconds=current.training_task_timeout_seconds,
-    )
-    app.state.training_config_loader = lambda: load_qwen3_training_config(
-        current.qwen3_training_config_path
-    )
-    app.state.speaker_store = SpeakerProfileStore(
-        current.speaker_store_path,
-        match_threshold=current.speaker_match_threshold,
-        match_margin=current.speaker_match_margin,
-        duplicate_threshold=current.speaker_duplicate_threshold,
-        sample_dir=current.speaker_sample_dir,
-    )
+    # Workbench owns the task registry, training and speaker stores. The
+    # realtime profile skips them so it does not run meeting/training
+    # supervision.
+    app.state.task_store = None
+    app.state.review_store = None
+    app.state.training_manager = None
+    app.state.training_config_loader = None
+    app.state.speaker_store = None
+    if want_workbench:
+        app.state.task_store = TaskStore(current.task_store_path)
+        app.state.review_store = ReviewStore(current.task_store_path)
+        app.state.training_manager = TrainingManager(
+            app.state.task_store,
+            max_concurrent_jobs=current.training_max_concurrent_jobs,
+            task_timeout_seconds=current.training_task_timeout_seconds,
+        )
+        app.state.training_config_loader = lambda: load_qwen3_training_config(
+            current.qwen3_training_config_path
+        )
+        app.state.speaker_store = SpeakerProfileStore(
+            current.speaker_store_path,
+            match_threshold=current.speaker_match_threshold,
+            match_margin=current.speaker_match_margin,
+            duplicate_threshold=current.speaker_duplicate_threshold,
+            sample_dir=current.speaker_sample_dir,
+        )
+    # The voice library is written by workbench but also read (snapshot) by the
+    # realtime ws session, so both profiles open the shared store.
     app.state.tts_voice_store = TtsVoiceStore(
         current.tts_voice_store_path,
         current.tts_voice_audio_dir,
     )
     app.state.asr_worker = None
     app.state.pipeline = pipeline
-    if enable_pipeline and pipeline is None:
+    if want_realtime and enable_pipeline and pipeline is None:
         from .core.jaec import build_audio_aec_pipeline
 
         realtime_asr = _build_realtime_asr(current)
@@ -361,7 +432,7 @@ def create_app(
             enhancement_frame_timeout_ms=current.audio_enhancement_frame_timeout_ms,
         )
     app.state.meeting_pipeline = meeting_pipeline
-    if enable_meeting and meeting_pipeline is None:
+    if want_workbench and enable_meeting and meeting_pipeline is None:
         from .core.meeting import MeetingPipeline
         from .core.audio_separation import (
             build_audio_separation_stage,
@@ -442,14 +513,18 @@ def create_app(
             speaker_store=app.state.speaker_store,
         )
     app.include_router(auth_router)
-    app.include_router(ws_router)
-    app.include_router(http_router)
-    app.include_router(realtime_recording_router)
+    # Voice-library routes are needed in both profiles: realtime reads snapshots,
+    # workbench manages the library.
     app.include_router(tts_voice_router)
-    app.include_router(meeting_router)
-    app.include_router(speaker_router)
-    app.include_router(notification_router)
-    app.include_router(training_router)
+    if want_realtime:
+        app.include_router(ws_router)
+        app.include_router(http_router)
+        app.include_router(realtime_recording_router)
+    if want_workbench:
+        app.include_router(meeting_router)
+        app.include_router(speaker_router)
+        app.include_router(notification_router)
+        app.include_router(training_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
@@ -567,34 +642,38 @@ def create_app(
             )
         return {**_llm_config_response(updated), "saved": True, "runtime_applied": True}
 
-    @app.get("/api/training/config")
-    async def training_config() -> dict[str, object]:
-        try:
-            config = load_qwen3_training_config(
-                app.state.settings.qwen3_training_config_path
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return {
-            "config": config.to_dict(),
-            "runtime_applied": False,
-            "note": "参数供离线 Qwen3-ASR SFT 使用；保存后不会在当前 API 进程中启动训练或热切换模型。",
-        }
+    # Offline Qwen3-ASR training config is a workbench concern; a realtime-only
+    # process does not expose it.
+    if want_workbench:
 
-    @app.put("/api/training/config")
-    async def update_training_config(payload: TrainingConfigPayload) -> dict[str, object]:
-        try:
-            config = save_qwen3_training_config(
-                app.state.settings.qwen3_training_config_path,
-                payload.to_config(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {
-            "config": config.to_dict(),
-            "runtime_applied": False,
-            "note": "训练配置已保存；请由独立训练脚本读取，当前 API 不会启动训练。",
-        }
+        @app.get("/api/training/config")
+        async def training_config() -> dict[str, object]:
+            try:
+                config = load_qwen3_training_config(
+                    app.state.settings.qwen3_training_config_path
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            return {
+                "config": config.to_dict(),
+                "runtime_applied": False,
+                "note": "参数供离线 Qwen3-ASR SFT 使用；保存后不会在当前 API 进程中启动训练或热切换模型。",
+            }
+
+        @app.put("/api/training/config")
+        async def update_training_config(payload: TrainingConfigPayload) -> dict[str, object]:
+            try:
+                config = save_qwen3_training_config(
+                    app.state.settings.qwen3_training_config_path,
+                    payload.to_config(),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return {
+                "config": config.to_dict(),
+                "runtime_applied": False,
+                "note": "训练配置已保存；请由独立训练脚本读取，当前 API 不会启动训练。",
+            }
 
     return app
 
