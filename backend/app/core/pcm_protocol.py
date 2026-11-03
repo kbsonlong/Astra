@@ -45,3 +45,58 @@ def decode_pcm_frame(data: bytes) -> PcmFrame:
         sample_count=sample_count,
         payload=payload,
     )
+
+
+# --- Downstream TTS audio frames ------------------------------------------
+# TTS audio previously travelled as base64 inside a JSON ``tts_chunk`` event,
+# inflating payloads ~33% and forcing a decode per frame. It now uses a compact
+# binary frame mirroring the upstream ``ASTR`` design. The header carries the
+# generation id and sequence so the client can drop audio from an interrupted
+# turn, exactly as the JSON ``generation_id``/``seq`` fields did.
+TTS_FRAME_MAGIC = b"ATTS"
+TTS_FRAME_VERSION = 1
+# magic(4s) version(B) reserved(B) generation_id(I) sequence(I) sample_rate(I)
+TTS_FRAME_HEADER = struct.Struct("<4sBBIII")
+
+
+@dataclass(frozen=True)
+class TtsAudioFrame:
+    generation_id: int
+    sequence: int
+    sample_rate: int
+    payload: bytes
+
+
+def encode_tts_frame(frame: TtsAudioFrame) -> bytes:
+    """Serialize one downstream TTS audio frame (header + WAV payload)."""
+    if frame.generation_id < 0 or frame.sequence < 0:
+        raise ValueError("generation_id and sequence must be non-negative")
+    if frame.sample_rate <= 0:
+        raise ValueError("sample_rate must be positive")
+    header = TTS_FRAME_HEADER.pack(
+        TTS_FRAME_MAGIC,
+        TTS_FRAME_VERSION,
+        0,
+        frame.generation_id,
+        frame.sequence,
+        frame.sample_rate,
+    )
+    return header + frame.payload
+
+
+def decode_tts_frame(data: bytes) -> TtsAudioFrame:
+    if len(data) < TTS_FRAME_HEADER.size:
+        raise ValueError("TTS frame header is truncated")
+    magic, version, _reserved, generation_id, sequence, sample_rate = (
+        TTS_FRAME_HEADER.unpack(data[: TTS_FRAME_HEADER.size])
+    )
+    if magic != TTS_FRAME_MAGIC or version != TTS_FRAME_VERSION:
+        raise ValueError("unsupported TTS frame header")
+    if sample_rate <= 0:
+        raise ValueError("TTS frame sample_rate is invalid")
+    return TtsAudioFrame(
+        generation_id=generation_id,
+        sequence=sequence,
+        sample_rate=sample_rate,
+        payload=data[TTS_FRAME_HEADER.size :],
+    )

@@ -8,7 +8,12 @@ from app.core.pcm_protocol import (
     PCM_FRAME_MAGIC,
     PCM_FRAME_VERSION,
     PCM_MICROPHONE,
+    TTS_FRAME_HEADER,
+    TTS_FRAME_MAGIC,
+    TtsAudioFrame,
     decode_pcm_frame,
+    decode_tts_frame,
+    encode_tts_frame,
 )
 from app.core.session_manager import Session
 
@@ -58,3 +63,29 @@ def test_pcm_frame_decoder_rejects_payload_length_mismatch() -> None:
         assert "payload length" in str(exc)
     else:
         raise AssertionError("expected malformed PCM frame to be rejected")
+
+
+def test_tts_frame_roundtrip_preserves_header_and_payload() -> None:
+    original = TtsAudioFrame(
+        generation_id=7, sequence=3, sample_rate=24_000, payload=b"wav-bytes"
+    )
+    decoded = decode_tts_frame(encode_tts_frame(original))
+    assert decoded == original
+    assert decoded.payload == b"wav-bytes"
+
+
+def test_tts_frame_decoder_rejects_foreign_magic() -> None:
+    bogus = b"XXXX" + encode_tts_frame(
+        TtsAudioFrame(generation_id=0, sequence=0, sample_rate=16_000, payload=b"")
+    )[4:]
+    try:
+        decode_tts_frame(bogus)
+    except ValueError as exc:
+        assert "unsupported TTS frame header" in str(exc)
+    else:
+        raise AssertionError("expected a foreign TTS frame magic to be rejected")
+
+
+def test_tts_frame_header_is_fixed_width() -> None:
+    assert TTS_FRAME_HEADER.size == 18
+    assert TTS_FRAME_MAGIC == b"ATTS"

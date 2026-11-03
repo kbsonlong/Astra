@@ -1,4 +1,3 @@
-import base64
 import io
 import wave
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -8,6 +7,7 @@ import pytest
 
 from app.core.pipeline import VoicePipeline
 from app.core.tts_voice_store import TtsVoiceSnapshot
+from app.core.pcm_protocol import decode_tts_frame
 
 
 class FakeASR:
@@ -58,46 +58,60 @@ class SnapshotTTS:
 
 @pytest.mark.anyio
 async def test_pipeline_emits_ordered_generation_scoped_events() -> None:
-    events: list[dict[str, object]] = []
+    events: list[dict[str, object] | bytes] = []
 
-    async def emit(event: dict[str, object]) -> None:
+    async def emit(event: dict[str, object] | bytes) -> None:
         events.append(event)
 
     pipeline = VoicePipeline(FakeASR(), FakeLLM(), FakeTTS())
     await pipeline.run(b"wav", [{"role": "user", "content": "hi"}], 7, emit)
 
-    assert [event["type"] for event in events] == [
+    # TTS audio is a binary frame; every other event stays a JSON dict.
+    kinds = [
+        "bytes" if isinstance(event, (bytes, bytearray)) else event["type"]
+        for event in events
+    ]
+    assert kinds == [
         "asr_final",
         "llm_token",
         "tts_start",
-        "tts_chunk",
+        "bytes",
         "llm_token",
         "tts_start",
-        "tts_chunk",
+        "bytes",
         "tts_end",
     ]
-    assert all(event["generation_id"] == 7 for event in events)
-    chunk = events[6]
-    assert base64.b64decode(chunk["audio_b64"]) == b"Second sentence"
+    for event in events:
+        if isinstance(event, (bytes, bytearray)):
+            assert decode_tts_frame(event).generation_id == 7
+        else:
+            assert event["generation_id"] == 7
+    second_chunk = decode_tts_frame(events[6])
+    assert second_chunk.payload == b"Second sentence"
+    assert second_chunk.sequence == 1
 
 
 @pytest.mark.anyio
 async def test_pipeline_reports_actual_tts_wav_sample_rate() -> None:
-    events: list[dict[str, object]] = []
+    events: list[dict[str, object] | bytes] = []
 
-    async def emit(event: dict[str, object]) -> None:
+    async def emit(event: dict[str, object] | bytes) -> None:
         events.append(event)
 
     pipeline = VoicePipeline(FakeASR(), FakeLLM(), WavTTS())
     await pipeline.run(b"wav", [], 1, emit)
 
-    chunk = next(event for event in events if event["type"] == "tts_chunk")
-    assert chunk["sample_rate"] == 24_000
+    frame = next(
+        decode_tts_frame(event)
+        for event in events
+        if isinstance(event, (bytes, bytearray))
+    )
+    assert frame.sample_rate == 24_000
 
 
 @pytest.mark.anyio
 async def test_pipeline_synthesizes_with_session_voice_snapshot() -> None:
-    events: list[dict[str, object]] = []
+    events: list[dict[str, object] | bytes] = []
     tts = SnapshotTTS()
     snapshot = TtsVoiceSnapshot(
         voice_id="voice-1",
@@ -109,7 +123,7 @@ async def test_pipeline_synthesizes_with_session_voice_snapshot() -> None:
         default_params={},
     )
 
-    async def emit(event: dict[str, object]) -> None:
+    async def emit(event: dict[str, object] | bytes) -> None:
         events.append(event)
 
     pipeline = VoicePipeline(FakeASR(), FakeLLM(), tts)
@@ -120,5 +134,9 @@ async def test_pipeline_synthesizes_with_session_voice_snapshot() -> None:
         "Second sentence",
     ]
     assert all(received == snapshot for _, received in tts.snapshot_calls)
-    chunks = [event for event in events if event["type"] == "tts_chunk"]
-    assert base64.b64decode(chunks[0]["audio_b64"]) == b"snapshot:First sentence."
+    chunks = [
+        decode_tts_frame(event)
+        for event in events
+        if isinstance(event, (bytes, bytearray))
+    ]
+    assert chunks[0].payload == b"snapshot:First sentence."
