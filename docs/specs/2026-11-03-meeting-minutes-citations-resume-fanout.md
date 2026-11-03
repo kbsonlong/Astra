@@ -1,7 +1,7 @@
 # 会议纪要增强：引用锚点 + 断点续跑 + 纪要任务并行 实施方案
 
 > 参考：飞书(Lark)桌面端会议纪要实现拆解（REA 逆向结论）的三条核心设计。
-> 日期：2026-11-03  ·  状态：已确认，按 F1 → F2 → F3 顺序实施
+> 日期：2026-11-03  ·  状态：已实现（F1 `7472201` / F2 `fafb736` / F3 `96242ce` / 依赖修复 `d56e674`）
 
 ## 背景与目标
 
@@ -68,10 +68,11 @@ WS /api/meeting/{task_id}/events —— 每秒轮询 status.json 全量推送（
 2. `backend/app/core/meeting_cli.py`：
    - `--resume` flag，透传 `resume=True, checkpoint_dir=out_dir`。
    - status.json 增加 `"resumed": bool`。
-   - 已有 `status: failed` + 有效 checkpoint 时 `--resume` 才有意义；checkpoint 缺失/损坏时报错退出并写 failed。
+   - checkpoint 缺失/损坏/版本不符（CheckpointError）→ 干净退出并写 failed。
+   - 实现说明：checkpoint 的 `filename` 字段仅作 provenance 记录（实际值为 `input.<ext>`，跨任务无鉴别力），resume 校验 version + payload 结构，不做 filename 匹配；"同一场会议"的关联由调用方通过 `resume_of=<task_id>` 显式指定。
 3. `backend/app/api/meeting_routes.py`：
-   - `POST /api/meeting/process` 增加 `resume: bool = Form(False)`；`resume=True` 时校验 job 目录存在 checkpoint，否则 400。
-   - 透传给子进程 argv。
+   - `POST /api/meeting/process` 增加 `resume_of: str = Form("")`（方案初稿写的是 `resume` 布尔位，实现改为指向旧 task_id 更明确）；`resume_of` 指向的 job 目录必须存在 checkpoint，否则 400。
+   - 复制 checkpoint 进新 job 目录（TaskStore 主键不复用），透传 `--resume` 给子进程；resume 请求不要求上传音频（`file` 变为可选）。
 4. 清理语义保持不变：成功后 checkpoint 保留（供审计/重放），`artifact_retention` 统一管理。
 
 **测试**：
