@@ -120,6 +120,6 @@ WS /api/meeting/{task_id}/events —— 每秒轮询 status.json 全量推送（
 
 ## 已知风险
 
-- `mlx-tune==0.6.0` 与 `numpy==1.26.4` metadata 冲突，fresh install 失败（独立 issue，不在本方案范围）。
+- ~~`mlx-tune==0.6.0` 与 `numpy==1.26.4` metadata 冲突~~ 已解决（2026-11-03，以新版为准）：numpy 升 `2.2.6`、funasr 升 `1.4.21`（放开 numpy<2 上限）、constraints 加 `mlx-vlm<0.6.0`（避开 starlette>=1.0.1 与 fastapi 0.116.1 的冲突）；`uv pip install -r requirements-dev.txt` dry-run 解析通过，242 测试 + resemblyzer 真实模型加载在 numpy 2.2.6 下全过。
 - timeline 格式变更会破坏旧 report 的文本比对（无机器消费方，接受）。
 - transcript_segments.jsonl 的 seg id 基于**合并后**训练段，与 timeline 的 raw segment id 不同域——保持现状不合并，报告引用一律指向 timeline id，训练标注继续用 JSONL id，两域在 meta.json 中注明。
