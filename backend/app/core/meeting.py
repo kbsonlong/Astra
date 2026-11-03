@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -43,6 +44,29 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_DIARIZATION = object()
 
+# 纪要引用锚点：[seg-XXXXXX]，与 timeline 域 segment_id 一致。
+_CITATION_RE = re.compile(r"\[(seg-\d{6})\]")
+_CITATION_INSTRUCTION = (
+    "引用要求：每个要点末尾标注来源段落 ID，格式 [seg-XXXXXX]（可多个），"
+    "只能使用逐字稿中出现的段落 ID，不得编造。"
+)
+
+
+def extract_citations(summary: str) -> dict[str, int]:
+    """统计纪要文本中 [seg-XXXXXX] 引用出现次数（按出现顺序）。"""
+    citations: dict[str, int] = {}
+    for match in _CITATION_RE.finditer(summary or ""):
+        segment_id = match.group(1)
+        citations[segment_id] = citations.get(segment_id, 0) + 1
+    return citations
+
+
+def _assign_segment_ids(segments: list[Segment]) -> None:
+    """按 timeline 顺序赋稳定锚点 seg-XXXXXX（幂等：已赋值不覆盖）。"""
+    for index, segment in enumerate(segments, 1):
+        if not segment.segment_id:
+            segment.segment_id = f"seg-{index:06d}"
+
 
 @dataclass
 class MeetingResult:
@@ -53,18 +77,20 @@ class MeetingResult:
     speaker_labels: dict[str, str] = field(default_factory=dict)  # 簇id -> 标签
     summary: str = ""
     translation: str = ""
+    citations: dict[str, int] = field(default_factory=dict)  # seg id -> 引用次数
     enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_artifacts: list[str] = field(default_factory=list)
     overlap_detection: dict[str, object] | None = None
 
     def timeline_text(self) -> str:
-        """时间轴逐字稿 (每行: [mm:ss] S# 文本)。"""
+        """时间轴逐字稿 (每行: [mm:ss] [seg-XXXXXX] S# 文本)。"""
         lines = []
         for s in self.segments:
             mm, ss = int(s.start // 60), int(s.start % 60)
             who = s.speaker_name or s.speaker or "?"
-            lines.append(f"[{mm:02d}:{ss:02d}] {who} {s.text.strip()}")
+            anchor = f" [{s.segment_id}]" if s.segment_id else ""
+            lines.append(f"[{mm:02d}:{ss:02d}]{anchor} {who} {s.text.strip()}")
         return "\n".join(lines)
 
 
@@ -295,12 +321,14 @@ class MeetingPipeline:
         if self.llm is None or not getattr(self.llm, "model", ""):
             return ""
         transcript = "\n".join(
-            f"[{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
+            f"[{s.segment_id or '?'}][{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
             for s in segments
             if s.text.strip()
         )
         if not transcript.strip():
             return ""
+        has_ids = all(s.segment_id for s in segments if s.text.strip())
+        citation_rule = _CITATION_INSTRUCTION if has_ids else ""
         # ---- 切块: 按字符粗估(中文1字≈1 token), 在段落边界断开 ----
         chunks: list[str] = []
         current: list[str] = []
@@ -323,6 +351,7 @@ class MeetingPipeline:
                 prompt_template.chunk_system_prompt
                 + (f"\n这是第{i+1}段/共{len(chunks)}段。" if len(chunks) > 1 else "")
                 + topic_hint
+                + (f"\n{citation_rule}" if citation_rule else "")
             )
             part_tokens: list[str] = []
             async for tok in self.llm.stream_chat(
@@ -345,6 +374,10 @@ class MeetingPipeline:
                 f"### 第{i+1}段要点\n{text}" for i, text in enumerate(per_chunk) if text
             )
             sys_merge = prompt_template.merge_system_prompt + topic_hint
+            if citation_rule:
+                sys_merge += (
+                    f"\n合并时保留每条要点原有的 [seg-XXXXXX] 引用标注。{citation_rule}"
+                )
             merged: list[str] = []
             async for tok in self.llm.stream_chat(
                 [
@@ -506,6 +539,8 @@ class MeetingPipeline:
                     lang, segs = await self.transcribe(wav, progress=progress)
             else:
                 lang, segs = await self.transcribe(wav, progress=progress)
+            # 引用锚点：所有路径统一按 timeline 顺序赋 seg-XXXXXX。
+            _assign_segment_ids(segs)
             result = MeetingResult(
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,
@@ -521,6 +556,7 @@ class MeetingPipeline:
                     translate=do_translate,
                     prompt_template_id=prompt_template_id,
                 )
+                result.citations = extract_citations(result.summary)
             logger.info(
                 "meeting done: %.1fs audio, %d segs, %.1fs wall",
                 dur, len(segs), time.time() - t0,

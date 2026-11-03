@@ -174,6 +174,30 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
         out.append(result.summary)
         out.append("")
 
+        # 引用统计：分支是否言之有据 (seg id -> 次数)，无效引用单独列出。
+        citations: dict[str, int] = getattr(result, "citations", None) or {}
+        valid_ids = {s.segment_id for s in result.segments if s.segment_id}
+        valid = {k: v for k, v in citations.items() if k in valid_ids}
+        invalid = {k: v for k, v in citations.items() if k not in valid_ids}
+        if citations:
+            out.append("### 🔗 引用统计")
+            out.append("")
+            snippet_by_id = {
+                s.segment_id: (s.speaker_name or s.speaker or "?", s.text.strip())
+                for s in result.segments
+                if s.segment_id
+            }
+            for segment_id, count in valid.items():
+                who, text = snippet_by_id.get(segment_id, ("?", ""))
+                if len(text) > 80:
+                    text = text[:80] + "…"
+                out.append(f"- `{segment_id}` ×{count} — {who}: {text}")
+            for segment_id, count in invalid.items():
+                out.append(f"- ⚠️ `{segment_id}` ×{count} — 无效引用（逐字稿中不存在）")
+            if not valid:
+                out.append("- ⚠️ 摘要没有任何有效段落引用")
+            out.append("")
+
     if result.translation:
         out.append("---")
         out.append("")
