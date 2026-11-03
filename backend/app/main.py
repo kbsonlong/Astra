@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -678,4 +679,14 @@ def create_app(
     return app
 
 
-app = create_app()
+def _default_app() -> FastAPI:
+    # The ASGI app honors ASTRA_PROFILE (all/realtime/workbench) so a split
+    # deployment runs the same `uvicorn app.main:app` command per process,
+    # varying only the profile and port. Defaults to "all" for single-process
+    # setups. Build Settings first so a value set only in the dotenv file (not a
+    # real env var) is loaded before the profile is resolved.
+    settings = Settings.from_env()
+    return create_app(settings, profile=os.getenv("ASTRA_PROFILE", "all"))
+
+
+app = _default_app()

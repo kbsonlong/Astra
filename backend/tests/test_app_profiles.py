@@ -1,4 +1,7 @@
 """The create_app profile split: realtime vs workbench vs all."""
+import subprocess
+import sys
+
 import pytest
 
 from app.config import Settings
@@ -74,3 +77,38 @@ def test_all_profile_mounts_everything(tmp_path) -> None:
     assert any(path.startswith("/api/meeting") for path in paths)
     assert app.state.task_store is not None
     assert app.state.tts_voice_store is not None
+
+
+def _profile_in_fresh_process(env: dict[str, str]) -> str:
+    """Import app.main in a cold subprocess and report the resolved profile."""
+    result = subprocess.run(
+        [sys.executable, "-c", "import app.main as m; print(m.app.state.profile)"],
+        cwd="backend",
+        env={**env, "PYTHONPATH": "."},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+def test_dotenv_only_profile_is_honored_on_cold_start(tmp_path, monkeypatch) -> None:
+    import os
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("ASTRA_PROFILE=workbench\n", encoding="utf-8")
+    base = {k: v for k, v in os.environ.items() if k != "ASTRA_PROFILE"}
+    base["ASTRA_CONFIG_PATH"] = str(env_file)
+    # Set only in the dotenv file, never as a real env var.
+    assert _profile_in_fresh_process(base) == "workbench"
+
+
+def test_real_env_profile_overrides_dotenv(tmp_path) -> None:
+    import os
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("ASTRA_PROFILE=workbench\n", encoding="utf-8")
+    base = dict(os.environ)
+    base["ASTRA_CONFIG_PATH"] = str(env_file)
+    base["ASTRA_PROFILE"] = "realtime"
+    assert _profile_in_fresh_process(base) == "realtime"
