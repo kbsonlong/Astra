@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -68,6 +69,98 @@ def _assign_segment_ids(segments: list[Segment]) -> None:
             segment.segment_id = f"seg-{index:06d}"
 
 
+class CheckpointError(ValueError):
+    """segments.json checkpoint 缺失、损坏或版本不受支持。"""
+
+
+_CHECKPOINT_VERSION = 1
+
+
+def write_segments_checkpoint(
+    checkpoint_dir: str | Path,
+    *,
+    filename: str,
+    duration_s: float,
+    language: str,
+    segments: list[Segment],
+) -> Path:
+    """ASR 完成后原子落盘分段 checkpoint（不含音频字节），供断点续跑。"""
+    directory = Path(checkpoint_dir).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": _CHECKPOINT_VERSION,
+        "filename": filename,
+        "duration_s": duration_s,
+        "language": language,
+        "segments": [
+            {
+                "segment_id": s.segment_id,
+                "start": s.start,
+                "end": s.end,
+                "speaker": s.speaker,
+                "speaker_id": s.speaker_id,
+                "speaker_name": s.speaker_name,
+                "speaker_similarity": s.speaker_similarity,
+                "speaker_confidence": s.speaker_confidence,
+                "text": s.text,
+                "raw_text": s.raw_text,
+            }
+            for s in segments
+        ],
+    }
+    path = directory / "segments.json"
+    temporary = path.with_name(".segments.json.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(temporary, path)
+    return path
+
+
+def load_segments_checkpoint(checkpoint_dir: str | Path) -> dict[str, Any]:
+    """读取并校验 checkpoint；缺失/损坏/版本不符抛 CheckpointError。"""
+    path = Path(checkpoint_dir).expanduser() / "segments.json"
+    if not path.is_file():
+        raise CheckpointError(f"checkpoint not found: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CheckpointError(f"checkpoint is corrupt: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise CheckpointError("checkpoint payload must be an object")
+    if payload.get("version") != _CHECKPOINT_VERSION:
+        raise CheckpointError(
+            f"unsupported checkpoint version: {payload.get('version')!r}"
+        )
+    if not isinstance(payload.get("segments"), list):
+        raise CheckpointError("checkpoint has no segments list")
+    return payload
+
+
+def segments_from_checkpoint(payload: dict[str, Any]) -> list[Segment]:
+    """从 checkpoint payload 重建 Segment 列表（不含音频）。"""
+    segments: list[Segment] = []
+    for row in payload["segments"]:
+        if not isinstance(row, dict):
+            raise CheckpointError("checkpoint segment row must be an object")
+        segments.append(
+            Segment(
+                start=float(row.get("start", 0.0)),
+                end=float(row.get("end", 0.0)),
+                text=str(row.get("text", "")),
+                speaker=str(row.get("speaker", "")),
+                speaker_id=row.get("speaker_id"),
+                speaker_name=str(row.get("speaker_name", "")),
+                speaker_similarity=row.get("speaker_similarity"),
+                speaker_confidence=str(row.get("speaker_confidence", "")),
+                audio=None,
+                raw_text=str(row.get("raw_text", "")),
+                segment_id=str(row.get("segment_id", "")),
+            )
+        )
+    return segments
+
+
 @dataclass
 class MeetingResult:
     filename: str
@@ -78,6 +171,7 @@ class MeetingResult:
     summary: str = ""
     translation: str = ""
     citations: dict[str, int] = field(default_factory=dict)  # seg id -> 引用次数
+    resumed: bool = False  # 从 segments.json checkpoint 续跑（跳过 ASR）
     enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_artifacts: list[str] = field(default_factory=list)
@@ -457,11 +551,42 @@ class MeetingPipeline:
         progress: Any = None,
         separate: bool = False,
         separation_artifact_dir: str | Path | None = None,
+        checkpoint_dir: str | Path | None = None,
+        resume: bool = False,
     ) -> MeetingResult:
         t0 = time.time()
         tmp_parent: Path | None = None
         wav: str | None = None
+
+        # ---- F2 断点续跑：checkpoint 有效时跳过解码/增强/ASR 全部音频阶段 ----
+        checkpoint_payload: dict[str, Any] | None = None
+        if resume:
+            checkpoint_payload = load_segments_checkpoint(checkpoint_dir or Path("."))
         src_is_path = isinstance(audio, (str, Path)) and Path(audio).exists()
+
+        if checkpoint_payload is not None:
+            segs = segments_from_checkpoint(checkpoint_payload)
+            _assign_segment_ids(segs)
+            result = MeetingResult(
+                filename=os.path.basename(filename),
+                duration_s=float(checkpoint_payload.get("duration_s", 0.0)),
+                language=str(checkpoint_payload.get("language", "zh")),
+                segments=segs,
+                resumed=True,
+            )
+            if summarize:
+                result.summary, result.translation = await self.summarize(
+                    segs,
+                    meeting_topic=topic,
+                    translate=do_translate,
+                    prompt_template_id=prompt_template_id,
+                )
+                result.citations = extract_citations(result.summary)
+            logger.info(
+                "meeting resumed: %d segs from checkpoint, %.1fs wall",
+                len(segs), time.time() - t0,
+            )
+            return result
 
         if src_is_path:
             src = Path(audio)
@@ -541,6 +666,15 @@ class MeetingPipeline:
                 lang, segs = await self.transcribe(wav, progress=progress)
             # 引用锚点：所有路径统一按 timeline 顺序赋 seg-XXXXXX。
             _assign_segment_ids(segs)
+            # F2: ASR(最耗时阶段)完成即落盘 checkpoint，失败后可断点续跑。
+            if checkpoint_dir is not None:
+                write_segments_checkpoint(
+                    checkpoint_dir,
+                    filename=os.path.basename(filename),
+                    duration_s=dur,
+                    language=lang,
+                    segments=segs,
+                )
             result = MeetingResult(
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,

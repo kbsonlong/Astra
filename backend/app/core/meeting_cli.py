@@ -37,6 +37,7 @@ if str(ROOT / "backend") not in sys.path:
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
 from app.core.correction import parse_correction_rules  # noqa: E402
+from app.core.meeting import CheckpointError  # noqa: E402
 from app.core.meeting_prompts import (  # noqa: E402
     DEFAULT_MEETING_PROMPT_ID,
     get_meeting_prompt_template,
@@ -270,6 +271,7 @@ async def _run(
     separate: bool,
     prompt_template_id: str,
     prompt_templates_path: str,
+    resume: bool = False,
 ) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_status(out_dir, {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")})
@@ -289,7 +291,20 @@ async def _run(
             prompt_template_id=prompt_template.id,
             separate=separate,
             separation_artifact_dir=out_dir / "separated",
+            checkpoint_dir=out_dir,
+            resume=resume,
         )
+    except CheckpointError as exc:
+        _write_status(out_dir, {
+            "status": "failed",
+            "error": f"resume checkpoint invalid: {exc}",
+            "elapsed_s": round(time.time() - t0, 1),
+        })
+        print(json.dumps(
+            {"status": "failed", "error": "resume checkpoint invalid"},
+            ensure_ascii=False,
+        ))
+        return 1
     except Exception:
         traceback.print_exc()
         _write_status(out_dir, {
@@ -328,6 +343,7 @@ async def _run(
     )
     _write_status(out_dir, {
         "status": "done",
+        "resumed": result.resumed,
         "prompt_template": prompt_template.id,
         "prompt_template_name": prompt_template.name,
         "duration_s": round(result.duration_s, 1),
@@ -372,6 +388,11 @@ def main() -> int:
         action="store_true",
         help="离线启用 FLASepformer 双说话人分离",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="从 out_dir/segments.json checkpoint 续跑（跳过 ASR，只跑 LLM 纪要）",
+    )
     args = parser.parse_args()
     from app.config import Settings
 
@@ -386,6 +407,7 @@ def main() -> int:
             separate=args.separate,
             prompt_template_id=args.prompt_template,
             prompt_templates_path=prompt_templates_path,
+            resume=args.resume,
         )
     )
 
