@@ -96,6 +96,8 @@ def _resumable_pipeline(calls: dict[str, int]) -> MeetingPipeline:
         return "translation"
 
     pipeline = MeetingPipeline.__new__(MeetingPipeline)
+    pipeline.note_task_timeout_seconds = 300.0
+    pipeline._stages_default = False  # resume 测试走注入的 stage(旧串行语义)
     pipeline.summary_stage = SummaryStage(fake_generate)
     pipeline.translation_stage = TranslationStage(fake_translate)
     return pipeline

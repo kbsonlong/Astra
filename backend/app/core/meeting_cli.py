@@ -47,7 +47,31 @@ from app.core.workflow import CorrectionStage, ResemblyzerDiarizationStage  # no
 from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
 
-def _build_pipeline(prompt_templates_path: str = ""):
+def _note_task_status_updater(out_dir: Path):
+    """F3: 纪要子任务进度回调 —— 原子更新 status.json 的 note_tasks。
+
+    WS /events 每秒轮询 status.json, 子任务进度随事件流自动推送。
+    """
+
+    def update(task: str, entry: dict) -> None:
+        path = out_dir / "status.json"
+        payload: dict
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {"status": "processing"}
+        if not isinstance(payload, dict):
+            payload = {"status": "processing"}
+        note_tasks_map: dict = payload.setdefault("note_tasks", {})
+        note_tasks_map[task] = entry
+        _write_status(out_dir, payload)
+
+    return update
+
+
+def _build_pipeline(
+    prompt_templates_path: str = "", note_task_timeout_seconds: float = 300.0
+):
     """与 main.py 中会议管线一致的干净配置(无热词/无 system_prompt)。"""
     from app.config import Settings
     from app.core.meeting import MeetingPipeline
@@ -145,6 +169,7 @@ def _build_pipeline(prompt_templates_path: str = ""):
         ),
         inline_asr=inline_asr,
         speaker_store=speaker_store,
+        note_task_timeout_seconds=note_task_timeout_seconds,
     )
 
 
@@ -281,7 +306,13 @@ async def _run(
             prompt_template_id,
             custom_templates_path=prompt_templates_path,
         )
-        pipeline = _build_pipeline(prompt_templates_path)
+        from app.config import Settings as _Settings
+
+        settings = _Settings.from_env()
+        pipeline = _build_pipeline(
+            prompt_templates_path,
+            note_task_timeout_seconds=settings.meeting_note_task_timeout_seconds,
+        )
         result = await pipeline.process(
             audio,
             filename=audio.name,
@@ -293,6 +324,9 @@ async def _run(
             separation_artifact_dir=out_dir / "separated",
             checkpoint_dir=out_dir,
             resume=resume,
+            on_note_task=(
+                _note_task_status_updater(out_dir) if summarize else None
+            ),
         )
     except CheckpointError as exc:
         _write_status(out_dir, {
@@ -344,6 +378,7 @@ async def _run(
     _write_status(out_dir, {
         "status": "done",
         "resumed": result.resumed,
+        "note_tasks": result.note_tasks,
         "prompt_template": prompt_template.id,
         "prompt_template_name": prompt_template.name,
         "duration_s": round(result.duration_s, 1),

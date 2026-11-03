@@ -173,7 +173,6 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
         out.append("")
         out.append(result.summary)
         out.append("")
-
         # 引用统计：分支是否言之有据 (seg id -> 次数)，无效引用单独列出。
         citations: dict[str, int] = getattr(result, "citations", None) or {}
         valid_ids = {s.segment_id for s in result.segments if s.segment_id}
@@ -196,6 +195,36 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
                 out.append(f"- ⚠️ `{segment_id}` ×{count} — 无效引用（逐字稿中不存在）")
             if not valid:
                 out.append("- ⚠️ 摘要没有任何有效段落引用")
+            out.append("")
+
+        # F3 fan-out 子任务: 待办 / 关键决策（各自独立超时, 失败/超时显示占位）。
+        note_tasks: dict[str, dict[str, object]] = (
+            getattr(result, "note_tasks", None) or {}
+        )
+        note_sections = {
+            "actions": ("## ✅ 待办行动项", "待办提取未产出"),
+            "decisions": ("## 🧭 关键决策", "决策提取未产出"),
+        }
+        for key, (title, fallback) in note_sections.items():
+            entry = note_tasks.get(key)
+            if entry is None:
+                continue
+            status = str(entry.get("status", ""))
+            text = str(entry.get("text", "")).strip()
+            out.append("---")
+            out.append("")
+            out.append(title)
+            out.append("")
+            if status == "done" and text:
+                out.append(text)
+            elif status == "timeout":
+                out.append(f"*（{fallback}：子任务超时）*")
+            elif status == "failed":
+                out.append(f"*（{fallback}：{entry.get('error', '未知错误')}）*")
+            elif not text:
+                out.append(f"*（{fallback}）*")
+            else:
+                out.append(text)
             out.append("")
 
     if result.translation:

@@ -332,6 +332,7 @@ class Settings:
     meeting_max_concurrent_jobs: int = 1
     training_max_concurrent_jobs: int = 1
     meeting_task_timeout_seconds: float = 2 * 60 * 60
+    meeting_note_task_timeout_seconds: float = 300.0
     training_task_timeout_seconds: float = 12 * 60 * 60
     meeting_artifact_retention_days: int = 30
     meeting_artifact_max_bytes: int = 20 * 1024 * 1024 * 1024
@@ -568,6 +569,10 @@ class Settings:
             ),
             meeting_task_timeout_seconds=_positive_float_env(
                 "MEETING_TASK_TIMEOUT_SECONDS", cls.meeting_task_timeout_seconds
+            ),
+            meeting_note_task_timeout_seconds=_positive_float_env(
+                "MEETING_NOTE_TASK_TIMEOUT_SECONDS",
+                cls.meeting_note_task_timeout_seconds,
             ),
             training_task_timeout_seconds=_positive_float_env(
                 "TRAINING_TASK_TIMEOUT_SECONDS", cls.training_task_timeout_seconds
