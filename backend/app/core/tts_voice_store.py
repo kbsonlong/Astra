@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from .sqlite_util import enable_wal
+
 
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")
 _VOICE_STATUSES = {"draft", "active", "archived", "revoked"}
@@ -111,6 +113,9 @@ class TtsVoiceStore:
         connection = sqlite3.connect(self.path, timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # WAL lets the realtime process read voice snapshots while the workbench
+        # process writes the voice library, without "database is locked".
+        enable_wal(connection)
         connection.execute("PRAGMA busy_timeout = 5000")
         connection.executescript(
             """

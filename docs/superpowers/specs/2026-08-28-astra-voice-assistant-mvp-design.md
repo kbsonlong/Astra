@@ -220,11 +220,11 @@ LLM 在 `192.168.3.18` 运行，Mac mini 只能证明本地链路停止，不能
 | `asr_partial` | `{ text: string, generation_id: number }` | 可选，MVP 不强制 |
 | `llm_token` | `{ token: string, generation_id: number }` | LLM SSE token |
 | `tts_start` | `{ generation_id: number, seq: number }` | 某句 TTS 开始 |
-| `tts_chunk` | `{ generation_id: number, seq: number, mime: "audio/wav", sample_rate: 22050, audio_b64: string }` | TTS 音频分片，前端按 `generation_id` 和 `seq` 校验 |
+| TTS 音频帧 | 二进制 `ATTS` 帧：`magic(4) version(1) reserved(1) generation_id(uint32 LE) sequence(uint32 LE) sample_rate(uint32 LE)` + WAV 负载 | TTS 音频分片走二进制下行帧，前端按帧头的 `generation_id`/`sequence` 校验 |
 | `tts_end` | `{ generation_id: number }` | 当前轮次播放结束 |
 | `error` | `{ code: string, message: string, generation_id?: number }` | 错误 |
 
-`tts_chunk` 不使用裸二进制帧，避免中断后旧音频无法按轮次丢弃。MVP 先使用 base64 JSON，后续若性能不足，再改为“JSON header + binary frame”的双帧协议。
+TTS 音频下行最初用 base64 JSON（`tts_chunk`）承载，为规避中断后旧音频无法按轮次丢弃的问题。该性能顾虑现已通过二进制 `ATTS` 帧解决：帧头携带 `generation_id`/`sequence`，前端据此丢弃被打断轮次的音频，同时省去 base64 约 33% 的膨胀与逐帧解码。`tts_start`/`tts_end` 仍为 JSON 控制事件。
 
 ---
 

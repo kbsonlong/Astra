@@ -1,4 +1,5 @@
 import asyncio
+import os
 import time
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -90,75 +91,9 @@ def _llm_config_response(current: Settings) -> dict[str, object]:
 
 
 def _runtime_config_response(current: Settings) -> dict[str, object]:
-    return {
-        "meeting_rule_correction_enabled": current.meeting_rule_correction_enabled,
-        "asr_model": current.asr_model,
-        "asr_backend": current.asr_backend,
-        "asr_funasr_model": current.asr_funasr_model,
-        "asr_funasr_language": current.asr_funasr_language,
-        "asr_funasr_diarize": current.asr_funasr_diarize,
-        "asr_language": current.asr_language,
-        "asr_max_tokens": current.asr_max_tokens,
-        "asr_repetition_penalty": current.asr_repetition_penalty,
-        "asr_repetition_context_size": current.asr_repetition_context_size,
-        "asr_chunk_duration_seconds": current.asr_chunk_duration_seconds,
-        "asr_long_audio_threshold_seconds": current.asr_long_audio_threshold_seconds,
-        "asr_worker_queue_size": current.asr_worker_queue_size,
-        "asr_worker_request_timeout_seconds": current.asr_worker_request_timeout_seconds,
-        "asr_worker_shutdown_timeout_seconds": current.asr_worker_shutdown_timeout_seconds,
-        "asr_hotwords": list(current.asr_hotwords),
-        "asr_system_prompt_configured": bool(current.asr_system_prompt),
-        "tts_backend": current.tts_backend,
-        "tts_mlx_model": current.tts_mlx_model,
-        "tts_mlx_voice": current.tts_mlx_voice,
-        "tts_mlx_lang_code": current.tts_mlx_lang_code,
-        "tts_cosyvoice_model": current.tts_cosyvoice_model,
-        "tts_cosyvoice_language": current.tts_cosyvoice_language,
-        "tts_cosyvoice_prompt_configured": bool(
-            current.tts_cosyvoice_prompt_wav and current.tts_cosyvoice_prompt_text
-        ),
-        "tts_indextts_model_configured": bool(current.tts_indextts_model_dir),
-        "tts_indextts_model_revision": current.tts_indextts_model_revision,
-        "tts_indextts_allow_download": current.tts_indextts_allow_download,
-        "tts_indextts_validated": current.tts_indextts_validated,
-        "punctuation_enabled": current.punctuation_enabled,
-        "punctuation_engine": current.punctuation_engine,
-        "punctuation_device": current.punctuation_device,
-        "sd_engine": current.sd_engine,
-        "speaker_match_threshold": current.speaker_match_threshold,
-        "speaker_match_margin": current.speaker_match_margin,
-        "speaker_max_speakers": current.speaker_max_speakers,
-        "speaker_duplicate_threshold": current.speaker_duplicate_threshold,
-        "meeting_max_concurrent_jobs": current.meeting_max_concurrent_jobs,
-        "training_max_concurrent_jobs": current.training_max_concurrent_jobs,
-        "meeting_task_timeout_seconds": current.meeting_task_timeout_seconds,
-        "training_task_timeout_seconds": current.training_task_timeout_seconds,
-        "meeting_artifact_retention_days": current.meeting_artifact_retention_days,
-        "meeting_artifact_max_bytes": current.meeting_artifact_max_bytes,
-        "transcribe_max_upload_bytes": current.transcribe_max_upload_bytes,
-        "transcribe_max_duration_seconds": current.transcribe_max_duration_seconds,
-        "meeting_max_upload_bytes": current.meeting_max_upload_bytes,
-        "meeting_max_duration_seconds": current.meeting_max_duration_seconds,
-        "audio_probe_timeout_seconds": current.audio_probe_timeout_seconds,
-        "audio_probe_temp_max_bytes": current.audio_probe_temp_max_bytes,
-        "ws_max_audio_bytes": current.ws_max_audio_bytes,
-        "realtime_recording_max_bytes": current.realtime_recording_max_bytes,
-        "realtime_recording_retention_days": current.realtime_recording_retention_days,
-        "audio_max_concurrent_per_ip": current.audio_max_concurrent_per_ip,
-        "audio_enhancement_enabled": current.audio_enhancement_enabled,
-        "audio_ans_model": current.audio_ans_model,
-        "audio_aec_model": current.audio_aec_model,
-        "audio_separation_model": current.audio_separation_model,
-        "audio_separation_trigger": current.audio_separation_trigger,
-        "audio_separation_window_seconds": current.audio_separation_window_seconds,
-        "audio_overlap_detector_model": current.audio_overlap_detector_model,
-        "audio_overlap_model_dir": current.audio_overlap_model_dir,
-        "audio_enhancement_device": current.audio_enhancement_device,
-        "audio_enhancement_model_dir": current.audio_enhancement_model_dir,
-        "audio_enhancement_max_queue": current.audio_enhancement_max_queue,
-        "audio_enhancement_frame_timeout_ms": current.audio_enhancement_frame_timeout_ms,
-        "version": current.version,
-    }
+    # The exposed field set now lives in config.RUNTIME_CONFIG_FIELDS as a
+    # domain-grouped allowlist; this stays as a thin shim for existing callers.
+    return current.runtime_config_public()
 
 
 def _build_realtime_asr(current: Settings) -> object:
@@ -258,44 +193,66 @@ def _build_meeting_stages(
 
 @asynccontextmanager
 async def app_lifespan(app: FastAPI):
+    want_workbench = getattr(app.state, "want_workbench", True)
+    want_realtime = getattr(app.state, "want_realtime", True)
+    supervisor: asyncio.Task[None] | None = None
+    recording_cleaner: asyncio.Task[None] | None = None
     supervisor_id = uuid4().hex
     app.state.supervisor_id = supervisor_id
-    owns_supervisor_lease = await asyncio.to_thread(
-        app.state.task_store.try_acquire_supervisor, supervisor_id
-    )
-    records = (
-        await asyncio.to_thread(
-            app.state.task_store.reconcile,
-            {
-                "meeting": app.state.settings.meeting_task_timeout_seconds,
-                "training": app.state.settings.training_task_timeout_seconds,
-            },
+
+    # Workbench owns the task registry: reconcile/restore in-flight jobs and run
+    # the meeting-artifact cleanup under a single supervisor lease.
+    if want_workbench and app.state.task_store is not None:
+        owns_supervisor_lease = await asyncio.to_thread(
+            app.state.task_store.try_acquire_supervisor, supervisor_id
         )
-        if owns_supervisor_lease
-        else app.state.task_store.processing_tasks()
-    )
-    for record in records:
-        app.state.training_manager.restore(record)
-    if owns_supervisor_lease:
-        clean_meeting_artifacts(
-            base_dir=app.state.settings.meeting_output_dir,
-            task_store=app.state.task_store,
-            retention_days=app.state.settings.meeting_artifact_retention_days,
-            max_bytes=app.state.settings.meeting_artifact_max_bytes,
+        records = (
+            await asyncio.to_thread(
+                app.state.task_store.reconcile,
+                {
+                    "meeting": app.state.settings.meeting_task_timeout_seconds,
+                    "training": app.state.settings.training_task_timeout_seconds,
+                },
+            )
+            if owns_supervisor_lease
+            else app.state.task_store.processing_tasks()
         )
+        for record in records:
+            app.state.training_manager.restore(record)
+        if owns_supervisor_lease:
+            clean_meeting_artifacts(
+                base_dir=app.state.settings.meeting_output_dir,
+                task_store=app.state.task_store,
+                retention_days=app.state.settings.meeting_artifact_retention_days,
+                max_bytes=app.state.settings.meeting_artifact_max_bytes,
+            )
+        supervisor = asyncio.create_task(_task_supervisor(app, supervisor_id))
+
+    # Realtime owns its recording directory cleanup.
+    if want_realtime:
         clean_expired_realtime_recordings(
             app.state.settings.realtime_recording_dir,
             app.state.settings.realtime_recording_retention_days,
         )
-    supervisor = asyncio.create_task(_task_supervisor(app, supervisor_id))
+        # A realtime-only process runs its own periodic cleaner; when it shares
+        # a process with workbench ("all"), the supervisor handles the recurring
+        # cleanup instead.
+        if not want_workbench:
+            recording_cleaner = asyncio.create_task(
+                _realtime_recording_cleaner(app)
+            )
     try:
         yield
     finally:
-        supervisor.cancel()
-        await asyncio.gather(supervisor, return_exceptions=True)
-        await asyncio.to_thread(
-            app.state.task_store.release_supervisor, supervisor_id
-        )
+        if recording_cleaner is not None:
+            recording_cleaner.cancel()
+            await asyncio.gather(recording_cleaner, return_exceptions=True)
+        if supervisor is not None:
+            supervisor.cancel()
+            await asyncio.gather(supervisor, return_exceptions=True)
+            await asyncio.to_thread(
+                app.state.task_store.release_supervisor, supervisor_id
+            )
     for worker_name in ("asr_worker", "meeting_asr_worker"):
         worker = getattr(app.state, worker_name, None)
         if worker is not None:
@@ -308,6 +265,10 @@ async def app_lifespan(app: FastAPI):
 
 async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
     """收敛无浏览器连接时的退出、超时和异常任务。"""
+    # When this process also serves realtime (profile "all"), the supervisor
+    # keeps cleaning recordings as before. A workbench-only process leaves
+    # recording cleanup to the realtime process's own cleaner.
+    also_clean_recordings = getattr(app.state, "want_realtime", True)
     last_cleanup = 0.0
     while True:
         try:
@@ -331,11 +292,12 @@ async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
                         retention_days=app.state.settings.meeting_artifact_retention_days,
                         max_bytes=app.state.settings.meeting_artifact_max_bytes,
                     )
-                    await asyncio.to_thread(
-                        clean_expired_realtime_recordings,
-                        app.state.settings.realtime_recording_dir,
-                        app.state.settings.realtime_recording_retention_days,
-                    )
+                    if also_clean_recordings:
+                        await asyncio.to_thread(
+                            clean_expired_realtime_recordings,
+                            app.state.settings.realtime_recording_dir,
+                            app.state.settings.realtime_recording_retention_days,
+                        )
                     last_cleanup = now
             await asyncio.sleep(5)
         except asyncio.CancelledError:
@@ -345,6 +307,25 @@ async def _task_supervisor(app: FastAPI, supervisor_id: str) -> None:
             await asyncio.sleep(1)
 
 
+async def _realtime_recording_cleaner(app: FastAPI) -> None:
+    """Periodically expire realtime recordings in a realtime-only process.
+
+    The workbench supervisor owns this cleanup when both roles share a process
+    (profile "all"); a dedicated realtime process needs its own loop.
+    """
+    while True:
+        try:
+            await asyncio.to_thread(
+                clean_expired_realtime_recordings,
+                app.state.settings.realtime_recording_dir,
+                app.state.settings.realtime_recording_retention_days,
+            )
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            await asyncio.sleep(5)
+
 def create_app(
     settings: Settings | None = None,
     pipeline: VoicePipeline | None = None,
@@ -352,9 +333,23 @@ def create_app(
     *,
     enable_pipeline: bool = True,
     enable_meeting: bool = True,
+    profile: str = "all",
 ) -> FastAPI:
+    # Profiles let the realtime voice link and the heavier workbench
+    # (meeting / training / voice library / speaker) run as separate processes
+    # that no longer contend for GPU/CPU in one app. "all" keeps the original
+    # single-process behavior and is the default for every existing caller.
+    if profile not in {"all", "realtime", "workbench"}:
+        raise ValueError(
+            f"profile must be one of all/realtime/workbench, got {profile!r}"
+        )
+    want_realtime = profile in {"all", "realtime"}
+    want_workbench = profile in {"all", "workbench"}
     app = FastAPI(title="Astra API", version="0.1.0", lifespan=app_lifespan)
     current = settings or Settings.from_env()
+    app.state.profile = profile
+    app.state.want_realtime = want_realtime
+    app.state.want_workbench = want_workbench
     app.state.settings = current
     app.state.audio_ip_limiter = AudioIPConcurrencyLimiter(
         current.audio_max_concurrent_per_ip
@@ -373,23 +368,34 @@ def create_app(
             )
         return await call_next(request)
 
-    app.state.task_store = TaskStore(current.task_store_path)
-    app.state.review_store = ReviewStore(current.task_store_path)
-    app.state.training_manager = TrainingManager(
-        app.state.task_store,
-        max_concurrent_jobs=current.training_max_concurrent_jobs,
-        task_timeout_seconds=current.training_task_timeout_seconds,
-    )
-    app.state.training_config_loader = lambda: load_qwen3_training_config(
-        current.qwen3_training_config_path
-    )
-    app.state.speaker_store = SpeakerProfileStore(
-        current.speaker_store_path,
-        match_threshold=current.speaker_match_threshold,
-        match_margin=current.speaker_match_margin,
-        duplicate_threshold=current.speaker_duplicate_threshold,
-        sample_dir=current.speaker_sample_dir,
-    )
+    # Workbench owns the task registry, training and speaker stores. The
+    # realtime profile skips them so it does not run meeting/training
+    # supervision.
+    app.state.task_store = None
+    app.state.review_store = None
+    app.state.training_manager = None
+    app.state.training_config_loader = None
+    app.state.speaker_store = None
+    if want_workbench:
+        app.state.task_store = TaskStore(current.task_store_path)
+        app.state.review_store = ReviewStore(current.task_store_path)
+        app.state.training_manager = TrainingManager(
+            app.state.task_store,
+            max_concurrent_jobs=current.training_max_concurrent_jobs,
+            task_timeout_seconds=current.training_task_timeout_seconds,
+        )
+        app.state.training_config_loader = lambda: load_qwen3_training_config(
+            current.qwen3_training_config_path
+        )
+        app.state.speaker_store = SpeakerProfileStore(
+            current.speaker_store_path,
+            match_threshold=current.speaker_match_threshold,
+            match_margin=current.speaker_match_margin,
+            duplicate_threshold=current.speaker_duplicate_threshold,
+            sample_dir=current.speaker_sample_dir,
+        )
+    # The voice library is written by workbench but also read (snapshot) by the
+    # realtime ws session, so both profiles open the shared store.
     app.state.tts_voice_store = TtsVoiceStore(
         current.tts_voice_store_path,
         current.tts_voice_audio_dir,
@@ -397,7 +403,7 @@ def create_app(
     app.state.asr_worker = None
     app.state.meeting_asr_worker = None
     app.state.pipeline = pipeline
-    if enable_pipeline and pipeline is None:
+    if want_realtime and enable_pipeline and pipeline is None:
         from .core.jaec import build_audio_aec_pipeline
 
         realtime_asr = _build_realtime_asr(current)
@@ -429,7 +435,7 @@ def create_app(
             enhancement_frame_timeout_ms=current.audio_enhancement_frame_timeout_ms,
         )
     app.state.meeting_pipeline = meeting_pipeline
-    if enable_meeting and meeting_pipeline is None:
+    if want_workbench and enable_meeting and meeting_pipeline is None:
         from .core.meeting import MeetingPipeline
         from .core.audio_separation import (
             build_audio_separation_stage,
@@ -518,16 +524,63 @@ def create_app(
             ),
             inline_asr=inline_asr,
             speaker_store=app.state.speaker_store,
+            note_task_timeout_seconds=current.meeting_note_task_timeout_seconds,
+            summary_timeout_seconds=current.meeting_summary_timeout_seconds,
+            note_task_max_concurrency=current.meeting_note_task_max_concurrency,
+        )
+    # Realtime-only process still serves /transcribe/stream, which reads VAD,
+    # enhancement and separation off meeting_pipeline. Build a lightweight
+    # pipeline (VAD + enhancement + separation, no meeting LLM/ASR fan-out) so
+    # streaming transcription keeps chunking instead of silently degrading to
+    # whole-file ASR.
+    if (
+        want_realtime
+        and not want_workbench
+        and enable_meeting
+        and app.state.meeting_pipeline is None
+    ):
+        from .core.meeting import MeetingPipeline
+        from .core.audio_separation import (
+            build_audio_separation_stage,
+            build_overlap_detector,
+        )
+
+        app.state.meeting_pipeline = MeetingPipeline(
+            llm=None,
+            asr=getattr(app.state.pipeline, "asr", None),
+            vad_model=current.vad_model,
+            enhancement=build_audio_enhancement_pipeline(
+                enabled=current.audio_enhancement_enabled,
+                ans_model=current.audio_ans_model,
+                model_dir=current.audio_enhancement_model_dir,
+                device=current.audio_enhancement_device,
+            ),
+            separation=build_audio_separation_stage(
+                enabled=current.audio_enhancement_enabled,
+                separation_model=current.audio_separation_model,
+                model_dir=current.audio_enhancement_model_dir,
+                window_seconds=current.audio_separation_window_seconds,
+                device=current.audio_enhancement_device,
+            ),
+            separation_trigger=current.audio_separation_trigger,
+            overlap_detector=build_overlap_detector(
+                model=current.audio_overlap_detector_model,
+                model_dir=current.audio_overlap_model_dir,
+            ),
         )
     app.include_router(auth_router)
-    app.include_router(ws_router)
-    app.include_router(http_router)
-    app.include_router(realtime_recording_router)
+    # Voice-library routes are needed in both profiles: realtime reads snapshots,
+    # workbench manages the library.
     app.include_router(tts_voice_router)
-    app.include_router(meeting_router)
-    app.include_router(speaker_router)
-    app.include_router(notification_router)
-    app.include_router(training_router)
+    if want_realtime:
+        app.include_router(ws_router)
+        app.include_router(http_router)
+        app.include_router(realtime_recording_router)
+    if want_workbench:
+        app.include_router(meeting_router)
+        app.include_router(speaker_router)
+        app.include_router(notification_router)
+        app.include_router(training_router)
 
     @app.get("/api/health")
     async def health() -> dict[str, object]:
@@ -645,36 +698,50 @@ def create_app(
             )
         return {**_llm_config_response(updated), "saved": True, "runtime_applied": True}
 
-    @app.get("/api/training/config")
-    async def training_config() -> dict[str, object]:
-        try:
-            config = load_qwen3_training_config(
-                app.state.settings.qwen3_training_config_path
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return {
-            "config": config.to_dict(),
-            "runtime_applied": False,
-            "note": "参数供离线 Qwen3-ASR SFT 使用；保存后不会在当前 API 进程中启动训练或热切换模型。",
-        }
+    # Offline Qwen3-ASR training config is a workbench concern; a realtime-only
+    # process does not expose it.
+    if want_workbench:
 
-    @app.put("/api/training/config")
-    async def update_training_config(payload: TrainingConfigPayload) -> dict[str, object]:
-        try:
-            config = save_qwen3_training_config(
-                app.state.settings.qwen3_training_config_path,
-                payload.to_config(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return {
-            "config": config.to_dict(),
-            "runtime_applied": False,
-            "note": "训练配置已保存；请由独立训练脚本读取，当前 API 不会启动训练。",
-        }
+        @app.get("/api/training/config")
+        async def training_config() -> dict[str, object]:
+            try:
+                config = load_qwen3_training_config(
+                    app.state.settings.qwen3_training_config_path
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            return {
+                "config": config.to_dict(),
+                "runtime_applied": False,
+                "note": "参数供离线 Qwen3-ASR SFT 使用；保存后不会在当前 API 进程中启动训练或热切换模型。",
+            }
+
+        @app.put("/api/training/config")
+        async def update_training_config(payload: TrainingConfigPayload) -> dict[str, object]:
+            try:
+                config = save_qwen3_training_config(
+                    app.state.settings.qwen3_training_config_path,
+                    payload.to_config(),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            return {
+                "config": config.to_dict(),
+                "runtime_applied": False,
+                "note": "训练配置已保存；请由独立训练脚本读取，当前 API 不会启动训练。",
+            }
 
     return app
 
 
-app = create_app()
+def _default_app() -> FastAPI:
+    # The ASGI app honors ASTRA_PROFILE (all/realtime/workbench) so a split
+    # deployment runs the same `uvicorn app.main:app` command per process,
+    # varying only the profile and port. Defaults to "all" for single-process
+    # setups. Build Settings first so a value set only in the dotenv file (not a
+    # real env var) is loaded before the profile is resolved.
+    settings = Settings.from_env()
+    return create_app(settings, profile=os.getenv("ASTRA_PROFILE", "all"))
+
+
+app = _default_app()

@@ -37,6 +37,7 @@ if str(ROOT / "backend") not in sys.path:
 # 复用 HTTP 层的渲染与引擎标签, 单一来源防漂移
 from app.api.meeting_routes import ENGINE_LABEL, _render_markdown  # noqa: E402
 from app.core.correction import parse_correction_rules  # noqa: E402
+from app.core.meeting import CheckpointError  # noqa: E402
 from app.core.meeting_prompts import (  # noqa: E402
     DEFAULT_MEETING_PROMPT_ID,
     get_meeting_prompt_template,
@@ -46,7 +47,34 @@ from app.core.workflow import CorrectionStage, ResemblyzerDiarizationStage  # no
 from app.models.punctuation_client import build_punctuation_client  # noqa: E402
 
 
-def _build_pipeline(prompt_templates_path: str = ""):
+def _note_task_status_updater(out_dir: Path):
+    """F3: 纪要子任务进度回调 —— 原子更新 status.json 的 note_tasks。
+
+    WS /events 每秒轮询 status.json, 子任务进度随事件流自动推送。
+    """
+
+    def update(task: str, entry: dict) -> None:
+        path = out_dir / "status.json"
+        payload: dict
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            payload = {"status": "processing"}
+        if not isinstance(payload, dict):
+            payload = {"status": "processing"}
+        note_tasks_map: dict = payload.setdefault("note_tasks", {})
+        note_tasks_map[task] = entry
+        _write_status(out_dir, payload)
+
+    return update
+
+
+def _build_pipeline(
+    prompt_templates_path: str = "",
+    note_task_timeout_seconds: float = 300.0,
+    summary_timeout_seconds: float = 30 * 60,
+    note_task_max_concurrency: int = 3,
+):
     """与 main.py 中会议管线一致的干净配置(无热词/无 system_prompt)。"""
     from app.config import Settings
     from app.core.meeting import MeetingPipeline
@@ -144,6 +172,9 @@ def _build_pipeline(prompt_templates_path: str = ""):
         ),
         inline_asr=inline_asr,
         speaker_store=speaker_store,
+        note_task_timeout_seconds=note_task_timeout_seconds,
+        summary_timeout_seconds=summary_timeout_seconds,
+        note_task_max_concurrency=note_task_max_concurrency,
     )
 
 
@@ -270,6 +301,7 @@ async def _run(
     separate: bool,
     prompt_template_id: str,
     prompt_templates_path: str,
+    resume: bool = False,
 ) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_status(out_dir, {"status": "processing", "started": time.strftime("%Y-%m-%d %H:%M:%S")})
@@ -279,7 +311,15 @@ async def _run(
             prompt_template_id,
             custom_templates_path=prompt_templates_path,
         )
-        pipeline = _build_pipeline(prompt_templates_path)
+        from app.config import Settings as _Settings
+
+        settings = _Settings.from_env()
+        pipeline = _build_pipeline(
+            prompt_templates_path,
+            note_task_timeout_seconds=settings.meeting_note_task_timeout_seconds,
+            summary_timeout_seconds=settings.meeting_summary_timeout_seconds,
+            note_task_max_concurrency=settings.meeting_note_task_max_concurrency,
+        )
         result = await pipeline.process(
             audio,
             filename=audio.name,
@@ -289,7 +329,23 @@ async def _run(
             prompt_template_id=prompt_template.id,
             separate=separate,
             separation_artifact_dir=out_dir / "separated",
+            checkpoint_dir=out_dir,
+            resume=resume,
+            on_note_task=(
+                _note_task_status_updater(out_dir) if summarize else None
+            ),
         )
+    except CheckpointError as exc:
+        _write_status(out_dir, {
+            "status": "failed",
+            "error": f"resume checkpoint invalid: {exc}",
+            "elapsed_s": round(time.time() - t0, 1),
+        })
+        print(json.dumps(
+            {"status": "failed", "error": "resume checkpoint invalid"},
+            ensure_ascii=False,
+        ))
+        return 1
     except Exception:
         traceback.print_exc()
         _write_status(out_dir, {
@@ -328,6 +384,8 @@ async def _run(
     )
     _write_status(out_dir, {
         "status": "done",
+        "resumed": result.resumed,
+        "note_tasks": result.note_tasks,
         "prompt_template": prompt_template.id,
         "prompt_template_name": prompt_template.name,
         "duration_s": round(result.duration_s, 1),
@@ -372,6 +430,11 @@ def main() -> int:
         action="store_true",
         help="离线启用 FLASepformer 双说话人分离",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="从 out_dir/segments.json checkpoint 续跑（跳过 ASR，只跑 LLM 纪要）",
+    )
     args = parser.parse_args()
     from app.config import Settings
 
@@ -386,6 +449,7 @@ def main() -> int:
             separate=args.separate,
             prompt_template_id=args.prompt_template,
             prompt_templates_path=prompt_templates_path,
+            resume=args.resume,
         )
     )
 

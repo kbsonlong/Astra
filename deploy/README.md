@@ -27,6 +27,27 @@ docker compose up -d
 
 后端依赖 `mlx-whisper==0.4.3` 和 `piper-tts==1.7.0`，启动前必须完成 Python 依赖安装，并确保 `TTS_MODEL_PATH` 指向本地 Piper `.onnx` voice 文件。
 
+## 进程拆分（profile）
+
+后端可按 `ASTRA_PROFILE` 以单进程或双进程运行，隔离实时语音链路与会议/训练/音色库的资源争用：
+
+- `all`（默认）：单进程挂载全部路由，行为与历史部署完全一致。`uvicorn app.main:app` 不设 `ASTRA_PROFILE` 即为此模式。
+- `realtime`：挂实时 WebSocket 会话、音频转写上传（含 `/transcribe/stream` 的 VAD/增强/分离）和实时录音路由。实时 WS 通过 `tts_voice_store.snapshot()` 直接读取音色快照（不经 HTTP）。不运行会议/训练的任务监管。当前为兼容音色库前端，`realtime` 仍挂载完整的 TTS 音色库路由（含写接口）；后续计划拆分为只读子集，部署时可在反代层仅放行只读路径。
+- `workbench`：只挂会议、说话人、通知、训练及 `/api/training/config` 路由和 TTS 音色库**管理**路由，持有任务监管、作业恢复与会议产物清理。
+
+双进程启动（两进程可同机、共享同一批 SQLite 库与文件目录）：
+
+```bash
+# 实时进程（默认 0.0.0.0:8000，可用 ASTRA_REALTIME_HOST/PORT 覆盖）
+scripts/serve/realtime.sh
+# 工作台进程（默认 0.0.0.0:8001，可用 ASTRA_WORKBENCH_HOST/PORT 覆盖）
+scripts/serve/workbench.sh
+```
+
+两进程共享 `TASK_STORE_PATH`、`SPEAKER_STORE_PATH`、`TTS_VOICE_STORE_PATH`、`REALTIME_RECORDING_DIR` 等路径。四个 SQLite 库已开启 WAL + `busy_timeout`，支持跨进程并发读写；实时进程读音色快照、工作台进程写音色库不会互相 `database is locked`。任务监管的租约（`task_supervisor_lease`）确保只有一个进程执行会议/训练收敛，因此即便两进程都连同一个 `tasks.sqlite3` 也不会重复监管。
+
+前端/反代按路由把实时请求指向实时进程端口、把会议等管理请求指向工作台端口；单进程 `all` 模式下仍可只用一个 `API_UPSTREAM`。
+
 ## 远端 LLM 验收
 
 `omlx` 或 `llama-server` 的启动参数由远端机器维护，但最终必须满足同一协议：

@@ -413,9 +413,12 @@ async def test_meeting_summary_uses_selected_prompt_template(tmp_path) -> None:
         prompt_template_id=custom.id,
     )
 
-    assert len(prompts) == 1
-    assert "自定义分段助手" in prompts[0]
-    assert "明确决策" in prompts[0]
+    # F3 fan-out: summary/actions/decisions 三个子任务都会调用 LLM,
+    # 但只有 summary 使用所选模板的 chunk_system_prompt。
+    assert prompts, "expected LLM calls"
+    summary_prompts = [p for p in prompts if p.startswith("你是自定义分段助手。")]
+    assert len(summary_prompts) == 1
+    assert "明确决策" in summary_prompts[0]
 
 
 def test_diarization_auto_clusters_more_than_two_speakers() -> None:

@@ -6,7 +6,6 @@ import json
 import math
 from pathlib import Path
 
-import mlx.core as mx
 import numpy as np
 import soundfile as sf
 from app.config import Qwen3TrainingConfig
@@ -30,6 +29,10 @@ def load_dataset(path: str) -> list[dict[str, object]]:
         audio, sample_rate = sf.read(audio_path, dtype="float32", always_2d=False)
         if audio.ndim > 1:
             audio = np.mean(audio, axis=1)
+        # mlx.core 在导入时会初始化 Metal 设备，无 GPU 的环境（如 CI/沙箱）会直接报错；
+        # 推迟到确有待处理样本时再导入，让审校早退路径（无 approved 样本）在无 GPU 下也可用。
+        import mlx.core as mx
+
         samples.append({"audio": {"array": mx.array(audio), "sampling_rate": sample_rate}, "text": text})
     if not samples:
         if pending_count:

@@ -59,6 +59,9 @@ class Segment:
     # 保留 VAD 产出的原始片段，供会议审校和 ASR 训练数据导出使用。
     audio: bytes | None = None
     raw_text: str = ""
+    # timeline 域的稳定锚点 (seg-XXXXXX)：纪要引用、报告跳转共用。
+    # 注意与 transcript_segments.jsonl 的训练段 id (合并后) 不同域。
+    segment_id: str = ""
 
     @property
     def duration(self) -> float:

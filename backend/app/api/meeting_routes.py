@@ -175,6 +175,59 @@ def _render_markdown(result: Any, meta: dict[str, object]) -> str:
         out.append("")
         out.append(result.summary)
         out.append("")
+        # 引用统计：分支是否言之有据 (seg id -> 次数)，无效引用单独列出。
+        citations: dict[str, int] = getattr(result, "citations", None) or {}
+        valid_ids = {s.segment_id for s in result.segments if s.segment_id}
+        valid = {k: v for k, v in citations.items() if k in valid_ids}
+        invalid = {k: v for k, v in citations.items() if k not in valid_ids}
+        if citations:
+            out.append("### 🔗 引用统计")
+            out.append("")
+            snippet_by_id = {
+                s.segment_id: (s.speaker_name or s.speaker or "?", s.text.strip())
+                for s in result.segments
+                if s.segment_id
+            }
+            for segment_id, count in valid.items():
+                who, text = snippet_by_id.get(segment_id, ("?", ""))
+                if len(text) > 80:
+                    text = text[:80] + "…"
+                out.append(f"- `{segment_id}` ×{count} — {who}: {text}")
+            for segment_id, count in invalid.items():
+                out.append(f"- ⚠️ `{segment_id}` ×{count} — 无效引用（逐字稿中不存在）")
+            if not valid:
+                out.append("- ⚠️ 摘要没有任何有效段落引用")
+            out.append("")
+
+        # F3 fan-out 子任务: 待办 / 关键决策（各自独立超时, 失败/超时显示占位）。
+        note_tasks: dict[str, dict[str, object]] = (
+            getattr(result, "note_tasks", None) or {}
+        )
+        note_sections = {
+            "actions": ("## ✅ 待办行动项", "待办提取未产出"),
+            "decisions": ("## 🧭 关键决策", "决策提取未产出"),
+        }
+        for key, (title, fallback) in note_sections.items():
+            entry = note_tasks.get(key)
+            if entry is None:
+                continue
+            status = str(entry.get("status", ""))
+            text = str(entry.get("text", "")).strip()
+            out.append("---")
+            out.append("")
+            out.append(title)
+            out.append("")
+            if status == "done" and text:
+                out.append(text)
+            elif status == "timeout":
+                out.append(f"*（{fallback}：子任务超时）*")
+            elif status == "failed":
+                out.append(f"*（{fallback}：{entry.get('error', '未知错误')}）*")
+            elif not text:
+                out.append(f"*（{fallback}）*")
+            else:
+                out.append(text)
+            out.append("")
 
     if result.translation:
         out.append("---")
@@ -520,10 +573,11 @@ async def training_segment_audio(task_id: str, segment_id: str, request: Request
 @router.post("/process")
 async def process_meeting(
     request: Request,
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(default=None),
     topic: str = Form(default=""),
     prompt_template: str = Form(default=DEFAULT_MEETING_PROMPT_ID),
     separate: bool = Form(default=False),
+    resume_of: str = Form(default=""),
 ) -> dict[str, object]:
     settings = request.app.state.settings
     base = Path(settings.meeting_output_dir).expanduser()
@@ -535,7 +589,44 @@ async def process_meeting(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    filename = file.filename or "meeting.m4a"
+    # F2 断点续跑：resume_of 指向失败的旧 task，复制其 checkpoint 到新 job。
+    source_checkpoint: Path | None = None
+    if resume_of:
+        # 续跑与上传互斥: 两者同时给出会导致 checkpoint 与新上传音频语义冲突。
+        if file is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="file and resume_of are mutually exclusive",
+            )
+        if _TASK_ID_RE.match(resume_of) is None:
+            raise HTTPException(status_code=400, detail="invalid resume_of task_id")
+        source_dir = _job_dir(base, resume_of)
+        # 只允许续跑已失败的任务; 运行中或已完成的任务续跑没有意义且会抢资源。
+        source_status_path = source_dir / "status.json"
+        if source_status_path.is_file():
+            try:
+                source_status = json.loads(
+                    source_status_path.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                source_status = {}
+            if source_status.get("status") not in {"failed", "done"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"task {resume_of} is not resumable (status "
+                    f"{source_status.get('status')!r})",
+                )
+        candidate = source_dir / "segments.json"
+        if not candidate.is_file():
+            raise HTTPException(
+                status_code=400,
+                detail=f"task {resume_of} has no resume checkpoint",
+            )
+        source_checkpoint = candidate
+    if file is None and not resume_of:
+        raise HTTPException(status_code=400, detail="file is required")
+
+    filename = (file.filename if file is not None else "") or "meeting.m4a"
     suffix = Path(filename).suffix.lower()
     if suffix not in ALLOWED_SUFFIX:
         raise HTTPException(status_code=400, detail=f"unsupported audio type: {suffix}")
@@ -551,34 +642,41 @@ async def process_meeting(
     if not await limiter.try_acquire(client_ip):
         out_dir.rmdir()
         raise HTTPException(status_code=429, detail="audio concurrency limit reached")
+    uploaded_bytes = 1  # resume 路径无上传，占位通过空文件检查
     try:
-        try:
-            uploaded_bytes = await save_upload_limited(
-                file, in_path, settings.meeting_max_upload_bytes
-            )
-            await validate_audio_file_duration(
-                in_path,
-                settings.meeting_max_duration_seconds,
-                probe_timeout_seconds=settings.audio_probe_timeout_seconds,
-                probe_temp_max_bytes=settings.audio_probe_temp_max_bytes,
-            )
-        except UploadTooLargeError as exc:
-            out_dir.rmdir()
-            raise HTTPException(
-                status_code=413,
-                detail=f"file too large (max {exc.max_bytes} bytes)",
-            ) from exc
-        except AudioTooLongError as exc:
+        if file is not None:
+            try:
+                uploaded_bytes = await save_upload_limited(
+                    file, in_path, settings.meeting_max_upload_bytes
+                )
+                await validate_audio_file_duration(
+                    in_path,
+                    settings.meeting_max_duration_seconds,
+                    probe_timeout_seconds=settings.audio_probe_timeout_seconds,
+                    probe_temp_max_bytes=settings.audio_probe_temp_max_bytes,
+                )
+            except UploadTooLargeError as exc:
+                out_dir.rmdir()
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"file too large (max {exc.max_bytes} bytes)",
+                ) from exc
+            except AudioTooLongError as exc:
+                in_path.unlink(missing_ok=True)
+                out_dir.rmdir()
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"audio duration too long (max {exc.max_seconds:g} seconds)",
+                ) from exc
+            except AudioProbeError as exc:
+                in_path.unlink(missing_ok=True)
+                out_dir.rmdir()
+                raise HTTPException(status_code=422, detail=f"audio validation failed: {exc}") from exc
+        else:
+            # resume：跳过上传校验；checkpoint 复制进新 job 目录。
+            assert source_checkpoint is not None
+            shutil.copy2(source_checkpoint, out_dir / "segments.json")
             in_path.unlink(missing_ok=True)
-            out_dir.rmdir()
-            raise HTTPException(
-                status_code=413,
-                detail=f"audio duration too long (max {exc.max_seconds:g} seconds)",
-            ) from exc
-        except AudioProbeError as exc:
-            in_path.unlink(missing_ok=True)
-            out_dir.rmdir()
-            raise HTTPException(status_code=422, detail=f"audio validation failed: {exc}") from exc
     finally:
         await limiter.release(client_ip)
     if not uploaded_bytes:
@@ -615,6 +713,8 @@ async def process_meeting(
         argv += ["--topic", topic]
     if separate:
         argv += ["--separate"]
+    if resume_of:
+        argv += ["--resume"]
     argv += [
         "--prompt-template", selected_template.id,
         "--prompt-templates-path", settings.meeting_prompt_templates_path,
@@ -647,6 +747,7 @@ async def process_meeting(
                 "filename": filename,
                 "prompt_template": selected_template.id,
                 "separate": separate,
+                "resume_of": resume_of,
             },
         )
         asyncio.create_task(

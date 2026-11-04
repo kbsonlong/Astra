@@ -6,6 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from .sqlite_util import enable_wal
+
 
 class ReviewConflictError(RuntimeError):
     pass
@@ -20,6 +22,10 @@ class ReviewStore:
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # WAL + busy_timeout allow concurrent access from the split realtime and
+        # workbench processes without "database is locked" errors.
+        enable_wal(connection)
+        connection.execute("PRAGMA busy_timeout = 5000")
         connection.execute(
             "CREATE TABLE IF NOT EXISTS review_segments ("
             "task_id TEXT NOT NULL, segment_id TEXT NOT NULL, payload TEXT NOT NULL, "

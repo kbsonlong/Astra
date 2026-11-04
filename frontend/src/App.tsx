@@ -27,6 +27,8 @@ import {
   PcmFrameBuffer,
   encodePcm16Frame,
   resamplePcm,
+  decodeTtsFrame,
+  type TtsAudioFrame,
 } from "./audio/pcm";
 
 type ServerEvent = {
@@ -35,8 +37,6 @@ type ServerEvent = {
   text?: string;
   token?: string;
   generation_id?: number;
-  audio_b64?: string;
-  mime?: string;
   recording_id?: string;
   download_url?: string;
   code?: string;
@@ -719,6 +719,8 @@ function VoiceAssistant() {
       reconnectTimer.current = null;
     }
     const connection = new WebSocket(socketUrl);
+    // TTS audio now arrives as binary ATTS frames instead of base64 JSON.
+    connection.binaryType = "arraybuffer";
     connection.onopen = () => {
       if (socket.current !== connection) {
         connection.close();
@@ -818,6 +820,11 @@ function VoiceAssistant() {
     connection.onmessage = (message) => {
       if (socket.current !== connection) return;
       lastServerMessageAt.current = Date.now();
+      if (message.data instanceof ArrayBuffer) {
+        const frame = decodeTtsFrame(message.data);
+        if (frame) void handleTtsFrame(frame);
+        return;
+      }
       try {
         handleEvent(JSON.parse(message.data) as ServerEvent);
       } catch {
@@ -858,9 +865,6 @@ function VoiceAssistant() {
       });
     }
     if (event.type === "llm_token") setAnswer((current) => current + (event.token ?? ""));
-    if (event.type === "tts_chunk" && event.audio_b64) {
-      void playTtsChunk(event);
-    }
     if (event.type === "tts_end") {
       stateRef.current = "LISTENING";
       setState("LISTENING");
@@ -908,12 +912,15 @@ function VoiceAssistant() {
     }
   }
 
-  async function playTtsChunk(event: ServerEvent) {
+  async function handleTtsFrame(frame: TtsAudioFrame) {
+    // Drop audio from a turn the user already interrupted, matching the
+    // generation gating previously applied to the JSON tts_chunk event.
+    if (frame.generationId < activeGeneration.current) return;
+    activeGeneration.current = Math.max(activeGeneration.current, frame.generationId);
     const context = audioContext.current;
-    if (!context || !event.audio_b64) return;
-    const bytes = Uint8Array.from(atob(event.audio_b64), (char) => char.charCodeAt(0));
+    if (!context) return;
     try {
-      const audioBuffer = await context.decodeAudioData(bytes.buffer.slice(0));
+      const audioBuffer = await context.decodeAudioData(frame.payload.slice(0));
       const source = context.createBufferSource();
       source.buffer = audioBuffer;
       const farEnd = farEndBus.current;

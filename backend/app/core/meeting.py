@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import tempfile
 import time
 from dataclasses import dataclass, field
@@ -43,6 +45,133 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_DIARIZATION = object()
 
+# 纪要引用锚点：[seg-XXXXXX]，与 timeline 域 segment_id 一致。
+_CITATION_RE = re.compile(r"\[(seg-\d{6})\]")
+_CITATION_INSTRUCTION = (
+    "引用要求：每个要点末尾标注来源段落 ID，格式 [seg-XXXXXX]（可多个），"
+    "只能使用逐字稿中出现的段落 ID，不得编造。"
+)
+_ACTION_ITEM_PROMPT = (
+    "你是会议记录员。从逐字稿中提取待办行动项，每行一条，"
+    "格式 `- [ ] 事项 — 负责人(如有) — 截止时间(如有)`。"
+    "只记录明确指派或承诺的事项；没有则只输出“无明确待办”。"
+)
+_DECISION_PROMPT = (
+    "你是会议记录员。从逐字稿中提取关键决策，每行一条，"
+    "格式 `- 决策 — 依据 — 主要反对意见(如有)`。"
+    "只记录已达成或明确拍板的决定；没有则只输出“无明确决策”。"
+)
+# 纪要 fan-out 子任务（互相独立、各自超时；translation 依赖 summary）。
+NOTE_TASKS: tuple[str, ...] = ("summary", "actions", "decisions")
+
+
+def extract_citations(summary: str) -> dict[str, int]:
+    """统计纪要文本中 [seg-XXXXXX] 引用出现次数（按出现顺序）。"""
+    citations: dict[str, int] = {}
+    for match in _CITATION_RE.finditer(summary or ""):
+        segment_id = match.group(1)
+        citations[segment_id] = citations.get(segment_id, 0) + 1
+    return citations
+
+
+def _assign_segment_ids(segments: list[Segment]) -> None:
+    """按 timeline 顺序赋稳定锚点 seg-XXXXXX（幂等：已赋值不覆盖）。"""
+    for index, segment in enumerate(segments, 1):
+        if not segment.segment_id:
+            segment.segment_id = f"seg-{index:06d}"
+
+
+class CheckpointError(ValueError):
+    """segments.json checkpoint 缺失、损坏或版本不受支持。"""
+
+
+_CHECKPOINT_VERSION = 1
+
+
+def write_segments_checkpoint(
+    checkpoint_dir: str | Path,
+    *,
+    filename: str,
+    duration_s: float,
+    language: str,
+    segments: list[Segment],
+) -> Path:
+    """ASR 完成后原子落盘分段 checkpoint（不含音频字节），供断点续跑。"""
+    directory = Path(checkpoint_dir).expanduser()
+    directory.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "version": _CHECKPOINT_VERSION,
+        "filename": filename,
+        "duration_s": duration_s,
+        "language": language,
+        "segments": [
+            {
+                "segment_id": s.segment_id,
+                "start": s.start,
+                "end": s.end,
+                "speaker": s.speaker,
+                "speaker_id": s.speaker_id,
+                "speaker_name": s.speaker_name,
+                "speaker_similarity": s.speaker_similarity,
+                "speaker_confidence": s.speaker_confidence,
+                "text": s.text,
+                "raw_text": s.raw_text,
+            }
+            for s in segments
+        ],
+    }
+    path = directory / "segments.json"
+    temporary = path.with_name(".segments.json.tmp")
+    temporary.write_text(
+        json.dumps(payload, ensure_ascii=False), encoding="utf-8"
+    )
+    os.replace(temporary, path)
+    return path
+
+
+def load_segments_checkpoint(checkpoint_dir: str | Path) -> dict[str, Any]:
+    """读取并校验 checkpoint；缺失/损坏/版本不符抛 CheckpointError。"""
+    path = Path(checkpoint_dir).expanduser() / "segments.json"
+    if not path.is_file():
+        raise CheckpointError(f"checkpoint not found: {path}")
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CheckpointError(f"checkpoint is corrupt: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise CheckpointError("checkpoint payload must be an object")
+    if payload.get("version") != _CHECKPOINT_VERSION:
+        raise CheckpointError(
+            f"unsupported checkpoint version: {payload.get('version')!r}"
+        )
+    if not isinstance(payload.get("segments"), list):
+        raise CheckpointError("checkpoint has no segments list")
+    return payload
+
+
+def segments_from_checkpoint(payload: dict[str, Any]) -> list[Segment]:
+    """从 checkpoint payload 重建 Segment 列表（不含音频）。"""
+    segments: list[Segment] = []
+    for row in payload["segments"]:
+        if not isinstance(row, dict):
+            raise CheckpointError("checkpoint segment row must be an object")
+        segments.append(
+            Segment(
+                start=float(row.get("start", 0.0)),
+                end=float(row.get("end", 0.0)),
+                text=str(row.get("text", "")),
+                speaker=str(row.get("speaker", "")),
+                speaker_id=row.get("speaker_id"),
+                speaker_name=str(row.get("speaker_name", "")),
+                speaker_similarity=row.get("speaker_similarity"),
+                speaker_confidence=str(row.get("speaker_confidence", "")),
+                audio=None,
+                raw_text=str(row.get("raw_text", "")),
+                segment_id=str(row.get("segment_id", "")),
+            )
+        )
+    return segments
+
 
 @dataclass
 class MeetingResult:
@@ -53,18 +182,22 @@ class MeetingResult:
     speaker_labels: dict[str, str] = field(default_factory=dict)  # 簇id -> 标签
     summary: str = ""
     translation: str = ""
+    note_tasks: dict[str, dict[str, object]] = field(default_factory=dict)
+    citations: dict[str, int] = field(default_factory=dict)  # seg id -> 引用次数
+    resumed: bool = False  # 从 segments.json checkpoint 续跑（跳过 ASR）
     enhancement_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_metrics: list[dict[str, object]] = field(default_factory=list)
     separation_artifacts: list[str] = field(default_factory=list)
     overlap_detection: dict[str, object] | None = None
 
     def timeline_text(self) -> str:
-        """时间轴逐字稿 (每行: [mm:ss] S# 文本)。"""
+        """时间轴逐字稿 (每行: [mm:ss] [seg-XXXXXX] S# 文本)。"""
         lines = []
         for s in self.segments:
             mm, ss = int(s.start // 60), int(s.start % 60)
             who = s.speaker_name or s.speaker or "?"
-            lines.append(f"[{mm:02d}:{ss:02d}] {who} {s.text.strip()}")
+            anchor = f" [{s.segment_id}]" if s.segment_id else ""
+            lines.append(f"[{mm:02d}:{ss:02d}]{anchor} {who} {s.text.strip()}")
         return "\n".join(lines)
 
 
@@ -80,6 +213,7 @@ class MeetingContext:
     translate: bool = True
     summary: str = ""
     translation: str = ""
+    note_tasks: dict[str, dict[str, object]] = field(default_factory=dict)
 
 
 class MeetingStage(Protocol):
@@ -143,11 +277,22 @@ class MeetingPipeline:
         overlap_detector: OverlapDetector | None = None,
         inline_asr: Any = None,
         speaker_store: Any = None,
+        note_task_timeout_seconds: float = 300.0,
+        summary_timeout_seconds: float = 30 * 60,
+        note_task_max_concurrency: int = 3,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
             Path(__file__).resolve().parents[3] / "models" / "silero_vad.onnx"
         )
+        self.note_task_timeout_seconds = note_task_timeout_seconds
+        # 摘要/翻译依赖全量逐字稿, 分块串行耗时远超行式子任务; 单独放宽超时。
+        self.summary_timeout_seconds = summary_timeout_seconds
+        # fan-out 子任务各自发起一次 LLM 请求; 本地 16GB 机型同时预填多路请求
+        # 会撑爆 KV 缓存, 用信号量限制真正并发的 LLM 请求数(默认串行)。
+        self.note_task_max_concurrency = max(1, note_task_max_concurrency)
+        # F3: 默认 stage 组合走 fan-out 并行；外部注入 stage 保持旧串行语义。
+        self._stages_default = summary_stage is None and translation_stage is None
         self.asr = asr  # MlxAudioAsrClient (Qwen3), 逐段转写
         self.llm = llm          # 摘要/推理 (如 Qwen3-8B)
         self.mt_llm = mt_llm    # 翻译 (可选专用 MT, 如 Hy-MT2; 空则回落 llm)
@@ -273,35 +418,23 @@ class MeetingPipeline:
         return language, segments, metric_dict, artifacts
 
     # ------------------------------------------------------------------ #
-    # 4. LLM 纪要 (摘要 + 翻译)
+    # 4. LLM 纪要 (摘要 / 待办 / 决策 并行 fan-out + 翻译)
     # ------------------------------------------------------------------ #
-    async def _generate_summary(
+    async def _map_reduce(
         self,
-        segments: list[Segment],
+        transcript: str,
         *,
-        meeting_topic: str = "",
-        chunk_tokens: int = 6000,
-        prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
+        sys_prompt: str,
+        topic_hint: str,
+        chunk_tokens: int,
+        max_tokens: int = 1024,
+        merge_sys_prompt: str = "",
+        temperature: float = 0.2,
     ) -> str:
-        """生成中文纪要正文；无 llm 时返回空。
+        """逐字稿切块: 各块独立出要点, 超一块时用 LLM 合并。
 
-        逐字稿超过 chunk_tokens 时切块: 各块先独立出要点, 再合并成
-        最终纪要——避免单请求 prefill 超 16GB 机型的 KV 内存上限。
+        避免单请求 prefill 超 16GB 机型的 KV 内存上限。
         """
-        prompt_template = get_meeting_prompt_template(
-            prompt_template_id,
-            custom_templates_path=self.prompt_templates_path,
-        )
-        if self.llm is None or not getattr(self.llm, "model", ""):
-            return ""
-        transcript = "\n".join(
-            f"[{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
-            for s in segments
-            if s.text.strip()
-        )
-        if not transcript.strip():
-            return ""
-        # ---- 切块: 按字符粗估(中文1字≈1 token), 在段落边界断开 ----
         chunks: list[str] = []
         current: list[str] = []
         budget = 0
@@ -314,24 +447,22 @@ class MeetingPipeline:
         if current:
             chunks.append("\n".join(current))
 
-        topic_hint = f"\n会议主题: {meeting_topic}" if meeting_topic else ""
-
         # ---- 各块独立要点 ----
         per_chunk: list[str] = []
         for i, chunk in enumerate(chunks):
-            sys_prompt = (
-                prompt_template.chunk_system_prompt
+            sys = (
+                sys_prompt
                 + (f"\n这是第{i+1}段/共{len(chunks)}段。" if len(chunks) > 1 else "")
                 + topic_hint
             )
             part_tokens: list[str] = []
             async for tok in self.llm.stream_chat(
                 [
-                    {"role": "system", "content": sys_prompt},
+                    {"role": "system", "content": sys},
                     {"role": "user", "content": chunk},
                 ],
-                temperature=0.2,
-                max_tokens=1024,
+                temperature=temperature,
+                max_tokens=max_tokens,
                 chat_template_kwargs={"enable_thinking": False},
             ):
                 part_tokens.append(tok)
@@ -339,26 +470,109 @@ class MeetingPipeline:
 
         # ---- 合并成最终纪要 ----
         if len(per_chunk) == 1:
-            summary = per_chunk[0]
-        else:
-            joined = "\n\n---\n\n".join(
-                f"### 第{i+1}段要点\n{text}" for i, text in enumerate(per_chunk) if text
-            )
-            sys_merge = prompt_template.merge_system_prompt + topic_hint
-            merged: list[str] = []
-            async for tok in self.llm.stream_chat(
-                [
-                    {"role": "system", "content": sys_merge},
-                    {"role": "user", "content": joined},
-                ],
-                temperature=0.2,
-                max_tokens=2048,
-                chat_template_kwargs={"enable_thinking": False},
-            ):
-                merged.append(tok)
-            summary = "".join(merged).strip()
+            return per_chunk[0]
+        if not merge_sys_prompt:
+            # 行式产物(待办/决策)直接拼接, 不额外烧一次 LLM 合并
+            return "\n".join(text for text in per_chunk if text)
+        joined = "\n\n---\n\n".join(
+            f"### 第{i+1}段要点\n{text}" for i, text in enumerate(per_chunk) if text
+        )
+        sys_merge = merge_sys_prompt + topic_hint
+        merged: list[str] = []
+        async for tok in self.llm.stream_chat(
+            [
+                {"role": "system", "content": sys_merge},
+                {"role": "user", "content": joined},
+            ],
+            temperature=temperature,
+            max_tokens=2048,
+            chat_template_kwargs={"enable_thinking": False},
+        ):
+            merged.append(tok)
+        return "".join(merged).strip()
 
-        return summary
+    def _transcript_with_ids(self, segments: list[Segment]) -> tuple[str, str]:
+        """返回 (带 seg id 的逐字稿文本, 引用规则提示)。"""
+        transcript = "\n".join(
+            f"[{s.segment_id or '?'}][{s.speaker_name or s.speaker or '?'}] {s.text.strip()}"
+            for s in segments
+            if s.text.strip()
+        )
+        has_ids = bool(transcript) and all(
+            s.segment_id for s in segments if s.text.strip()
+        )
+        return transcript, (_CITATION_INSTRUCTION if has_ids else "")
+
+    async def _generate_summary(
+        self,
+        segments: list[Segment],
+        *,
+        meeting_topic: str = "",
+        chunk_tokens: int = 6000,
+        prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
+    ) -> str:
+        """生成中文纪要正文；无 llm 时返回空。"""
+        prompt_template = get_meeting_prompt_template(
+            prompt_template_id,
+            custom_templates_path=self.prompt_templates_path,
+        )
+        if self.llm is None or not getattr(self.llm, "model", ""):
+            return ""
+        transcript, citation_rule = self._transcript_with_ids(segments)
+        if not transcript.strip():
+            return ""
+        topic_hint = f"\n会议主题: {meeting_topic}" if meeting_topic else ""
+        sys_prompt = prompt_template.chunk_system_prompt
+        if citation_rule:
+            sys_prompt += f"\n{citation_rule}"
+        merge_prompt = prompt_template.merge_system_prompt
+        if citation_rule:
+            merge_prompt += f"\n合并时保留每条要点原有的 [seg-XXXXXX] 引用标注。{citation_rule}"
+        return await self._map_reduce(
+            transcript,
+            sys_prompt=sys_prompt,
+            topic_hint=topic_hint,
+            chunk_tokens=chunk_tokens,
+            merge_sys_prompt=merge_prompt,
+        )
+
+    async def _generate_actions(
+        self, segments: list[Segment], *, meeting_topic: str = "", chunk_tokens: int = 6000
+    ) -> str:
+        """提取待办行动项（行式产物，多块直接拼接不二次合并）。"""
+        if self.llm is None or not getattr(self.llm, "model", ""):
+            return ""
+        transcript, citation_rule = self._transcript_with_ids(segments)
+        if not transcript.strip():
+            return ""
+        topic_hint = f"\n会议主题: {meeting_topic}" if meeting_topic else ""
+        sys_prompt = _ACTION_ITEM_PROMPT + (f"\n{citation_rule}" if citation_rule else "")
+        return await self._map_reduce(
+            transcript,
+            sys_prompt=sys_prompt,
+            topic_hint=topic_hint,
+            chunk_tokens=chunk_tokens,
+            max_tokens=512,
+        )
+
+    async def _generate_decisions(
+        self, segments: list[Segment], *, meeting_topic: str = "", chunk_tokens: int = 6000
+    ) -> str:
+        """提取关键决策（行式产物，多块直接拼接不二次合并）。"""
+        if self.llm is None or not getattr(self.llm, "model", ""):
+            return ""
+        transcript, citation_rule = self._transcript_with_ids(segments)
+        if not transcript.strip():
+            return ""
+        topic_hint = f"\n会议主题: {meeting_topic}" if meeting_topic else ""
+        sys_prompt = _DECISION_PROMPT + (f"\n{citation_rule}" if citation_rule else "")
+        return await self._map_reduce(
+            transcript,
+            sys_prompt=sys_prompt,
+            topic_hint=topic_hint,
+            chunk_tokens=chunk_tokens,
+            max_tokens=512,
+        )
 
     async def _translate_summary(
         self, summary: str, *, target_language: str = "简体中文"
@@ -395,8 +609,16 @@ class MeetingPipeline:
         chunk_tokens: int = 6000,
         translate: bool = True,
         prompt_template_id: str = DEFAULT_MEETING_PROMPT_ID,
+        on_note_task: Any = None,
+        note_tasks: dict[str, dict[str, object]] | None = None,
     ) -> tuple[str, str]:
-        """按可插拔的纪要、翻译阶段生成结果。"""
+        """生成纪要结果。
+
+        默认 stage 组合: summary/actions/decisions 三个子任务并发 fan-out,
+        各自独立超时; translation 依赖 summary, 在 summary 落定后执行。
+        外部注入 summary_stage/translation_stage 时保持旧串行语义(可插拔)。
+        note_tasks 传入 dict 时原位填充各子任务状态。
+        """
         context = MeetingContext(
             segments=segments,
             meeting_topic=meeting_topic,
@@ -404,10 +626,123 @@ class MeetingPipeline:
             chunk_tokens=chunk_tokens,
             prompt_template_id=prompt_template_id,
             translate=translate,
+            note_tasks=note_tasks if note_tasks is not None else {},
         )
-        await self.summary_stage.run(context)
-        await self.translation_stage.run(context)
+        if not self._stages_default:
+            await self.summary_stage.run(context)
+            await self.translation_stage.run(context)
+            return context.summary, context.translation
+        await self._run_note_tasks(context, on_note_task=on_note_task)
         return context.summary, context.translation
+
+    async def _run_note_tasks(
+        self, context: MeetingContext, *, on_note_task: Any = None
+    ) -> None:
+        """并发执行纪要子任务; 单任务超时/失败不拖垮其他任务。"""
+        import functools
+
+        # 限制同时在途的 LLM 请求数, 避免多路 prefill 撑爆 16GB 机型的 KV 缓存。
+        semaphore = asyncio.Semaphore(self.note_task_max_concurrency)
+        generators: dict[str, Any] = {
+            "summary": functools.partial(
+                self._generate_summary,
+                context.segments,
+                meeting_topic=context.meeting_topic,
+                chunk_tokens=context.chunk_tokens,
+                prompt_template_id=context.prompt_template_id,
+            ),
+            "actions": functools.partial(
+                self._generate_actions,
+                context.segments,
+                meeting_topic=context.meeting_topic,
+                chunk_tokens=context.chunk_tokens,
+            ),
+            "decisions": functools.partial(
+                self._generate_decisions,
+                context.segments,
+                meeting_topic=context.meeting_topic,
+                chunk_tokens=context.chunk_tokens,
+            ),
+        }
+        await asyncio.gather(
+            *(
+                self._run_single_note_task(
+                    context,
+                    name,
+                    factory(),
+                    on_note_task,
+                    timeout=self._timeout_for(name),
+                    semaphore=semaphore,
+                )
+                for name, factory in generators.items()
+            )
+        )
+        summary_entry = context.note_tasks.get("summary", {})
+        context.summary = str(summary_entry.get("text", ""))
+        if context.translate and context.summary:
+            await self._run_single_note_task(
+                context,
+                "translation",
+                self._translate_summary(
+                    context.summary, target_language=context.target_language
+                ),
+                on_note_task,
+                timeout=self.summary_timeout_seconds,
+            )
+            context.translation = str(
+                context.note_tasks.get("translation", {}).get("text", "")
+            )
+
+    def _timeout_for(self, name: str) -> float:
+        """摘要走更宽松的超时; 行式待办/决策保持短超时。"""
+        return (
+            self.summary_timeout_seconds
+            if name == "summary"
+            else self.note_task_timeout_seconds
+        )
+
+    async def _run_single_note_task(
+        self,
+        context: MeetingContext,
+        name: str,
+        coro: Any,
+        on_note_task: Any = None,
+        *,
+        timeout: float | None = None,
+        semaphore: asyncio.Semaphore | None = None,
+    ) -> None:
+        effective_timeout = (
+            timeout if timeout is not None else self.note_task_timeout_seconds
+        )
+        entry: dict[str, object] = {"status": "processing", "text": "", "elapsed_s": 0.0}
+        context.note_tasks[name] = entry
+        if on_note_task is not None:
+            on_note_task(name, dict(entry))
+        start = time.time()
+
+        def _finish(status: str, **extra: object) -> None:
+            entry["status"] = status
+            entry["elapsed_s"] = round(time.time() - start, 1)
+            entry.update(extra)
+            if on_note_task is not None:
+                on_note_task(name, dict(entry))
+
+        try:
+            if semaphore is not None:
+                async with semaphore:
+                    text = await asyncio.wait_for(coro, timeout=effective_timeout)
+            else:
+                text = await asyncio.wait_for(coro, timeout=effective_timeout)
+            _finish("done", text=str(text).strip())
+        except asyncio.TimeoutError:
+            _finish(
+                "timeout",
+                error=f"note task timed out after {effective_timeout:g}s",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # 单任务失败不影响其他子任务
+            _finish("failed", error=str(exc)[:500])
 
     # ------------------------------------------------------------------ #
     # 5. 一键处理
@@ -424,11 +759,45 @@ class MeetingPipeline:
         progress: Any = None,
         separate: bool = False,
         separation_artifact_dir: str | Path | None = None,
+        checkpoint_dir: str | Path | None = None,
+        resume: bool = False,
+        on_note_task: Any = None,
     ) -> MeetingResult:
         t0 = time.time()
         tmp_parent: Path | None = None
         wav: str | None = None
+
+        # ---- F2 断点续跑：checkpoint 有效时跳过解码/增强/ASR 全部音频阶段 ----
+        checkpoint_payload: dict[str, Any] | None = None
+        if resume:
+            checkpoint_payload = load_segments_checkpoint(checkpoint_dir or Path("."))
         src_is_path = isinstance(audio, (str, Path)) and Path(audio).exists()
+
+        if checkpoint_payload is not None:
+            segs = segments_from_checkpoint(checkpoint_payload)
+            _assign_segment_ids(segs)
+            result = MeetingResult(
+                filename=os.path.basename(filename),
+                duration_s=float(checkpoint_payload.get("duration_s", 0.0)),
+                language=str(checkpoint_payload.get("language", "zh")),
+                segments=segs,
+                resumed=True,
+            )
+            if summarize:
+                result.summary, result.translation = await self.summarize(
+                    segs,
+                    meeting_topic=topic,
+                    translate=do_translate,
+                    prompt_template_id=prompt_template_id,
+                    on_note_task=on_note_task,
+                    note_tasks=result.note_tasks,
+                )
+                result.citations = extract_citations(result.summary)
+            logger.info(
+                "meeting resumed: %d segs from checkpoint, %.1fs wall",
+                len(segs), time.time() - t0,
+            )
+            return result
 
         if src_is_path:
             src = Path(audio)
@@ -506,6 +875,17 @@ class MeetingPipeline:
                     lang, segs = await self.transcribe(wav, progress=progress)
             else:
                 lang, segs = await self.transcribe(wav, progress=progress)
+            # 引用锚点：所有路径统一按 timeline 顺序赋 seg-XXXXXX。
+            _assign_segment_ids(segs)
+            # F2: ASR(最耗时阶段)完成即落盘 checkpoint，失败后可断点续跑。
+            if checkpoint_dir is not None:
+                write_segments_checkpoint(
+                    checkpoint_dir,
+                    filename=os.path.basename(filename),
+                    duration_s=dur,
+                    language=lang,
+                    segments=segs,
+                )
             result = MeetingResult(
                 filename=os.path.basename(filename), duration_s=dur,
                 language=lang, segments=segs,
@@ -520,7 +900,10 @@ class MeetingPipeline:
                     meeting_topic=topic,
                     translate=do_translate,
                     prompt_template_id=prompt_template_id,
+                    on_note_task=on_note_task,
+                    note_tasks=result.note_tasks,
                 )
+                result.citations = extract_citations(result.summary)
             logger.info(
                 "meeting done: %.1fs audio, %d segs, %.1fs wall",
                 dur, len(segs), time.time() - t0,

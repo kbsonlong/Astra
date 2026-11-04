@@ -4,6 +4,35 @@ const PCM_FRAME_MAGIC = "ASTR";
 const PCM_FRAME_VERSION = 1;
 const PCM_FRAME_HEADER_BYTES = 14;
 
+// Downstream TTS audio frame: magic(4) version(1) reserved(1)
+// generation_id(4 LE) sequence(4 LE) sample_rate(4 LE), then the WAV payload.
+const TTS_FRAME_MAGIC = "ATTS";
+const TTS_FRAME_VERSION = 1;
+const TTS_FRAME_HEADER_BYTES = 18;
+
+export type TtsAudioFrame = {
+  generationId: number;
+  sequence: number;
+  sampleRate: number;
+  payload: ArrayBuffer;
+};
+
+/** Decode one binary TTS frame, or return null if the header is foreign. */
+export function decodeTtsFrame(data: ArrayBuffer): TtsAudioFrame | null {
+  if (data.byteLength < TTS_FRAME_HEADER_BYTES) return null;
+  const view = new DataView(data);
+  for (let index = 0; index < TTS_FRAME_MAGIC.length; index += 1) {
+    if (view.getUint8(index) !== TTS_FRAME_MAGIC.charCodeAt(index)) return null;
+  }
+  if (view.getUint8(4) !== TTS_FRAME_VERSION) return null;
+  return {
+    generationId: view.getUint32(6, true),
+    sequence: view.getUint32(10, true),
+    sampleRate: view.getUint32(14, true),
+    payload: data.slice(TTS_FRAME_HEADER_BYTES),
+  };
+}
+
 export class PcmFrameBuffer {
   // 用一个可增长缓冲 + 读游标(head)避免每次 append/drain 都全量复制。
   // 仅当剩余数据前移收益明显时才压缩,均摊 O(1)。

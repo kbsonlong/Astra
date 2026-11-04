@@ -1,4 +1,3 @@
-import base64
 import asyncio
 import io
 import re
@@ -12,13 +11,23 @@ from .audio_enhancement import AudioEnhancementPipeline, EnhancementContext
 from ..models.llm_client import OpenAICompatLLMClient
 from ..models.tts_client import PiperSdkTtsClient
 from .tts_voice_store import TtsVoiceSnapshot
+from .pcm_protocol import TtsAudioFrame, encode_tts_frame
+from ..schemas.ws import (
+    AsrFinalEvent,
+    EnhancementStatusEvent,
+    LlmTokenEvent,
+    TtsEndEvent,
+    TtsStartEvent,
+)
 
 
 class ASRClient(Protocol):
     async def transcribe(self, audio: bytes, filename: str = "speech.wav") -> str: ...
 
 
-Emit = Callable[[dict[str, object]], Awaitable[None]]
+# An emit target accepts either a JSON control event (dict) or a binary audio
+# frame (bytes). TTS audio travels as bytes; everything else stays JSON.
+Emit = Callable[[dict[str, object] | bytes], Awaitable[None]]
 _SENTENCE_END = re.compile(r"(?<=[.!?。！？])\s+")
 
 
@@ -76,17 +85,18 @@ class VoicePipeline:
                 frame_timeout_ms=self.enhancement_frame_timeout_ms,
             )
             await emit(
-                {
-                    "type": "enhancement_status",
-                    "stages": [item.to_dict() for item in enhancement_metrics],
-                    "generation_id": generation_id,
-                }
+                EnhancementStatusEvent(
+                    generation_id=generation_id,
+                    stages=[item.to_dict() for item in enhancement_metrics],
+                ).to_wire()
             )
             if any(item.status == "applied" for item in enhancement_metrics):
                 audio = audio_buffer_to_wav_bytes(microphone)
 
         text = await self.asr.transcribe(audio)
-        await emit({"type": "asr_final", "text": text, "generation_id": generation_id})
+        await emit(
+            AsrFinalEvent(generation_id=generation_id, text=text).to_wire()
+        )
 
         history = list(messages)
         history.append({"role": "user", "content": text})
@@ -99,7 +109,9 @@ class VoicePipeline:
             chat_template_kwargs={"enable_thinking": False},
         ):
             reply_parts.append(token)
-            await emit({"type": "llm_token", "token": token, "generation_id": generation_id})
+            await emit(
+                LlmTokenEvent(generation_id=generation_id, token=token).to_wire()
+            )
             sentence_buffer += token
             parts = _SENTENCE_END.split(sentence_buffer)
             sentence_buffer = parts.pop()
@@ -112,7 +124,7 @@ class VoicePipeline:
             await self._synthesize(
                 sentence_buffer.strip(), generation_id, sequence, emit, voice_snapshot
             )
-        await emit({"type": "tts_end", "generation_id": generation_id})
+        await emit(TtsEndEvent(generation_id=generation_id).to_wire())
         return text, "".join(reply_parts).strip()
 
     async def _synthesize(
@@ -132,16 +144,20 @@ class VoicePipeline:
             if not callable(synthesize_snapshot):
                 raise RuntimeError("configured TTS backend does not support voice snapshots")
             audio = await synthesize_snapshot(sentence, voice_snapshot)
-        await emit({"type": "tts_start", "generation_id": generation_id, "seq": sequence})
         await emit(
-            {
-                "type": "tts_chunk",
-                "generation_id": generation_id,
-                "seq": sequence,
-                "mime": "audio/wav",
-                "sample_rate": _wav_sample_rate(audio),
-                "audio_b64": base64.b64encode(audio).decode("ascii"),
-            }
+            TtsStartEvent(generation_id=generation_id, seq=sequence).to_wire()
+        )
+        # Audio goes out as a compact binary frame (header + WAV) instead of
+        # base64-in-JSON; the header carries generation_id/seq for gating.
+        await emit(
+            encode_tts_frame(
+                TtsAudioFrame(
+                    generation_id=generation_id,
+                    sequence=sequence,
+                    sample_rate=_wav_sample_rate(audio),
+                    payload=audio,
+                )
+            )
         )
         return sequence + 1
 

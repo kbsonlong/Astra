@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .sqlite_util import enable_wal
+
 
 @dataclass(frozen=True)
 class TaskRecord:
@@ -38,6 +40,11 @@ class TaskStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(self.path)
         connection.row_factory = sqlite3.Row
+        # WAL lets the realtime and workbench processes read/write this shared
+        # database concurrently; busy_timeout waits out a short writer lock
+        # instead of failing with "database is locked".
+        enable_wal(connection)
+        connection.execute("PRAGMA busy_timeout = 5000")
         connection.executescript(
             """
             CREATE TABLE IF NOT EXISTS tasks (
