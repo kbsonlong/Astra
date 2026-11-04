@@ -12,9 +12,9 @@ import sqlite3
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Mapping
 
 from .sqlite_util import enable_wal
-from typing import Any, Mapping
 
 
 _SHA256 = re.compile(r"^[0-9a-fA-F]{64}$")

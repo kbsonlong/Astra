@@ -207,3 +207,53 @@ def Settings_for_test(tmp_path, task_store=None):
     if task_store is not None:
         kwargs["task_store_path"] = str(task_store)
     return Settings(**kwargs)
+
+
+def test_routes_resume_of_with_file_is_rejected(tmp_path) -> None:
+    from app.main import create_app
+
+    meetings = tmp_path / "meetings"
+    old_task = "20260905-123456-1a2b3c4d"
+    write_segments_checkpoint(
+        meetings / old_task, filename="input.m4a", duration_s=1.0,
+        language="zh", segments=_sample_segments(),
+    )
+    app = create_app(
+        settings=Settings_for_test(tmp_path),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/meeting/process",
+        data={"resume_of": old_task},
+        files={"file": ("a.wav", b"audio", "audio/wav")},
+    )
+    assert response.status_code == 400
+    assert "mutually exclusive" in response.json()["detail"]
+
+
+def test_routes_resume_of_running_task_is_rejected(tmp_path) -> None:
+    from app.main import create_app
+
+    meetings = tmp_path / "meetings"
+    old_task = "20260905-123456-1a2b3c4d"
+    write_segments_checkpoint(
+        meetings / old_task, filename="input.m4a", duration_s=1.0,
+        language="zh", segments=_sample_segments(),
+    )
+    (meetings / old_task / "status.json").write_text(
+        json.dumps({"status": "processing"}), encoding="utf-8"
+    )
+    app = create_app(
+        settings=Settings_for_test(tmp_path),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+    client = TestClient(app)
+    response = client.post(
+        "/api/meeting/process",
+        data={"resume_of": old_task},
+    )
+    assert response.status_code == 409
+    assert "not resumable" in response.json()["detail"]

@@ -333,6 +333,12 @@ class Settings:
     training_max_concurrent_jobs: int = 1
     meeting_task_timeout_seconds: float = 2 * 60 * 60
     meeting_note_task_timeout_seconds: float = 300.0
+    # 摘要/翻译依赖全量逐字稿, 长会议分块串行耗时远超行式子任务; 单独放宽超时
+    # 以免主产物因 note 超时被清空。
+    meeting_summary_timeout_seconds: float = 30 * 60
+    # fan-out 纪要子任务真正并发的 LLM 请求上限; 默认 3 保留历史并行行为,
+    # 16GB 机型可下调到 1(串行)以免多路 prefill 撑爆 KV 缓存。
+    meeting_note_task_max_concurrency: int = 3
     training_task_timeout_seconds: float = 12 * 60 * 60
     meeting_artifact_retention_days: int = 30
     meeting_artifact_max_bytes: int = 20 * 1024 * 1024 * 1024
@@ -573,6 +579,14 @@ class Settings:
             meeting_note_task_timeout_seconds=_positive_float_env(
                 "MEETING_NOTE_TASK_TIMEOUT_SECONDS",
                 cls.meeting_note_task_timeout_seconds,
+            ),
+            meeting_summary_timeout_seconds=_positive_float_env(
+                "MEETING_SUMMARY_TIMEOUT_SECONDS",
+                cls.meeting_summary_timeout_seconds,
+            ),
+            meeting_note_task_max_concurrency=_positive_int_env(
+                "MEETING_NOTE_TASK_MAX_CONCURRENCY",
+                cls.meeting_note_task_max_concurrency,
             ),
             training_task_timeout_seconds=_positive_float_env(
                 "TRAINING_TASK_TIMEOUT_SECONDS", cls.training_task_timeout_seconds
@@ -881,6 +895,9 @@ RUNTIME_CONFIG_FIELDS: tuple["RuntimeConfigField", ...] = (
     RuntimeConfigField("meeting_max_concurrent_jobs"),
     RuntimeConfigField("training_max_concurrent_jobs"),
     RuntimeConfigField("meeting_task_timeout_seconds"),
+    RuntimeConfigField("meeting_note_task_timeout_seconds"),
+    RuntimeConfigField("meeting_summary_timeout_seconds"),
+    RuntimeConfigField("meeting_note_task_max_concurrency"),
     RuntimeConfigField("training_task_timeout_seconds"),
     RuntimeConfigField("meeting_artifact_retention_days"),
     RuntimeConfigField("meeting_artifact_max_bytes"),

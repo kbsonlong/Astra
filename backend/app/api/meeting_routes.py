@@ -539,9 +539,30 @@ async def process_meeting(
     # F2 断点续跑：resume_of 指向失败的旧 task，复制其 checkpoint 到新 job。
     source_checkpoint: Path | None = None
     if resume_of:
+        # 续跑与上传互斥: 两者同时给出会导致 checkpoint 与新上传音频语义冲突。
+        if file is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="file and resume_of are mutually exclusive",
+            )
         if _TASK_ID_RE.match(resume_of) is None:
             raise HTTPException(status_code=400, detail="invalid resume_of task_id")
         source_dir = _job_dir(base, resume_of)
+        # 只允许续跑已失败的任务; 运行中或已完成的任务续跑没有意义且会抢资源。
+        source_status_path = source_dir / "status.json"
+        if source_status_path.is_file():
+            try:
+                source_status = json.loads(
+                    source_status_path.read_text(encoding="utf-8")
+                )
+            except (OSError, json.JSONDecodeError):
+                source_status = {}
+            if source_status.get("status") not in {"failed", "done"}:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"task {resume_of} is not resumable (status "
+                    f"{source_status.get('status')!r})",
+                )
         candidate = source_dir / "segments.json"
         if not candidate.is_file():
             raise HTTPException(

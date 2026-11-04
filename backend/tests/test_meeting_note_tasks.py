@@ -210,3 +210,41 @@ def test_settings_note_task_timeout_from_env(monkeypatch) -> None:
     assert Settings.from_env().meeting_note_task_timeout_seconds == 42.0
     monkeypatch.delenv("MEETING_NOTE_TASK_TIMEOUT_SECONDS")
     assert Settings.from_env().meeting_note_task_timeout_seconds == 300.0
+
+
+def test_process_non_resume_populates_note_tasks(tmp_path, monkeypatch) -> None:
+    # 回归: 非续跑路径必须向 summarize 透传 note_tasks/on_note_task, 否则
+    # report.md 的待办/决策章节与 status.json 的子任务进度会丢失。
+    llm = RoutedLLM(
+        summary=(0.0, "纪要正文"),
+        actions=(0.0, "- [ ] 发版 — 张三"),
+        decisions=(0.0, "- 周五上线"),
+    )
+    pipeline = _pipeline(llm)  # 默认 stage 组合 -> 走 fan-out
+
+    # 绕开真实音频: decode/transcribe 以桩替换, 无增强/分离。
+    monkeypatch.setattr(
+        pipeline, "decode_to_wav", lambda src: (str(tmp_path / "x.wav"), 1.0)
+    )
+
+    async def _fake_transcribe(wav, *, progress=None):
+        return "zh", list(_SEGMENTS)
+
+    monkeypatch.setattr(pipeline, "transcribe", _fake_transcribe)
+
+    seen: list[str] = []
+    result = asyncio.run(
+        pipeline.process(
+            b"audio-bytes",
+            filename="meeting.m4a",
+            do_translate=False,
+            on_note_task=lambda task, entry: seen.append(task),
+        )
+    )
+
+    assert result.resumed is False
+    assert result.note_tasks["summary"]["status"] == "done"
+    assert result.note_tasks["actions"]["status"] == "done"
+    assert result.note_tasks["decisions"]["status"] == "done"
+    assert result.note_tasks["actions"]["text"] == "- [ ] 发版 — 张三"
+    assert {"summary", "actions", "decisions"} <= set(seen)

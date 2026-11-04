@@ -512,6 +512,49 @@ def create_app(
             ),
             inline_asr=inline_asr,
             speaker_store=app.state.speaker_store,
+            note_task_timeout_seconds=current.meeting_note_task_timeout_seconds,
+            summary_timeout_seconds=current.meeting_summary_timeout_seconds,
+            note_task_max_concurrency=current.meeting_note_task_max_concurrency,
+        )
+    # Realtime-only process still serves /transcribe/stream, which reads VAD,
+    # enhancement and separation off meeting_pipeline. Build a lightweight
+    # pipeline (VAD + enhancement + separation, no meeting LLM/ASR fan-out) so
+    # streaming transcription keeps chunking instead of silently degrading to
+    # whole-file ASR.
+    if (
+        want_realtime
+        and not want_workbench
+        and enable_meeting
+        and app.state.meeting_pipeline is None
+    ):
+        from .core.meeting import MeetingPipeline
+        from .core.audio_separation import (
+            build_audio_separation_stage,
+            build_overlap_detector,
+        )
+
+        app.state.meeting_pipeline = MeetingPipeline(
+            llm=None,
+            asr=getattr(app.state.pipeline, "asr", None),
+            vad_model=current.vad_model,
+            enhancement=build_audio_enhancement_pipeline(
+                enabled=current.audio_enhancement_enabled,
+                ans_model=current.audio_ans_model,
+                model_dir=current.audio_enhancement_model_dir,
+                device=current.audio_enhancement_device,
+            ),
+            separation=build_audio_separation_stage(
+                enabled=current.audio_enhancement_enabled,
+                separation_model=current.audio_separation_model,
+                model_dir=current.audio_enhancement_model_dir,
+                window_seconds=current.audio_separation_window_seconds,
+                device=current.audio_enhancement_device,
+            ),
+            separation_trigger=current.audio_separation_trigger,
+            overlap_detector=build_overlap_detector(
+                model=current.audio_overlap_detector_model,
+                model_dir=current.audio_overlap_model_dir,
+            ),
         )
     app.include_router(auth_router)
     # Voice-library routes are needed in both profiles: realtime reads snapshots,

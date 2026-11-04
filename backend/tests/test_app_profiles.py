@@ -1,11 +1,16 @@
 """The create_app profile split: realtime vs workbench vs all."""
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
 from app.config import Settings
 from app.main import create_app
+
+# Resolve the backend root from this test file so the cold-start subprocess
+# works regardless of pytest's invocation directory (repo root or backend/).
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _settings(tmp_path) -> Settings:
@@ -83,7 +88,7 @@ def _profile_in_fresh_process(env: dict[str, str]) -> str:
     """Import app.main in a cold subprocess and report the resolved profile."""
     result = subprocess.run(
         [sys.executable, "-c", "import app.main as m; print(m.app.state.profile)"],
-        cwd="backend",
+        cwd=str(_BACKEND_ROOT),
         env={**env, "PYTHONPATH": "."},
         capture_output=True,
         text=True,

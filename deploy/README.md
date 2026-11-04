@@ -32,7 +32,7 @@ docker compose up -d
 后端可按 `ASTRA_PROFILE` 以单进程或双进程运行，隔离实时语音链路与会议/训练/音色库的资源争用：
 
 - `all`（默认）：单进程挂载全部路由，行为与历史部署完全一致。`uvicorn app.main:app` 不设 `ASTRA_PROFILE` 即为此模式。
-- `realtime`：只挂实时 WebSocket 会话、音频转写上传和实时录音路由，以及 TTS 音色库的**只读**快照。不运行会议/训练的任务监管。
+- `realtime`：挂实时 WebSocket 会话、音频转写上传（含 `/transcribe/stream` 的 VAD/增强/分离）和实时录音路由。实时 WS 通过 `tts_voice_store.snapshot()` 直接读取音色快照（不经 HTTP）。不运行会议/训练的任务监管。当前为兼容音色库前端，`realtime` 仍挂载完整的 TTS 音色库路由（含写接口）；后续计划拆分为只读子集，部署时可在反代层仅放行只读路径。
 - `workbench`：只挂会议、说话人、通知、训练及 `/api/training/config` 路由和 TTS 音色库**管理**路由，持有任务监管、作业恢复与会议产物清理。
 
 双进程启动（两进程可同机、共享同一批 SQLite 库与文件目录）：

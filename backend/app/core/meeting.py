@@ -278,12 +278,19 @@ class MeetingPipeline:
         inline_asr: Any = None,
         speaker_store: Any = None,
         note_task_timeout_seconds: float = 300.0,
+        summary_timeout_seconds: float = 30 * 60,
+        note_task_max_concurrency: int = 3,
     ) -> None:
         # VAD 提供时间戳，ASR 负责文本。
         self.vad_model = vad_model or str(
             Path(__file__).resolve().parents[3] / "models" / "silero_vad.onnx"
         )
         self.note_task_timeout_seconds = note_task_timeout_seconds
+        # 摘要/翻译依赖全量逐字稿, 分块串行耗时远超行式子任务; 单独放宽超时。
+        self.summary_timeout_seconds = summary_timeout_seconds
+        # fan-out 子任务各自发起一次 LLM 请求; 本地 16GB 机型同时预填多路请求
+        # 会撑爆 KV 缓存, 用信号量限制真正并发的 LLM 请求数(默认串行)。
+        self.note_task_max_concurrency = max(1, note_task_max_concurrency)
         # F3: 默认 stage 组合走 fan-out 并行；外部注入 stage 保持旧串行语义。
         self._stages_default = summary_stage is None and translation_stage is None
         self.asr = asr  # MlxAudioAsrClient (Qwen3), 逐段转写
@@ -634,6 +641,8 @@ class MeetingPipeline:
         """并发执行纪要子任务; 单任务超时/失败不拖垮其他任务。"""
         import functools
 
+        # 限制同时在途的 LLM 请求数, 避免多路 prefill 撑爆 16GB 机型的 KV 缓存。
+        semaphore = asyncio.Semaphore(self.note_task_max_concurrency)
         generators: dict[str, Any] = {
             "summary": functools.partial(
                 self._generate_summary,
@@ -657,7 +666,14 @@ class MeetingPipeline:
         }
         await asyncio.gather(
             *(
-                self._run_single_note_task(context, name, factory(), on_note_task)
+                self._run_single_note_task(
+                    context,
+                    name,
+                    factory(),
+                    on_note_task,
+                    timeout=self._timeout_for(name),
+                    semaphore=semaphore,
+                )
                 for name, factory in generators.items()
             )
         )
@@ -671,10 +687,19 @@ class MeetingPipeline:
                     context.summary, target_language=context.target_language
                 ),
                 on_note_task,
+                timeout=self.summary_timeout_seconds,
             )
             context.translation = str(
                 context.note_tasks.get("translation", {}).get("text", "")
             )
+
+    def _timeout_for(self, name: str) -> float:
+        """摘要走更宽松的超时; 行式待办/决策保持短超时。"""
+        return (
+            self.summary_timeout_seconds
+            if name == "summary"
+            else self.note_task_timeout_seconds
+        )
 
     async def _run_single_note_task(
         self,
@@ -682,7 +707,13 @@ class MeetingPipeline:
         name: str,
         coro: Any,
         on_note_task: Any = None,
+        *,
+        timeout: float | None = None,
+        semaphore: asyncio.Semaphore | None = None,
     ) -> None:
+        effective_timeout = (
+            timeout if timeout is not None else self.note_task_timeout_seconds
+        )
         entry: dict[str, object] = {"status": "processing", "text": "", "elapsed_s": 0.0}
         context.note_tasks[name] = entry
         if on_note_task is not None:
@@ -697,14 +728,16 @@ class MeetingPipeline:
                 on_note_task(name, dict(entry))
 
         try:
-            text = await asyncio.wait_for(
-                coro, timeout=self.note_task_timeout_seconds
-            )
+            if semaphore is not None:
+                async with semaphore:
+                    text = await asyncio.wait_for(coro, timeout=effective_timeout)
+            else:
+                text = await asyncio.wait_for(coro, timeout=effective_timeout)
             _finish("done", text=str(text).strip())
         except asyncio.TimeoutError:
             _finish(
                 "timeout",
-                error=f"note task timed out after {self.note_task_timeout_seconds:g}s",
+                error=f"note task timed out after {effective_timeout:g}s",
             )
         except asyncio.CancelledError:
             raise
@@ -867,6 +900,8 @@ class MeetingPipeline:
                     meeting_topic=topic,
                     translate=do_translate,
                     prompt_template_id=prompt_template_id,
+                    on_note_task=on_note_task,
+                    note_tasks=result.note_tasks,
                 )
                 result.citations = extract_citations(result.summary)
             logger.info(

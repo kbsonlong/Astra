@@ -31,6 +31,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.core.pipeline import VoicePipeline
+from app.core.pcm_protocol import decode_tts_frame
 from app.core.tts_voice_store import TtsVoiceStore
 from app.main import _build_tts_client, create_app
 
@@ -150,8 +151,18 @@ def _prepare_voice(store: TtsVoiceStore, reference: Path, metadata: Mapping[str,
 
 def _read_round(websocket: Any, generation_id: int) -> dict[str, Any]:
     events: list[dict[str, Any]] = []
+    # TTS 音频现在走二进制 ATTS 帧; 其余仍是 JSON 控制事件。用底层 receive()
+    # 统一读取, 再按 bytes/text 分流。
+    audio_frames: list[Any] = []
     while True:
-        event = websocket.receive_json()
+        message = websocket.receive()
+        if message.get("bytes") is not None:
+            audio_frames.append(decode_tts_frame(message["bytes"]))
+            events.append({"type": "tts_audio_frame"})
+            continue
+        if message.get("text") is None:
+            continue
+        event = json.loads(message["text"])
         events.append(event)
         if (
             event.get("type") == "state_change"
@@ -160,14 +171,12 @@ def _read_round(websocket: Any, generation_id: int) -> dict[str, Any]:
         ):
             break
     types = [str(event.get("type")) for event in events]
-    required = ["asr_final", "llm_token", "tts_start", "tts_chunk", "tts_end"]
+    required = ["asr_final", "llm_token", "tts_start", "tts_audio_frame", "tts_end"]
     missing = [event_type for event_type in required if event_type not in types]
     if missing:
         raise RuntimeError(f"L6 generation {generation_id} missing events: {missing}; {events}")
-    chunk = next(event for event in events if event.get("type") == "tts_chunk")
-    import base64
-
-    audio = base64.b64decode(str(chunk["audio_b64"]))
+    frame = audio_frames[0]
+    audio = frame.payload
     with wave.open(io.BytesIO(audio), "rb") as handle:
         audio_metadata = {
             "channels": handle.getnchannels(),

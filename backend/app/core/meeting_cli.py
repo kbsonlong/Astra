@@ -70,7 +70,10 @@ def _note_task_status_updater(out_dir: Path):
 
 
 def _build_pipeline(
-    prompt_templates_path: str = "", note_task_timeout_seconds: float = 300.0
+    prompt_templates_path: str = "",
+    note_task_timeout_seconds: float = 300.0,
+    summary_timeout_seconds: float = 30 * 60,
+    note_task_max_concurrency: int = 3,
 ):
     """与 main.py 中会议管线一致的干净配置(无热词/无 system_prompt)。"""
     from app.config import Settings
@@ -170,6 +173,8 @@ def _build_pipeline(
         inline_asr=inline_asr,
         speaker_store=speaker_store,
         note_task_timeout_seconds=note_task_timeout_seconds,
+        summary_timeout_seconds=summary_timeout_seconds,
+        note_task_max_concurrency=note_task_max_concurrency,
     )
 
 
@@ -312,6 +317,8 @@ async def _run(
         pipeline = _build_pipeline(
             prompt_templates_path,
             note_task_timeout_seconds=settings.meeting_note_task_timeout_seconds,
+            summary_timeout_seconds=settings.meeting_summary_timeout_seconds,
+            note_task_max_concurrency=settings.meeting_note_task_max_concurrency,
         )
         result = await pipeline.process(
             audio,
