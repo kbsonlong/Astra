@@ -34,7 +34,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field
 from typing import Literal
 
@@ -55,6 +55,8 @@ from ..core.meeting_prompts import (
     get_meeting_prompt_template,
     list_meeting_prompt_templates,
 )
+from ..core.report_image import build_report_image_prompt
+from ..models.image_client import ImageClientError, OpenAICompatImageClient
 
 router = APIRouter(prefix="/api/meeting", tags=["meeting"])
 
@@ -264,6 +266,57 @@ async def separated_audio(
     if separated_dir not in audio_path.parents or not audio_path.is_file():
         raise HTTPException(status_code=404, detail="separated audio not found")
     return FileResponse(audio_path, media_type="audio/wav", filename=artifact_name)
+
+
+@router.get("/{task_id}/report-image.png")
+async def report_image(
+    task_id: str,
+    request: Request,
+    download: bool = Query(default=True),
+) -> Response:
+    """Generate and return a shareable image for a completed meeting report.
+
+    Keep the historical default as a download, while allowing the UI to request
+    an inline response for a lightbox preview.
+    """
+    base = Path(request.app.state.settings.meeting_output_dir).expanduser()
+    out_dir = _job_dir(base, task_id)
+    status_path = out_dir / "status.json"
+    if not status_path.is_file():
+        raise HTTPException(status_code=404, detail="task not found")
+    status = json.loads(status_path.read_text(encoding="utf-8"))
+    if status.get("status") != "done":
+        raise HTTPException(status_code=409, detail="meeting report is not ready")
+    report_path = out_dir / "report.md"
+    if not report_path.is_file():
+        raise HTTPException(status_code=404, detail="meeting report not found")
+    image_path = out_dir / "report-image.png"
+    if not image_path.is_file():
+        settings = request.app.state.settings
+        client = OpenAICompatImageClient(
+            settings.llm_base_url,
+            settings.llm_image_model,
+            settings.llm_api_key,
+            image_path=settings.llm_image_path,
+            image_size=settings.llm_image_size,
+            timeout_seconds=settings.llm_image_timeout_seconds,
+        )
+        try:
+            image_path.write_bytes(await client.generate(build_report_image_prompt(report_path)))
+        except ImageClientError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        finally:
+            await client.aclose()
+    return Response(
+        content=image_path.read_bytes(),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": (
+                f'{"attachment" if download else "inline"}; '
+                f'filename="{task_id}-meeting-brief.png"'
+            )
+        },
+    )
 
 
 def _jsonl_rows(path: Path) -> list[dict[str, object]]:

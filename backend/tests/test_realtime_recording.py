@@ -37,7 +37,25 @@ def test_realtime_recording_keeps_written_prefix_when_at_limit(tmp_path) -> None
     else:  # pragma: no cover - test failure guard
         raise AssertionError("recording limit was not enforced")
 
+    recording.close()
     assert recording.pcm_path.read_bytes() == b"\x01\x00\x02\x00"
+
+
+def test_realtime_recording_flushes_partial_pcm_and_resumes_after_reconnect(tmp_path) -> None:
+    recording_id = str(uuid4())
+    first = RealtimeRecording(tmp_path, recording_id, max_bytes=1024)
+    first.append(b"\x01\x00" * 160)
+    first.close()
+
+    assert first.pcm_path.read_bytes() == b"\x01\x00" * 160
+
+    resumed = RealtimeRecording(tmp_path, recording_id, max_bytes=1024)
+    resumed.append(b"\x02\x00" * 160)
+    output = resumed.finish()
+
+    assert output is not None
+    with wave.open(str(output), "rb") as recorded:
+        assert recorded.getnframes() == 320
 
 
 def test_realtime_recording_cleanup_is_scoped_to_stale_recording_files(tmp_path) -> None:

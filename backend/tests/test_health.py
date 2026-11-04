@@ -1,8 +1,11 @@
+import asyncio
+
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
+from app.health import DependencyStatus, probe_url
 from app.main import _build_realtime_asr, _build_tts_client, create_app
 from app.core.training import TrainingManager
 from app.health import collect_health
@@ -40,6 +43,39 @@ def test_create_app_configures_funasr_meeting_pipeline(tmp_path) -> None:
         "punctuation",
     ]
     assert "vad" not in pipeline.workflow.stage_status()
+
+
+def test_create_app_queues_meeting_mlx_asr_outside_event_loop(tmp_path) -> None:
+    app = create_app(
+        Settings(
+            task_store_path=str(tmp_path / "tasks.sqlite3"),
+            speaker_store_path=str(tmp_path / "speakers.sqlite3"),
+            speaker_sample_dir=str(tmp_path / "samples"),
+        ),
+        enable_pipeline=False,
+    )
+
+    assert app.state.meeting_pipeline.asr.__class__.__name__ == "AsrWorkerClient"
+    assert app.state.meeting_asr_worker is app.state.meeting_pipeline.asr
+
+
+@pytest.mark.anyio
+async def test_health_probe_times_out_without_waiting_for_local_llm() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(0.05)
+        return httpx.Response(200, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        status = await probe_url(
+            client,
+            "http://llm.test/v1/models",
+            timeout_seconds=0.001,
+        )
+
+    assert status == DependencyStatus(
+        ok=False,
+        detail="timeout",
+    )
 
 
 def test_backend_factories_select_funasr_realtime_and_cosyvoice_tts() -> None:

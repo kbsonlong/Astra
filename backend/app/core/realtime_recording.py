@@ -5,11 +5,13 @@ import os
 import time
 import wave
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID
 
 PCM_SAMPLE_RATE = 16_000
 PCM_SAMPLE_WIDTH = 2
 PCM_CHANNELS = 1
+FLUSH_BYTES = PCM_SAMPLE_RATE * PCM_SAMPLE_WIDTH
 
 
 class RecordingLimitExceeded(ValueError):
@@ -32,6 +34,9 @@ class RealtimeRecording:
         self.directory = Path(directory).expanduser()
         self.recording_id = _recording_name(recording_id)
         self.max_bytes = max_bytes
+        self._handle: BinaryIO | None = None
+        self._size = self.pcm_path.stat().st_size if self.pcm_path.is_file() else 0
+        self._unflushed_bytes = 0
 
     @property
     def pcm_path(self) -> Path:
@@ -48,15 +53,29 @@ class RealtimeRecording:
             raise ValueError("PCM16 payload must have an even byte length")
         if self.wav_path.exists():
             raise RuntimeError("recording is already finalized")
-        current_bytes = self.pcm_path.stat().st_size if self.pcm_path.exists() else 0
-        if len(pcm16) > self.max_bytes - current_bytes:
+        if len(pcm16) > self.max_bytes - self._size:
             raise RecordingLimitExceeded(f"recording exceeds {self.max_bytes} bytes")
-        self.directory.mkdir(parents=True, exist_ok=True)
-        with self.pcm_path.open("ab") as handle:
-            handle.write(pcm16)
+        if self._handle is None:
+            self.directory.mkdir(parents=True, exist_ok=True)
+            self._handle = self.pcm_path.open("ab", buffering=64 * 1024)
+        self._handle.write(pcm16)
+        self._size += len(pcm16)
+        self._unflushed_bytes += len(pcm16)
+        if self._unflushed_bytes >= FLUSH_BYTES:
+            self._handle.flush()
+            self._unflushed_bytes = 0
+
+    def close(self) -> None:
+        """Flush partial PCM without finalizing it, allowing a reconnect to append."""
+        if self._handle is None:
+            return
+        self._handle.close()
+        self._handle = None
+        self._unflushed_bytes = 0
 
     def finish(self) -> Path | None:
         """Atomically make a browser-downloadable WAV; idempotent after success."""
+        self.close()
         if self.wav_path.is_file():
             return self.wav_path
         if not self.pcm_path.is_file() or self.pcm_path.stat().st_size == 0:
@@ -72,6 +91,7 @@ class RealtimeRecording:
                         output.writeframesraw(chunk)
             os.replace(temporary, self.wav_path)
             self.pcm_path.unlink(missing_ok=True)
+            self._size = 0
         except Exception:
             temporary.unlink(missing_ok=True)
             raise

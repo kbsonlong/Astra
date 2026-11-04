@@ -578,6 +578,31 @@ details { margin-top: var(--space-4); }
 summary { color: var(--accent-text); cursor: pointer; font-weight: 500; font-size: var(--text-sm); }
 .timeline-pre { overflow-x: auto; margin: var(--space-3) 0 0; border-radius: var(--radius-md); padding: var(--space-4); background: var(--bg-sunken); border: 1px solid var(--border-subtle); font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-secondary); }
 
+.image-lightbox {
+  position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+  padding: var(--space-5); background: oklch(0.12 0.015 250 / 0.78);
+}
+.image-lightbox__panel {
+  width: min(100%, 960px); max-height: calc(100vh - var(--space-10)); overflow: auto;
+  padding: var(--space-5); border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg); background: var(--bg-surface); box-shadow: var(--shadow-lg);
+}
+.image-lightbox__panel .card__head { align-items: flex-start; }
+.image-lightbox__panel .card__head h3 { margin-bottom: var(--space-1); }
+.image-lightbox__image {
+  display: block; width: 100%; max-height: calc(100vh - 12rem); object-fit: contain;
+  margin: var(--space-4) auto; border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md); background: var(--bg-sunken);
+}
+.image-lightbox__loading {
+  min-height: 220px; display: flex; align-items: center; justify-content: center;
+  gap: var(--space-3); color: var(--text-secondary); font-size: var(--text-sm);
+}
+.image-lightbox__actions {
+  display: flex; justify-content: flex-end; gap: var(--space-2); flex-wrap: wrap;
+  padding-top: var(--space-3); border-top: 1px solid var(--border-subtle);
+}
+
 /* 重叠检测计量条 */
 .overlap-meter-wrap { display: grid; gap: 5px; }
 .overlap-meter { position: relative; height: 9px; overflow: hidden; border-radius: var(--radius-full); background: var(--bg-inset); }
@@ -608,6 +633,8 @@ summary { color: var(--accent-text); cursor: pointer; font-weight: 500; font-siz
   .body { padding: var(--space-4) var(--space-4) var(--space-12); }
   .setting-row { grid-template-columns: 1fr; gap: var(--space-2); }
   .setting-row__label { padding-top: 0; }
+  .image-lightbox { padding: var(--space-3); }
+  .image-lightbox__panel { padding: var(--space-4); max-height: calc(100vh - var(--space-6)); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }

@@ -91,6 +91,12 @@ async def run_generation(
             await send_state(websocket, session)
 
 
+def _take_pending_audio(session: Session) -> tuple[bytes, bytes | None]:
+    if session.pcm_mode:
+        return session.take_pcm_pair()
+    return session.take_audio(), session.take_reference()
+
+
 @router.websocket("/ws")
 async def session_websocket(websocket: WebSocket) -> None:
     if not await authorize_websocket(websocket):
@@ -111,6 +117,8 @@ async def session_websocket(websocket: WebSocket) -> None:
     audio_channel = "microphone"
     recording: RealtimeRecording | None = None
     recording_limit_reached = False
+    segment_limit_reached = False
+    last_recorded_sequence: int | None = None
     try:
         while True:
             message = await websocket.receive()
@@ -125,37 +133,53 @@ async def session_websocket(websocket: WebSocket) -> None:
                             {"type": "error", "code": "invalid_pcm_frame", "message": str(exc)}
                         )
                         continue
+                    if (
+                        frame.sample_rate != session.pcm_sample_rate
+                        or frame.sample_count != session.pcm_frame_samples
+                    ):
+                        await websocket.send_json(
+                            {
+                                "type": "error",
+                                "code": "invalid_pcm_frame",
+                                "message": "PCM frame does not match the negotiated format",
+                            }
+                        )
+                        continue
+                    current_recording = recording
                     should_record = (
-                        recording is not None
+                        current_recording is not None
                         and not recording_limit_reached
                         and frame.channel == "microphone"
-                        and frame.sequence not in session.pcm_microphone_frames
+                        and frame.sequence != last_recorded_sequence
                     )
-                    accepted = session.append_pcm_frame(frame)
-                    if accepted and should_record:
+                    if should_record and current_recording is not None:
                         try:
-                            recording.append(frame.payload)
+                            current_recording.append(frame.payload)
                         except RecordingLimitExceeded:
                             recording_limit_reached = True
                             await websocket.send_json(
                                 {
                                     "type": "error",
                                     "code": "recording_too_large",
-                                    "max_bytes": recording.max_bytes,
+                                    "max_bytes": current_recording.max_bytes,
                                 }
                             )
+                        else:
+                            last_recorded_sequence = frame.sequence
+                    accepted = segment_limit_reached or session.append_pcm_frame(frame)
                 else:
-                    accepted = session.append_audio(message["bytes"], source=audio_channel)
+                    accepted = segment_limit_reached or session.append_audio(
+                        message["bytes"], source=audio_channel
+                    )
                 if not accepted:
+                    segment_limit_reached = True
                     await websocket.send_json(
                         {
                             "type": "error",
-                            "code": "audio_too_large",
+                            "code": "audio_segment_limit_reached",
                             "max_bytes": session.max_audio_bytes,
                         }
                     )
-                    await websocket.close(code=1009)
-                    return
                 continue
             if message.get("text") is None:
                 continue
@@ -196,6 +220,10 @@ async def session_websocket(websocket: WebSocket) -> None:
                 session.start(tts_voice_snapshot=voice_snapshot)
                 audio_channel = "microphone"
                 recording_limit_reached = False
+                segment_limit_reached = False
+                last_recorded_sequence = None
+                if recording is not None:
+                    recording.close()
                 recording = None
                 if command.recording_id:
                     try:
@@ -242,12 +270,12 @@ async def session_websocket(websocket: WebSocket) -> None:
                         "frame_samples": session.pcm_frame_samples,
                     }
                 )
+            elif command.type == "heartbeat":
+                await websocket.send_json({"type": "heartbeat_ack"})
+                continue
             elif command.type == "speech_end":
-                if session.pcm_mode:
-                    audio, reference = session.take_pcm_pair()
-                else:
-                    audio = session.take_audio()
-                    reference = session.take_reference()
+                audio, reference = _take_pending_audio(session)
+                segment_limit_reached = False
                 generation_id = session.speech_end()
                 if pipeline is not None:
                     generation_task = asyncio.create_task(
@@ -268,6 +296,32 @@ async def session_websocket(websocket: WebSocket) -> None:
                         await asyncio.gather(generation_task, return_exceptions=True)
                         generation_task = None
             elif command.type == "end_session":
+                # The browser normally submits speech after VAD detects silence.
+                # A manual stop can arrive first, though, leaving the final
+                # listening segment in the session buffer. Submit that segment
+                # before clearing the session so recording-only stops do not
+                # lose their transcription.
+                if (
+                    pipeline is not None
+                    and session.state == "LISTENING"
+                    and session.has_pending_audio()
+                ):
+                    audio, reference = _take_pending_audio(session)
+                    segment_limit_reached = False
+                    generation_id = session.speech_end()
+                    generation_task = asyncio.create_task(
+                        run_generation(
+                            websocket,
+                            session,
+                            pipeline,
+                            audio,
+                            reference,
+                            generation_id,
+                            session.tts_voice_snapshot,
+                        )
+                    )
+                    await generation_task
+                    generation_task = None
                 session.end()
                 if generation_task is not None:
                     generation_task.cancel()
@@ -302,7 +356,9 @@ async def session_websocket(websocket: WebSocket) -> None:
             generation_task = None
         try:
             if recording is not None:
-                recording.finish()
+                # Keep partial PCM so a reconnect can resume the same recording;
+                # only end_session finalizes the downloadable WAV.
+                recording.close()
         finally:
             release = asyncio.create_task(limiter.release(client_ip))
             try:

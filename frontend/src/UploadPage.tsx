@@ -179,6 +179,9 @@ export default function UploadPage() {
   const [promptEditor, setPromptEditor] = useState<PromptEditorState | null>(null);
   const [promptEditorStatus, setPromptEditorStatus] = useState("");
   const [meeting, setMeeting] = useState<MeetingResult | null>(null);
+  const [reportImageOpen, setReportImageOpen] = useState(false);
+  const [reportImageStatus, setReportImageStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [reportImageError, setReportImageError] = useState("");
   const [activeMeetingTask, setActiveMeetingTask] = useState<string | null>(null);
   const [speakers, setSpeakers] = useState<SpeakerProfile[]>([]);
   const [speakerName, setSpeakerName] = useState("");
@@ -200,6 +203,31 @@ export default function UploadPage() {
       notificationSocket.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (!reportImageOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setReportImageOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [reportImageOpen]);
+
+  function reportImageUrl(taskId: string, download = false): string {
+    const query = download ? "true" : "false";
+    return `/api/meeting/${encodeURIComponent(taskId)}/report-image.png?download=${query}`;
+  }
+
+  function openReportImagePreview() {
+    setReportImageError("");
+    setReportImageStatus("loading");
+    setReportImageOpen(true);
+  }
 
   async function loadPromptTemplates(preferredId?: string) {
     try {
@@ -297,6 +325,7 @@ export default function UploadPage() {
     setEnhancementStatus([]);
     setSeparationStatus(null);
     setMeeting(null);
+    setReportImageOpen(false);
     setActiveMeetingTask(null);
     cancelledMeetingTask.current = null;
     meetingSocket.current?.close();
@@ -364,6 +393,7 @@ export default function UploadPage() {
     }
     setBusy(true);
     setMeeting(null);
+    setReportImageOpen(false);
     setStatus("正在处理会议(转写→说话人分离→AI纪要)，几分钟，请稍候...");
     let taskId: string | null = null;
     try {
@@ -802,6 +832,20 @@ export default function UploadPage() {
                 )}
               </div>
               <div className="page-head__actions" style={{ marginTop: "var(--space-4)" }}>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  onClick={openReportImagePreview}
+                >
+                  预览纪要图片
+                </button>
+                <a
+                  className="btn btn--secondary btn--sm"
+                  href={reportImageUrl(meeting.task_id, true)}
+                  download={`${meeting.task_id}-meeting-brief.png`}
+                >
+                  下载纪要图片
+                </a>
                 <a className="btn btn--secondary btn--sm" href={`/review?task_id=${encodeURIComponent(meeting.task_id)}`}>打开逐段审校</a>
                 <a className="btn btn--ghost btn--sm" href="/training">打开训练设置</a>
               </div>
@@ -981,6 +1025,75 @@ export default function UploadPage() {
           </div>
         </div>
       </div>
+
+      {reportImageOpen && meeting && (
+        <div
+          className="image-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="report-image-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setReportImageOpen(false);
+          }}
+        >
+          <div className="image-lightbox__panel">
+            <div className="card__head">
+              <div>
+                <h3 id="report-image-title">会议纪要图片</h3>
+                <p className="card__hint">图片只在打开预览或点击下载时生成。</p>
+              </div>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                aria-label="关闭图片预览"
+                onClick={() => setReportImageOpen(false)}
+              >
+                关闭
+              </button>
+            </div>
+            {reportImageStatus === "loading" && (
+              <div className="image-lightbox__loading" role="status" aria-live="polite">
+                <span className="btn__spinner" aria-hidden="true" />
+                正在生成会议纪要图片…
+              </div>
+            )}
+            {reportImageStatus === "error" ? (
+              <div className="alert alert--danger" role="alert">
+                <span>!</span>
+                <div className="alert__body">
+                  <div className="alert__title">图片生成失败</div>
+                  <div className="alert__desc">{reportImageError || "请稍后重试。"}</div>
+                </div>
+              </div>
+            ) : (
+              <img
+                className="image-lightbox__image"
+                src={reportImageUrl(meeting.task_id)}
+                alt={`${meeting.filename} 的会议纪要图片`}
+                onLoad={() => setReportImageStatus("ready")}
+                onError={() => {
+                  setReportImageError("本地图片模型未返回有效图片，或请求超时。");
+                  setReportImageStatus("error");
+                }}
+              />
+            )}
+            <div className="image-lightbox__actions">
+              <a
+                className="btn btn--primary btn--sm"
+                href={reportImageUrl(meeting.task_id, true)}
+                download={`${meeting.task_id}-meeting-brief.png`}
+              >
+                下载 PNG
+              </a>
+              {reportImageStatus === "error" && (
+                <button type="button" className="btn btn--secondary btn--sm" onClick={openReportImagePreview}>
+                  重试生成
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 import httpx
@@ -17,11 +18,24 @@ class DependencyStatus:
         return result
 
 
-async def probe_url(client: httpx.AsyncClient, url: str) -> DependencyStatus:
+HEALTH_PROBE_TIMEOUT_SECONDS = 2.0
+
+
+async def probe_url(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    timeout_seconds: float = HEALTH_PROBE_TIMEOUT_SECONDS,
+) -> DependencyStatus:
     try:
-        response = await client.get(url)
+        response = await asyncio.wait_for(
+            client.get(url),
+            timeout=timeout_seconds,
+        )
         response.raise_for_status()
         return DependencyStatus(ok=True)
+    except asyncio.TimeoutError:
+        return DependencyStatus(ok=False, detail="timeout")
     except httpx.HTTPStatusError as exc:
         return DependencyStatus(ok=False, detail=f"HTTP {exc.response.status_code}")
     except httpx.HTTPError as exc:
@@ -39,7 +53,10 @@ async def collect_health(
     )
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"} if settings.llm_api_key else {}
     async with httpx.AsyncClient(timeout=timeout, headers=headers) as client:
-        llm = await probe_url(client, f"{settings.llm_base_url}{settings.llm_models_path}")
+        llm = await probe_url(
+            client,
+            f"{settings.llm_base_url}{settings.llm_models_path}",
+        )
     asr_client = getattr(pipeline, "asr", None)
     tts_client = getattr(pipeline, "tts", None)
     asr_ok = bool(asr_client and asr_client.is_ready())

@@ -13,8 +13,12 @@ import { sessionSelectableVoices } from "./tts/voiceState";
 import type { TtsHealth, TtsVoice } from "./tts/voice";
 import {
   acceptsGenerationEvent,
+  formatElapsedTime,
   generationForNewConnection,
+  HEARTBEAT_INTERVAL_MS,
+  heartbeatExpired,
   nextActiveGeneration,
+  ReconnectPcmBuffer,
   startSessionPayload,
 } from "./live/session";
 import {
@@ -36,11 +40,15 @@ type ServerEvent = {
   recording_id?: string;
   download_url?: string;
   code?: string;
+  message?: string;
   max_bytes?: number;
 };
 
 const SILENCE_MS = 800;
 const SPEECH_THRESHOLD = 0.025;
+const MAX_SOCKET_BUFFERED_BYTES = 2 * 1024 * 1024;
+const PCM_FRAME_DURATION_MS = PCM_FRAME_SAMPLES / JAEC_SAMPLE_RATE * 1000;
+const MAX_TRANSCRIPT_CHARACTERS = 50_000;
 
 const socketUrl = `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`;
 
@@ -159,9 +167,12 @@ function VoiceAssistant() {
   const ttsSources = useRef(new Set<AudioBufferSourceNode>());
   const microphoneFrames = useRef(new PcmFrameBuffer());
   const farEndFrames = useRef(new PcmFrameBuffer());
+  const reconnectFrames = useRef(new ReconnectPcmBuffer(PCM_FRAME_DURATION_MS));
   const recordingId = useRef<string | null>(null);
+  const recordingConfirmed = useRef(false);
+  const sessionActiveRef = useRef(false);
+  const finalizeAfterReconnect = useRef(false);
   const pcmSequence = useRef(0);
-  const captureWindow = useRef(false);
   const nextTtsTime = useRef(0);
   const monitorFrame = useRef<number | null>(null);
   const speechStarted = useRef(false);
@@ -172,15 +183,27 @@ function VoiceAssistant() {
   const manualStop = useRef(false);
   const reconnectAttempts = useRef(0);
   const reconnectTimer = useRef<number | null>(null);
+  const heartbeatTimer = useRef<number | null>(null);
+  const elapsedTimer = useRef<number | null>(null);
+  const lastServerMessageAt = useRef(0);
+  const sessionStartedAt = useRef<number | null>(null);
+  const captureSuspendedAt = useRef<number | null>(null);
+  const droppedAudioSecondsRef = useRef(0);
+  const pendingSpeechEnd = useRef(false);
   const micActive = useRef(false);
   const [state, setState] = useState("IDLE");
   const [transcript, setTranscript] = useState("");
   const [answer, setAnswer] = useState("");
   const [connected, setConnected] = useState(false);
+  const [sessionActive, setSessionActive] = useState(false);
+  const [recordingStarted, setRecordingStarted] = useState(false);
   const [recordingReady, setRecordingReady] = useState(false);
   const [recordingDownloadUrl, setRecordingDownloadUrl] = useState("");
   const [stopping, setStopping] = useState(false);
   const [connectionError, setConnectionError] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [reconnectCount, setReconnectCount] = useState(0);
+  const [droppedAudioSeconds, setDroppedAudioSeconds] = useState(0);
   const [micAccessIssue, setMicAccessIssue] = useState<MicAccessIssue | null>(null);
   const [microphoneDevices, setMicrophoneDevices] = useState<MicDevice[]>([]);
   const [selectedMicDeviceId, setSelectedMicDeviceId] = useState("");
@@ -267,6 +290,7 @@ function VoiceAssistant() {
     manualStop.current = true;
     socket.current?.close();
     cleanupAudio();
+    stopElapsedClock();
   }, []);
 
   // 标签页回到前台时,尝试恢复被浏览器挂起的 AudioContext,避免录音静默中断。
@@ -276,7 +300,7 @@ function VoiceAssistant() {
       const context = audioContext.current;
       if (context && context.state === "suspended" && micActive.current) {
         void context.resume().catch(() => {
-          /* ignore */
+          setConnectionError("浏览器暂停了麦克风；请保持页面前台并点击页面后重试");
         });
       }
     }
@@ -284,11 +308,68 @@ function VoiceAssistant() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
 
-  function cleanupAudio() {
+  useEffect(() => {
+    function protectActiveRecording(event: MouseEvent) {
+      if (!sessionActiveRef.current || !(event.target instanceof Element)) return;
+      const anchor = event.target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const destination = new URL(anchor.href, location.href);
+      if (destination.origin !== location.origin || destination.pathname === location.pathname) return;
+      event.preventDefault();
+      setConnectionError("录音仍在进行，请先点击“停止并保存”再离开实时页面");
+    }
+
+    function protectPageClose(event: BeforeUnloadEvent) {
+      if (!sessionActiveRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    document.addEventListener("click", protectActiveRecording, true);
+    window.addEventListener("beforeunload", protectPageClose);
+    return () => {
+      document.removeEventListener("click", protectActiveRecording, true);
+      window.removeEventListener("beforeunload", protectPageClose);
+    };
+  }, []);
+
+  function setSessionIsActive(active: boolean) {
+    sessionActiveRef.current = active;
+    setSessionActive(active);
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer.current !== null) {
+      window.clearInterval(heartbeatTimer.current);
+      heartbeatTimer.current = null;
+    }
+  }
+
+  function stopElapsedClock() {
+    if (elapsedTimer.current !== null) {
+      window.clearInterval(elapsedTimer.current);
+      elapsedTimer.current = null;
+    }
+  }
+
+  function startElapsedClock() {
+    stopElapsedClock();
+    sessionStartedAt.current = Date.now();
+    setElapsedSeconds(0);
+    elapsedTimer.current = window.setInterval(() => {
+      if (sessionStartedAt.current !== null) {
+        setElapsedSeconds(Math.floor((Date.now() - sessionStartedAt.current) / 1000));
+      }
+      setDroppedAudioSeconds(droppedAudioSecondsRef.current);
+    }, 1000);
+  }
+
+  function cleanupAudio(preserveReconnectFrames = false) {
     if (reconnectTimer.current !== null) {
       window.clearTimeout(reconnectTimer.current);
       reconnectTimer.current = null;
     }
+    stopHeartbeat();
     micActive.current = false;
     if (monitorFrame.current !== null) cancelAnimationFrame(monitorFrame.current);
     monitorFrame.current = null;
@@ -299,8 +380,8 @@ function VoiceAssistant() {
     stopTtsPlayback();
     microphoneFrames.current.clear();
     farEndFrames.current.clear();
+    if (!preserveReconnectFrames) reconnectFrames.current.clear();
     pcmSequence.current = 0;
-    captureWindow.current = false;
     nextTtsTime.current = 0;
     mediaStream.current?.getTracks().forEach((track) => track.stop());
     mediaStream.current = null;
@@ -309,10 +390,19 @@ function VoiceAssistant() {
     analyser.current = null;
     speechStarted.current = false;
     silenceSince.current = null;
+    captureSuspendedAt.current = null;
+    pendingSpeechEnd.current = false;
   }
 
   function prepareServerRecording() {
     recordingId.current = crypto.randomUUID();
+    recordingConfirmed.current = false;
+    finalizeAfterReconnect.current = false;
+    reconnectFrames.current.clear();
+    droppedAudioSecondsRef.current = 0;
+    setDroppedAudioSeconds(0);
+    setReconnectCount(0);
+    setRecordingStarted(false);
     setRecordingDownloadUrl("");
     setRecordingReady(false);
   }
@@ -331,7 +421,6 @@ function VoiceAssistant() {
   function resetCaptureWindow() {
     microphoneFrames.current.clear();
     farEndFrames.current.clear();
-    captureWindow.current = true;
   }
 
   function stopTtsPlayback() {
@@ -347,6 +436,29 @@ function VoiceAssistant() {
     nextTtsTime.current = 0;
   }
 
+  function startHeartbeat() {
+    if (heartbeatTimer.current !== null) return;
+    lastServerMessageAt.current = Date.now();
+    heartbeatTimer.current = window.setInterval(() => {
+      const connection = socket.current;
+      if (connection?.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (heartbeatExpired(lastServerMessageAt.current, now)) {
+        setConnectionError("服务端长时间无响应，正在自动重连…");
+        connection.close(4000, "heartbeat timeout");
+        return;
+      }
+      connection.send(JSON.stringify({ type: "heartbeat" }));
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  function flushReconnectFrames(connection: WebSocket) {
+    if (connection.readyState !== WebSocket.OPEN) return;
+    for (const frame of reconnectFrames.current.drain()) {
+      connection.send(frame);
+    }
+  }
+
   function monitorMicrophone() {
     const currentAnalyser = analyser.current;
     if (!currentAnalyser) return;
@@ -359,11 +471,14 @@ function VoiceAssistant() {
     }
     const level = Math.sqrt(sum / samples.length);
     const now = performance.now();
-    if (stateRef.current === "LISTENING" || stateRef.current === "SPEAKING") {
+    if (
+      stateRef.current === "LISTENING"
+      || stateRef.current === "SPEAKING"
+      || stateRef.current === "CONNECTING"
+    ) {
       if (level >= SPEECH_THRESHOLD) {
         if (!speechStarted.current) {
           speechStarted.current = true;
-          setTranscript("");
           setAnswer("");
           if (stateRef.current === "SPEAKING") {
             const connection = socket.current;
@@ -388,10 +503,11 @@ function VoiceAssistant() {
         if (now - silenceSince.current >= SILENCE_MS) {
           const connection = socket.current;
           if (connection?.readyState === WebSocket.OPEN) {
-            captureWindow.current = false;
             connection.send(JSON.stringify({ type: "speech_end" }));
             stateRef.current = "REASONING";
             setState("REASONING");
+          } else {
+            pendingSpeechEnd.current = true;
           }
           speechStarted.current = false;
           silenceSince.current = null;
@@ -410,17 +526,34 @@ function VoiceAssistant() {
     }
     const stream = mediaStream.current ?? await navigator.mediaDevices.getUserMedia({ audio: true });
     mediaStream.current = stream;
+    for (const track of stream.getAudioTracks()) {
+      track.onended = () => {
+        if (!micActive.current) return;
+        micActive.current = false;
+        setConnectionError("麦克风设备已断开；当前录音可停止保存，重新开始后可选择新设备");
+      };
+    }
     const context = new AudioContext({ sampleRate: JAEC_SAMPLE_RATE });
+    audioContext.current = context;
     // 标签页切后台或系统休眠会让 AudioContext 进入 suspended,onaudioprocess 停止,
     // 录音静默中断。监听 statechange 并尝试自动 resume。
     context.onstatechange = () => {
       if (context.state === "suspended" && micActive.current) {
+        captureSuspendedAt.current ??= Date.now();
         void context.resume().catch(() => {
-          /* resume 可能因缺少用户手势失败;可见性恢复时会再试 */
+          setConnectionError("浏览器暂停了麦克风；回到页面并点击任意位置后会再次恢复");
         });
+      } else if (context.state === "running" && captureSuspendedAt.current !== null) {
+        droppedAudioSecondsRef.current += (Date.now() - captureSuspendedAt.current) / 1000;
+        captureSuspendedAt.current = null;
+        setDroppedAudioSeconds(droppedAudioSecondsRef.current);
+        setConnectionError("麦克风采集已恢复；暂停期间已计入未补传缺口");
       }
     };
     micActive.current = true;
+    if (connection.readyState !== WebSocket.OPEN) {
+      throw new Error("连接在麦克风启动前已断开，正在重连");
+    }
     connection.send(
       JSON.stringify({
         type: "audio_format",
@@ -465,16 +598,24 @@ function VoiceAssistant() {
         const live = socket.current;
         // 所有麦克风帧均上传：后端只把聆听窗口的帧交给 ASR，其余帧不进入
         // 会话缓冲，但会持续追加到服务端录音，避免思考/播报期间留下空洞。
-        if (live?.readyState === WebSocket.OPEN) {
-          live.send(
-            encodePcm16Frame(microphoneChunks[index], sequence, "microphone", JAEC_SAMPLE_RATE),
-          );
+        const microphoneFrame = encodePcm16Frame(
+          microphoneChunks[index], sequence, "microphone", JAEC_SAMPLE_RATE,
+        );
+        if (
+          live?.readyState === WebSocket.OPEN
+          && live.bufferedAmount <= MAX_SOCKET_BUFFERED_BYTES
+        ) {
+          if (reconnectFrames.current.length > 0) flushReconnectFrames(live);
+          live.send(microphoneFrame);
+        } else if (sessionActiveRef.current) {
+          droppedAudioSecondsRef.current += reconnectFrames.current.push(microphoneFrame);
         }
         const reference = referenceChunks[index];
         if (
           reference &&
           live?.readyState === WebSocket.OPEN &&
-          (captureWindow.current || stateRef.current === "SPEAKING")
+          live.bufferedAmount <= MAX_SOCKET_BUFFERED_BYTES &&
+          stateRef.current === "SPEAKING"
         ) {
           live.send(encodePcm16Frame(reference, sequence, "reference", JAEC_SAMPLE_RATE));
         }
@@ -494,7 +635,11 @@ function VoiceAssistant() {
   }
 
   async function connect() {
-    if (socket.current?.readyState === WebSocket.OPEN) return;
+    if (
+      sessionActiveRef.current
+      || socket.current?.readyState === WebSocket.OPEN
+      || socket.current?.readyState === WebSocket.CONNECTING
+    ) return;
     setMicAccessIssue(null);
     setConnectionError("");
     setState("CONNECTING");
@@ -558,7 +703,12 @@ function VoiceAssistant() {
     reconnectAttempts.current = 0;
     sessionVoice.current = pinned;
     prepareServerRecording();
+    setSessionIsActive(true);
+    setTranscript("");
+    setAnswer("");
     setStopping(false);
+    startElapsedClock();
+    stateRef.current = "CONNECTING";
     setState("CONNECTING");
     openSocket(true);
   }
@@ -570,12 +720,34 @@ function VoiceAssistant() {
     }
     const connection = new WebSocket(socketUrl);
     connection.onopen = () => {
+      if (socket.current !== connection) {
+        connection.close();
+        return;
+      }
       // 服务端为每个 WebSocket 创建一个新的 Session，generation 会从 0 开始。
       // 因此重连时必须丢弃旧连接的代际水位，不能把新事件当作过期事件过滤。
       activeGeneration.current = generationForNewConnection();
       setConnected(true);
       reconnectAttempts.current = 0;
-      connection.send(JSON.stringify(startSessionPayload(recordingId.current, sessionVoice.current)));
+      lastServerMessageAt.current = Date.now();
+      startHeartbeat();
+      connection.send(
+        JSON.stringify(startSessionPayload(recordingId.current, sessionVoice.current)),
+      );
+      if (finalizeAfterReconnect.current) {
+        connection.send(
+          JSON.stringify({
+            type: "audio_format",
+            format: "pcm16",
+            sample_rate: JAEC_SAMPLE_RATE,
+            frame_samples: PCM_FRAME_SAMPLES,
+          }),
+        );
+        flushReconnectFrames(connection);
+        connection.send(JSON.stringify({ type: "end_session" }));
+        setConnectionError("连接已恢复，正在整理服务端录音…");
+        return;
+      }
       if (startMic && !micActive.current) {
         void startMicrophone(connection)
           .then(() => setConnectionError("麦克风已连接，说话后自动提交"))
@@ -589,6 +761,9 @@ function VoiceAssistant() {
             setMicAccessIssue(issue);
             setConnectionError(error instanceof Error ? error.message : "无法访问麦克风");
             manualStop.current = true;
+            setSessionIsActive(false);
+            stopElapsedClock();
+            cleanupAudio();
             connection.close();
           });
       } else if (micActive.current) {
@@ -601,22 +776,38 @@ function VoiceAssistant() {
             frame_samples: PCM_FRAME_SAMPLES,
           }),
         );
-        captureWindow.current = true;
-        stateRef.current = "LISTENING";
-        setState("LISTENING");
-        setConnectionError("连接已恢复，继续聆听");
+        flushReconnectFrames(connection);
+        if (pendingSpeechEnd.current) {
+          pendingSpeechEnd.current = false;
+          connection.send(JSON.stringify({ type: "speech_end" }));
+          stateRef.current = "REASONING";
+          setState("REASONING");
+          setConnectionError("连接已恢复，正在转写断线期间缓存的语音");
+        } else {
+          stateRef.current = "LISTENING";
+          setState("LISTENING");
+          setConnectionError(
+            droppedAudioSecondsRef.current > 0
+              ? `连接已恢复；有 ${droppedAudioSecondsRef.current.toFixed(1)} 秒超出本地缓存`
+              : "连接已恢复，缓存语音已补传",
+          );
+        }
       }
     };
     connection.onclose = () => {
+      if (socket.current !== connection) return;
+      socket.current = null;
       setConnected(false);
       if (manualStop.current) {
         cleanupAudio();
         setStopping(false);
+        stateRef.current = "IDLE";
         setState("IDLE");
         sessionVoice.current = null;
         return;
       }
       // 意外断连:保留麦克风与录音,自动重连(指数退避,最长 10s)。
+      setReconnectCount((current) => current + 1);
       scheduleReconnect();
     };
     connection.onerror = () => {
@@ -625,6 +816,8 @@ function VoiceAssistant() {
       }
     };
     connection.onmessage = (message) => {
+      if (socket.current !== connection) return;
+      lastServerMessageAt.current = Date.now();
       try {
         handleEvent(JSON.parse(message.data) as ServerEvent);
       } catch {
@@ -658,21 +851,24 @@ function VoiceAssistant() {
       stateRef.current = event.state;
       setState(event.state);
     }
-    if (event.type === "asr_final") setTranscript(event.text ?? "");
-    if (event.type === "llm_token") setAnswer((current) => current + (event.token ?? ""));
-    if (event.type === "tts_start") {
-      captureWindow.current = false;
+    if (event.type === "asr_final" && event.text) {
+      setTranscript((current) => {
+        const combined = current ? `${current}\n${event.text}` : event.text ?? "";
+        return combined.slice(-MAX_TRANSCRIPT_CHARACTERS);
+      });
     }
+    if (event.type === "llm_token") setAnswer((current) => current + (event.token ?? ""));
     if (event.type === "tts_chunk" && event.audio_b64) {
       void playTtsChunk(event);
     }
     if (event.type === "tts_end") {
-      captureWindow.current = true;
       stateRef.current = "LISTENING";
       setState("LISTENING");
     }
     if (event.type === "recording_started" && event.recording_id) {
       recordingId.current = event.recording_id;
+      recordingConfirmed.current = true;
+      setRecordingStarted(true);
     }
     if (event.type === "recording_ready") {
       if (event.download_url) {
@@ -682,11 +878,33 @@ function VoiceAssistant() {
       } else {
         setConnectionError("本次通话没有可导出的音频");
       }
+      finalizeAfterReconnect.current = false;
+      manualStop.current = true;
+      recordingConfirmed.current = false;
+      setRecordingStarted(false);
+      setSessionIsActive(false);
+      stopElapsedClock();
+      setDroppedAudioSeconds(droppedAudioSecondsRef.current);
       socket.current?.close();
+    }
+    if (
+      event.type === "error"
+      && (event.code === "audio_segment_limit_reached" || event.code === "audio_too_large")
+    ) {
+      const connection = socket.current;
+      if (connection?.readyState === WebSocket.OPEN && stateRef.current === "LISTENING") {
+        connection.send(JSON.stringify({ type: "speech_end" }));
+        stateRef.current = "REASONING";
+        setState("REASONING");
+      }
+      setConnectionError("单段语音较长，已自动提交当前段；完整录音仍在继续保存");
     }
     if (event.type === "error" && event.code === "recording_too_large") {
       const maxMiB = Math.round((event.max_bytes ?? 0) / 1024 / 1024);
       setConnectionError(`服务端录音达到 ${maxMiB} MiB 上限；实时通话继续进行`);
+    }
+    if (event.type === "error" && event.message && event.code !== "recording_too_large") {
+      setConnectionError(event.message);
     }
   }
 
@@ -716,35 +934,64 @@ function VoiceAssistant() {
 
   function stop() {
     if (stopping) return;
-    manualStop.current = true;
     setStopping(true);
-    if (reconnectTimer.current !== null) {
-      window.clearTimeout(reconnectTimer.current);
-      reconnectTimer.current = null;
-    }
-    if (socket.current?.readyState === WebSocket.OPEN) {
-      socket.current.send(
-        JSON.stringify({
-          type: "interrupt",
-          generation_id: activeGeneration.current || undefined,
-          reason: "manual",
-        }),
-      );
-      socket.current.send(JSON.stringify({ type: "end_session" }));
+    const hadCapturedAudio = micActive.current
+      || reconnectFrames.current.length > 0
+      || recordingConfirmed.current;
+    if (!hadCapturedAudio) {
+      manualStop.current = true;
+      finalizeAfterReconnect.current = false;
+      socket.current?.close();
       cleanupAudio();
+      setConnected(false);
+      setSessionIsActive(false);
+      stopElapsedClock();
+      setStopping(false);
+      stateRef.current = "IDLE";
+      setState("IDLE");
+      setConnectionError("已取消连接");
+      return;
+    }
+
+    finalizeAfterReconnect.current = true;
+    cleanupAudio(true);
+    const connection = socket.current;
+    if (connection?.readyState === WebSocket.OPEN) {
+      flushReconnectFrames(connection);
+      // In LISTENING, the server may still hold the final utterance waiting
+      // for VAD silence. Let end_session flush it through ASR. Interrupt only
+      // an already-running reply, otherwise a previous generation would move
+      // the session to IDLE and discard the pending microphone audio.
+      if (stateRef.current === "REASONING" || stateRef.current === "SPEAKING") {
+        connection.send(
+          JSON.stringify({
+            type: "interrupt",
+            generation_id: activeGeneration.current || undefined,
+            reason: "manual",
+          }),
+        );
+      }
+      connection.send(JSON.stringify({ type: "end_session" }));
       setConnectionError("正在将服务端 PCM 录音整理为 WAV…");
       return;
     }
-    socket.current?.close();
-    cleanupAudio();
-    setConnected(false);
-    setStopping(false);
-    stateRef.current = "IDLE";
-    setState("IDLE");
+    if (connection?.readyState === WebSocket.CONNECTING) {
+      setConnectionError("连接恢复后将自动整理录音，请勿关闭页面");
+      return;
+    }
+    setConnectionError("正在重新连接服务端以整理录音，请勿关闭页面");
+    openSocket(false);
   }
 
   const listening = state === "LISTENING";
   const centerLabel = stateLabels[state] ?? state;
+  const connectionPhase = stopping
+    ? "Finalizing"
+    : connected
+      ? "Live"
+      : sessionActive
+        ? "Reconnecting"
+        : "Standby";
 
   return (
     <section className="view" aria-label="实时助手">
@@ -776,8 +1023,8 @@ function VoiceAssistant() {
       <div className="page-head">
         <div className="page-head__text">
           <div className="eyebrow">01 · 实时助手</div>
-          <h1>直接说话，停顿后自动提交</h1>
-          <p>{stateHints[state] ?? "保持会话连接，Astra 会在回答后回到聆听状态。"}</p>
+          <h1>持续录音，停顿后自动转写</h1>
+          <p>录音持续写入 Mac mini；短暂断线会在浏览器内缓存音频并自动补传。</p>
         </div>
       </div>
 
@@ -840,21 +1087,25 @@ function VoiceAssistant() {
                   : "尚未检测到输入设备；允许麦克风权限后可重新检测。"}
               </span>
             </label>
-            {!connected ? (
+            {!sessionActive ? (
               <button className="btn btn--primary btn--sm" type="button" onClick={connect}>
                 开始通话
               </button>
             ) : (
               <button className="btn btn--danger btn--sm" type="button" onClick={stop} disabled={stopping}>
-                {stopping ? "正在结束…" : "停止通话"}
+                {stopping
+                  ? "正在保存…"
+                  : recordingStarted
+                    ? "停止并保存"
+                    : "取消连接"}
               </button>
             )}
             <button
               className="btn btn--secondary btn--sm"
               type="button"
               onClick={saveLocalRecording}
-              disabled={!recordingReady || connected}
-              title={connected ? "停止通话后导出服务端录音" : "下载服务端保存的本次通话录音"}
+              disabled={!recordingReady || sessionActive}
+              title={sessionActive ? "停止并完成服务端录音后下载" : "下载服务端保存的本次通话录音"}
             >
               下载录音
             </button>
@@ -862,19 +1113,29 @@ function VoiceAssistant() {
           <div className="dial-meta">
             <div>
               <div className="dial-meta__k">会话状态</div>
-              <div className="dial-meta__v">{connected ? "Live" : "Standby"}</div>
+              <div className="dial-meta__v">{connectionPhase}</div>
             </div>
             <div>
               <div className="dial-meta__k">当前阶段</div>
               <div className="dial-meta__v">{centerLabel}</div>
             </div>
             <div>
+              <div className="dial-meta__k">录音时长</div>
+              <div className="dial-meta__v">{formatElapsedTime(elapsedSeconds)}</div>
+            </div>
+            <div>
               <div className="dial-meta__k">输入设备</div>
               <div className="dial-meta__v">{microphoneDevices.find((device) => device.deviceId === selectedMicDeviceId)?.label || "系统默认输入"}</div>
             </div>
             <div>
-              <div className="dial-meta__k">采样率</div>
-              <div className="dial-meta__v">16 kHz</div>
+              <div className="dial-meta__k">自动重连</div>
+              <div className="dial-meta__v">{reconnectCount} 次</div>
+            </div>
+            <div>
+              <div className="dial-meta__k">未补传缺口</div>
+              <div className="dial-meta__v">
+                {droppedAudioSeconds > 0 ? `${droppedAudioSeconds.toFixed(1)} s` : "无"}
+              </div>
             </div>
           </div>
         </div>
@@ -886,7 +1147,7 @@ function VoiceAssistant() {
               <h4>本次会话</h4>
               <span className={`badge ${stateBadgeClass[state] ?? "badge--neutral"}`}>
                 <span className="badge__dot" />
-                {connected ? "进行中" : "未连接"}
+                {connected ? "录音中" : sessionActive ? "恢复中" : "未连接"}
               </span>
             </div>
             <div className="live-voice-summary">
@@ -900,7 +1161,7 @@ function VoiceAssistant() {
                 <div className="spine-body">
                   <div className="spine-speaker">语音输入</div>
                   <div className={`spine-text${transcript ? "" : " spine-text--dim"}`}>
-                    {transcript || "等待语音输入。开始通话后，说完停顿一下即可自动提交。"}
+                    {transcript || "等待语音输入。转写结果会在本次会话中持续累积。"}
                   </div>
                 </div>
               </div>
@@ -925,7 +1186,7 @@ function VoiceAssistant() {
             </div>
           </div>
 
-          <div className={`alert ${connectionError ? "alert--info" : "alert--info"}`}>
+          <div className="alert alert--info" role="status" aria-live="polite">
             <span>◈</span>
             <div className="alert__body">
               <div className="alert__title">{stateLabels[state] ?? state}</div>

@@ -242,6 +242,10 @@ class Settings:
     llm_chat_path: str = "/chat/completions"
     llm_models_path: str = "/models"
     llm_model: str = ""
+    llm_image_model: str = "codex/gpt-image-2.5"
+    llm_image_path: str = "/images/generations"
+    llm_image_size: str = "1024x1024"
+    llm_image_timeout_seconds: float = 180.0
     llm_api_key: str = ""
     # 留空时保持兼容模式；对局域网开放前必须设置 ADMIN_TOKEN。
     admin_token: str = ""
@@ -375,6 +379,12 @@ class Settings:
             llm_chat_path=os.getenv("LLM_CHAT_PATH", cls.llm_chat_path),
             llm_models_path=os.getenv("LLM_MODELS_PATH", cls.llm_models_path),
             llm_model=os.getenv("LLM_MODEL", cls.llm_model),
+            llm_image_model=os.getenv("LLM_IMAGE_MODEL", cls.llm_image_model),
+            llm_image_path=os.getenv("LLM_IMAGE_PATH", cls.llm_image_path),
+            llm_image_size=os.getenv("LLM_IMAGE_SIZE", cls.llm_image_size),
+            llm_image_timeout_seconds=_positive_float_env(
+                "LLM_IMAGE_TIMEOUT_SECONDS", cls.llm_image_timeout_seconds
+            ),
             llm_api_key=os.getenv("LLM_API_KEY", cls.llm_api_key),
             admin_token=os.getenv("ADMIN_TOKEN", cls.admin_token),
             admin_session_secret=os.getenv(
@@ -668,6 +678,10 @@ def llm_environment_values(settings: Settings) -> dict[str, str]:
         "LLM_CHAT_PATH": settings.llm_chat_path,
         "LLM_MODELS_PATH": settings.llm_models_path,
         "LLM_MODEL": settings.llm_model,
+        "LLM_IMAGE_MODEL": settings.llm_image_model,
+        "LLM_IMAGE_PATH": settings.llm_image_path,
+        "LLM_IMAGE_SIZE": settings.llm_image_size,
+        "LLM_IMAGE_TIMEOUT_SECONDS": str(settings.llm_image_timeout_seconds),
         "LLM_API_KEY": settings.llm_api_key,
         "LLM_REQUEST_TIMEOUT_SECONDS": str(settings.llm_request_timeout_seconds),
         "LLM_CONNECT_TIMEOUT_SECONDS": str(settings.llm_connect_timeout_seconds),

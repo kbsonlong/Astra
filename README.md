@@ -10,6 +10,31 @@ python3.11 -m venv .venv
 PYTHONPATH=backend .venv/bin/pytest -q backend/tests
 ```
 
+## 一键启动本地开发环境
+
+首次启动会准备 `.env`、Python 虚拟环境和前端依赖；之后直接运行：
+
+```bash
+make dev
+```
+
+默认访问地址为 `http://127.0.0.1:5173`，后端为 `http://127.0.0.1:8001`。
+可通过 Make 变量覆盖端口，例如 `make dev BACKEND_PORT=8000 FRONTEND_PORT=5174`。
+按 `Ctrl-C` 会同时停止前后端进程。后端默认以稳定的单进程模式运行；
+如需代码变更自动重启，可使用 `make dev BACKEND_RELOAD=1`。更多独立目标可运行
+`make help` 查看。
+
+启动前会检查两个端口是否已被占用。如果浏览器显示其他项目的认证页面或收到
+`401 Unauthorized`，通常是旧的 Vite 进程仍代理到别的后端；请先停止旧进程，或使用
+`make dev BACKEND_PORT=18002 FRONTEND_PORT=15173` 启动一组空闲端口。
+
+也可以单独启动前端并指定后端端口：
+
+```bash
+cd frontend
+BACKEND_PORT=18002 npm run dev -- --host 0.0.0.0 --port 15173
+```
+
 ## 文档
 
 - [用户使用指引](docs/user-guide.md)：启动服务、上传音频、实时转写、流式修正和会议纪要。

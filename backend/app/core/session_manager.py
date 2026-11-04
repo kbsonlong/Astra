@@ -55,8 +55,6 @@ class Session:
             return True
         used_bytes = len(self.audio_buffer) + len(self.reference_buffer)
         if len(chunk) > self.max_audio_bytes - used_bytes:
-            self.audio_buffer.clear()
-            self.reference_buffer.clear()
             return False
         if source == "reference":
             self.reference_buffer.extend(chunk)
@@ -85,7 +83,6 @@ class Session:
             return True
         used_bytes = self._audio_bytes()
         if len(frame.payload) > self.max_audio_bytes - used_bytes:
-            self._clear_audio()
             return False
         frames[frame.sequence] = frame.payload
         return True
@@ -147,6 +144,10 @@ class Session:
         self.state = "IDLE"
         self._clear_audio()
         self.tts_voice_snapshot = None
+
+    def has_pending_audio(self) -> bool:
+        """Return whether the current listening segment has audio awaiting ASR."""
+        return self._audio_bytes() > 0
 
     def _audio_bytes(self) -> int:
         return (

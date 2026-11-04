@@ -328,6 +328,54 @@ def test_meeting_events_pushes_done_payload(tmp_path) -> None:
     assert invalid.status_code == 400
 
 
+def test_report_image_generates_and_caches_png_for_done_task(tmp_path, monkeypatch) -> None:
+    from app.main import create_app
+
+    task_id = "20260905-123456-1a2b3c4d"
+    out_dir = tmp_path / task_id
+    out_dir.mkdir()
+    (out_dir / "status.json").write_text('{"status":"done"}', encoding="utf-8")
+    (out_dir / "report.md").write_text(
+        "# 会议纪要\n\n- **录音**: demo.wav\n\n"
+        "## 🤖 AI 摘要\n\n### 关键结论\n\n- 结论一\n\n"
+        "### 明确行动项\n\n- 行动一\n\n### 待确认事项\n\n- 待确认一\n",
+        encoding="utf-8",
+    )
+    app = create_app(
+        settings=Settings(meeting_output_dir=str(tmp_path)),
+        enable_pipeline=False,
+        enable_meeting=False,
+    )
+    calls: list[str] = []
+
+    async def fake_generate(self, prompt: str) -> bytes:
+        calls.append(prompt)
+        return b"fake-png"
+
+    monkeypatch.setattr("app.models.image_client.OpenAICompatImageClient.generate", fake_generate)
+    response = TestClient(app).get(f"/api/meeting/{task_id}/report-image.png")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("image/png")
+    assert response.content == b"fake-png"
+    assert "结论一" in calls[0]
+    assert "attachment" in response.headers["content-disposition"]
+
+    preview = TestClient(app).get(
+        f"/api/meeting/{task_id}/report-image.png?download=false"
+    )
+    assert preview.status_code == 200
+    assert preview.content == b"fake-png"
+    assert "inline" in preview.headers["content-disposition"]
+
+    cached = TestClient(app).get(f"/api/meeting/{task_id}/report-image.png")
+    assert cached.status_code == 200
+    assert len(calls) == 1
+
+    (out_dir / "status.json").write_text('{"status":"processing"}', encoding="utf-8")
+    pending = TestClient(app).get(f"/api/meeting/{task_id}/report-image.png")
+    assert pending.status_code == 409
+
+
 def test_training_review_updates_detail_and_candidate_jsonl(tmp_path) -> None:
     task_id = "20260905-123456-1a2b3c4d"
     out_dir = tmp_path / task_id

@@ -296,9 +296,10 @@ async def app_lifespan(app: FastAPI):
         await asyncio.to_thread(
             app.state.task_store.release_supervisor, supervisor_id
         )
-    worker = getattr(app.state, "asr_worker", None)
-    if worker is not None:
-        await worker.aclose()
+    for worker_name in ("asr_worker", "meeting_asr_worker"):
+        worker = getattr(app.state, worker_name, None)
+        if worker is not None:
+            await worker.aclose()
     tts = getattr(getattr(app.state, "pipeline", None), "tts", None)
     close_tts = getattr(tts, "aclose", None)
     if callable(close_tts):
@@ -394,6 +395,7 @@ def create_app(
         current.tts_voice_audio_dir,
     )
     app.state.asr_worker = None
+    app.state.meeting_asr_worker = None
     app.state.pipeline = pipeline
     if enable_pipeline and pipeline is None:
         from .core.jaec import build_audio_aec_pipeline
@@ -446,6 +448,16 @@ def create_app(
             hotwords=(),
             system_prompt="",
         )
+        # Keep the API event loop free even if an internal route uses the
+        # meeting pipeline directly. The real meeting job is still launched
+        # in meeting_cli, but this worker protects the API-side support path.
+        app.state.meeting_asr_worker = AsrWorkerClient(
+            meeting_asr,
+            max_queue=current.asr_worker_queue_size,
+            request_timeout_seconds=current.asr_worker_request_timeout_seconds,
+            shutdown_timeout_seconds=current.asr_worker_shutdown_timeout_seconds,
+            name="astra-meeting-asr-worker",
+        )
         inline_asr = None
         if current.asr_backend == "funasr":
             from .models.funasr_client import FunAsrClient
@@ -480,7 +492,7 @@ def create_app(
         )
         app.state.meeting_pipeline = MeetingPipeline(
             llm=meeting_llm,
-            asr=meeting_asr,
+            asr=app.state.meeting_asr_worker,
             vad_model=current.vad_model,
             punctuation=punctuation,
             diarization=diarization,

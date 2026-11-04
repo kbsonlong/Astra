@@ -11,6 +11,7 @@ class ClientMessage(BaseModel):
         "end_session",
         "audio_channel",
         "audio_format",
+        "heartbeat",
     ]
     generation_id: int | None = None
     reason: Literal["vad", "manual"] | None = None
